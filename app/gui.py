@@ -16,7 +16,7 @@ from logging.handlers import TimedRotatingFileHandler
 
 from app.gui_main_tab import MainTab
 from app.gui_find_tab import FindTab
-from app.instruments import ProbeLaser, WavelengthMeter, LabJack
+from app.instruments import ProbeLaser, WavelengthMeter, LabJack, LockIn
 
 
 class MainWindow(QMainWindow):
@@ -52,16 +52,21 @@ class MainWindow(QMainWindow):
         self.find_tab = FindTab(self)
         self.tab_widget.addTab(self.find_tab, "Find Peaks")
 		
-        # try:
-            # self.probe = ProbeLaser(self.settings)            
-            # self.status_bar.showMessage(f"Connected to probe laser at {self.settings['probe_ip']}")
-        # except:
-            # print(f"Unable to connect to probe laser at {self.settings['probe_ip']}")
+        try:
+            self.probe = ProbeLaser(self.settings)            
+            self.status_bar.showMessage(f"Connected to probe laser at {self.settings['probe_ip']}")
+        except:
+            print(f"Unable to connect to probe laser at {self.settings['probe_ip']}")
             
-        # try: 
-            # self.meter = WavelengthMeter(self.settings)
-        # except Exception as e:
-            # print(f"Unable to connect to meter at {self.settings['meter_ip']}, {e}")
+        try: 
+            self.meter = WavelengthMeter(self.settings)
+        except Exception as e:
+            print(f"Unable to connect to meter at {self.settings['meter_ip']}, {e}")
+                 
+        try: 
+            self.lockin = LockIn(self.settings)
+        except Exception as e:
+            print(f"Unable to connect to Lock In at {self.settings['lockin_ip']}, {e}")
             
             
         # try: 

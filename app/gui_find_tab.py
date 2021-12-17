@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import QWidget, QLabel, QGroupBox, QHBoxLayout, QVBoxLayout
 from PyQt5.QtGui import QIntValidator, QDoubleValidator, QValidator
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 import pyqtgraph as pg
+import numpy as np
  
    
 class FindTab(QWidget):
@@ -60,18 +61,24 @@ class FindTab(QWidget):
         
         
         # Find Temp peaks box
-        self.probe_temp_box = QGroupBox('Probe Temperature Peaks')
-        self.probe_temp_box.setLayout(QGridLayout())
-        self.left.addWidget(self.probe_temp_box)
+        self.scan_temp_box = QGroupBox('Scan Temperature Peaks')
+        self.scan_temp_box.setLayout(QGridLayout())
+        self.left.addWidget(self.scan_temp_box)
         
-        self.temp_label = QLabel('Temperature:')
-        self.probe_temp_box.layout().addWidget(self.temp_label, 0, 0)
-        self.temp_edit =  QLineEdit()
-        self.probe_temp_box.layout().addWidget(self.temp_edit, 0, 1)
+        self.temp_label = QLabel('Temperature Range:')
+        self.scan_temp_box.layout().addWidget(self.temp_label, 0, 0)
+        self.temp_edit1 =  QLineEdit()
+        self.scan_temp_box.layout().addWidget(self.temp_edit1, 0, 1)
+        self.temp_edit2 =  QLineEdit()
+        self.scan_temp_box.layout().addWidget(self.temp_edit2, 0, 2)
+        self.step_label = QLabel('Number of Steps:')
+        self.scan_temp_box.layout().addWidget(self.step_label, 1, 0)
+        self.step_edit =  QLineEdit()
+        self.scan_temp_box.layout().addWidget(self.step_edit, 1, 1)
         
         self.start_button = QPushButton("Run Temperature Search")      
-        self.probe_temp_box.layout().addWidget(self.start_button, 0, 2)
-        self.start_button.clicked.connect(self.probe_temp_pushed)
+        self.scan_temp_box.layout().addWidget(self.start_button, 1, 2)
+        self.start_button.clicked.connect(self.scan_temp_pushed)
         
         
         self.right = QVBoxLayout()     # right part of main layout
@@ -89,8 +96,55 @@ class FindTab(QWidget):
         '''Doc'''
         pass
 
-    def probe_temp_pushed(self):
-        '''Doc'''
-        pass
+    def scan_temp_pushed(self):
+        start = float(self.temp_edit1.text())
+        stop = float(self.temp_edit2.text())
+        step_size = (stop - start)/float(self.step_edit.text())
+        temp_list = np.arange(start, stop, step_size)
         
+        try:
+            self.scan_thread = TempScanThread(self, temp_list)
+            self.scan_thread.finished.connect(self.done)
+            self.scan_thread.reply.connect(self.build_scan)
+            self.scan_thread.start()
+        except Exception as e: 
+            print('Exception starting run thread, lost connection: '+str(e))
+        
+    def build_scan():
+        '''
+        '''
+        pass
+    
+    
+class TempScanThread(QThread):
+    '''Thread class for temperature scan
+    Args:
+        templist: List of temperatures to scan through
+        parent
+    '''
+    reply = pyqtSignal(tuple)     # reply signal
+    finished = pyqtSignal()       # finished signal
+    def __init__(self, parent, temp_list):
+        QThread.__init__(self)
+        self.parent = parent  
+        self.list = temp_list
+                
+    def __del__(self):
+        self.wait()
+        
+    def run(self):
+        '''Main scan loop
+        '''    
+        pass        
+        # for temp in self.list:
+            # self.parent.parent.probe.set_temp(temp)
+            # self.parent.parent.meter.read_wavelength(2)
+            # out = self.parent.parent.lockin.read_all()
+            # r = out.split(',')[2]
+            
+            
+        
+  
+        # self.finished.emit()
+
         

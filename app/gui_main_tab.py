@@ -78,14 +78,14 @@ class MainTab(QWidget):
 
     def temp_sw_pushed(self):
         '''Doc'''
-        print(f"{float(self.temp_lo_edit.text())} to {float(self.temp_up_edit.text())}")
+        print(self.parent.lockin.read_all())
 
     def start_pushed(self):
         '''Doc'''
-        print(self.parent.probe.set_temp(self.temp_edit.text()))
+        self.parent.probe.set_temp(float(self.temp_edit.text()))
         
     def read_pushed(self):
         '''Doc'''
-        print(self.parent.labjack.read_back())
+        print(self.parent.meter.read_wavelength(2))
         
         

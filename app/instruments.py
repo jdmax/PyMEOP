@@ -15,42 +15,55 @@ class ProbeLaser():
         '''Open connection to Toptica DLC controller
         '''  
         self.ip = settings['probe_ip']
-                
-        with DLCpro(NetworkConnection(self.ip)) as self.dlc:
-            print("This is a {} with serial number {}.\n".format(
-                self.dlc.laser1.dl.cc.current_set.get(), self.dlc.uptime.get()))
+        self.port = 1998
         
+        try:
+            self.tn = telnetlib.Telnet(self.ip, port=self.port, timeout=2)
+            
+            outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+            self.tn.write(bytes("(param-disp 'laser1:dl:cc:current-set)\n", 'ascii'))
+            outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+            
+         
+            
+        except Exception as e:
+            print(f"Probe connection failed on {self.ip}: {e}")
+            
+    def __del__(self):
+        self.tn.close()
         
+    def read_current(self):
+        '''
+        '''
+        self.tn.write(bytes(f"(param-disp 'laser1:dl:cc:current-set)\n", 'ascii'))
+        outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+        return outp
         
     def set_current(self, current):
-    
-        with DLCpro(NetworkConnection(self.ip)) as self.dlc:
-            self.dlc.laser1.dl.cc.current_set.set(float(current))
-            return self.dlc.laser1.dl.cc.current_set.get()
+        '''Arguments:
+                curent: float
+        '''
+        self.tn.write(bytes(f"(param-set! 'laser1:dl:cc:current-set {current})\n", 'ascii'))
+        outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+        return outp
         
+        
+    def read_temp(self, temp):
+        '''
+        '''
+        self.tn.write(bytes(f"(param-disp 'laser1:dl:tc:temp-set)\n", 'ascii'))
+        outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+        return outp
         
     def set_temp(self, temp):
-        with DLCpro(NetworkConnection(self.ip)) as self.dlc:
-            self.dlc.laser1.dl.tc.temp_set.set(float(temp))
-            return self.dlc.laser1.dl.tc.temp_set.get()
-        return value
+        '''Arguments:
+                temp: float
+        '''
+        self.tn.write(bytes(f"(param-set! 'laser1:dl:tc:temp-set {temp})\n", 'ascii'))
+        outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+        return outp
 
-	
-        # with Client(NetworkConnection(ip)) as client:
-            # print("This is a {} with serial number {}.\n".format(
-                # client.get('system-type'), client.get('serial-number')))
-                
-            # print(f"Current: {client.get('laser1:dl:cc:current-set')}")            
-            # client.set('laser1:dl:cc:current-set', 135)            
-            # print(f"Current: {client.get('laser1:dl:cc:current-set')}")  
-            
-            
-            # print(f"Temp: {client.get('laser1:dl:tc:temp-set')}") 
-            # client.set('laser1:dl:tc:temp-set', 20)
-            # print(f"Temp: {client.get('laser1:dl:tc:temp-set')}") 
-		
-        
-        
+	        
 class WavelengthMeter():
     '''Access Wavelength meter'''
     
@@ -61,19 +74,51 @@ class WavelengthMeter():
         self.port = 5025
  
         try:
-            tn = telnetlib.Telnet(self.ip, port=self.port, timeout=2)
+            self.tn = telnetlib.Telnet(self.ip, port=self.port, timeout=3)
+            self.tn.write(bytes(f"MEAS:POW:WAV? DEF,(@2)\n", 'ascii'))
+            outp = self.tn.read_some().decode('ascii')
+            print(outp)    
                         
-            #tn.write(bytes(f"FREQ {config.channel['cent_freq']*1000000}\n", 'ascii'))
-            tn.write(bytes("*idn?\n", 'ascii'))
-            outp = tn.read_some().decode('ascii')
-            print(outp)
-            
-            tn.close()
-            
         except Exception as e:
-            print(f"Meter connection failed on {self.host}: {e}")
+            print(f"Meter connection failed on {self.ip}: {e}")
+                
+    def __del__(self):
+        self.tn.close()  
         
+    def read_wavelength(self, channel):
+        '''Arguments:
+                channel: 1 or 2 for pump or probe
+        '''
+        self.tn.write(bytes(f"READ:POW:WAV? DEF,(@{channel})\r", 'ascii'))
+        outp = self.tn.read_some().decode('ascii')
+        return outp    
+	
         
+class LockIn():
+    '''Access lock-in meter'''
+    
+
+    def __init__(self, settings):
+        '''Start connection over telnet'''        
+        self.ip = settings['lockin_ip']
+        self.port = 23
+ 
+        try:
+            self.tn = telnetlib.Telnet(self.ip, port=self.port, timeout=5)
+            outp = self.tn.read_some().decode('ascii')
+                        
+        except Exception as e:
+            print(f"Lock-in connection failed on {self.ip}: {e}")
+                
+    def __del__(self):
+        self.tn.close()  
+        
+    def read_all(self):
+        '''
+        '''
+        self.tn.write(bytes(f"SNAPD?\n", 'ascii'))
+        outp = self.tn.read_some().decode('ascii')
+        return outp  
         
 class LabJack():      
     '''Access LabJack device 
