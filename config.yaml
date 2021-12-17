@@ -1,0 +1,7 @@
+# PyNMR Config file, YAML
+---
+settings:
+    probe_ip: 129.57.36.81
+    meter_ip: 129.57.37.92
+    siggen_ip: 129.57.37.91
+    labjack_ip: 129.57.37.97
