@@ -20,7 +20,7 @@ class FindTab(QWidget):
                
         # pyqtgrph styles        
         pg.setConfigOptions(antialias=True)
-        self.raw_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
+        self.abs_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
         pg.setConfigOption('background', 'w')
         pg.setConfigOption('foreground', 'k')
         
@@ -85,10 +85,10 @@ class FindTab(QWidget):
         self.main.addLayout(self.right)
         
         
-        self.base_wid = pg.PlotWidget(title='Graph or something')
-        self.base_wid.showGrid(True,True)
-        self.base_wid.addLegend(offset=(0.5, 0))
-        self.right.addWidget(self.base_wid)
+        self.scan_wid = pg.PlotWidget(title='Scan')
+        self.scan_wid.showGrid(True,True)
+        self.abs_plot = self.scan_wid.plot([], [], pen=self.abs_pen) 
+        self.right.addWidget(self.scan_wid)
 
 
 
@@ -97,6 +97,13 @@ class FindTab(QWidget):
         pass
 
     def scan_temp_pushed(self):
+    
+        self.start_button.setEnabled(False)
+    
+        self.scan_temps = []
+        self.scan_waves = []
+        self.scan_rs = []
+    
         start = float(self.temp_edit1.text())
         stop = float(self.temp_edit2.text())
         step_size = (stop - start)/float(self.step_edit.text())
@@ -104,17 +111,29 @@ class FindTab(QWidget):
         
         try:
             self.scan_thread = TempScanThread(self, temp_list)
-            self.scan_thread.finished.connect(self.done)
+            self.scan_thread.finished.connect(self.done_scan)
             self.scan_thread.reply.connect(self.build_scan)
             self.scan_thread.start()
         except Exception as e: 
             print('Exception starting run thread, lost connection: '+str(e))
         
-    def build_scan():
+    def build_scan(self, temp, wave, r):
+        '''Take emit from thread and add point to data        
         '''
+        self.scan_temps.append(temp)
+        self.scan_waves.append(wave)
+        self.scan_rs.append(r)
+        self.update_plot()
+        
+    def update_plot(self):
+        '''Update plots with new data
         '''
-        pass
-    
+        self.abs_plot.setData(self.scan_waves, self.scan_rs)
+        
+    def done_scan(self):
+        self.start_button.setEnabled(True)
+        
+        
     
 class TempScanThread(QThread):
     '''Thread class for temperature scan
@@ -134,17 +153,14 @@ class TempScanThread(QThread):
         
     def run(self):
         '''Main scan loop
-        '''    
-        pass        
-        # for temp in self.list:
-            # self.parent.parent.probe.set_temp(temp)
-            # self.parent.parent.meter.read_wavelength(2)
-            # out = self.parent.parent.lockin.read_all()
-            # r = out.split(',')[2]
-            
-            
-        
+        '''         
+        for temp in self.list:
+            self.parent.parent.probe.set_temp(temp)
+            time.sleep(0.1)
+            wave = self.parent.parent.meter.read_wavelength(1)
+            x, y, r, theta = self.parent.parent.lockin.read_all()
+            self.reply.emit(temp, wave, r)      
   
-        # self.finished.emit()
+        self.finished.emit()
 
         

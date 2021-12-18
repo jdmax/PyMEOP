@@ -114,11 +114,11 @@ class LockIn():
         self.tn.close()  
         
     def read_all(self):
-        '''
+        '''Returns both all four lock-in parameters as x,y,r,theta
         '''
         self.tn.write(bytes(f"SNAPD?\n", 'ascii'))
-        outp = self.tn.read_some().decode('ascii')
-        return outp  
+        x, y, r, theta = self.tn.read_some().decode('ascii').split(',')
+        return x, y, r, theta
         
 class LabJack():      
     '''Access LabJack device 
