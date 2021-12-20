@@ -117,12 +117,13 @@ class FindTab(QWidget):
         except Exception as e: 
             print('Exception starting run thread, lost connection: '+str(e))
         
-    def build_scan(self, temp, wave, r):
+    def build_scan(self, tup):
         '''Take emit from thread and add point to data        
         '''
-        self.scan_temps.append(temp)
-        self.scan_waves.append(wave)
-        self.scan_rs.append(r)
+        temp, wave, r = tup
+        self.scan_temps.append(float(temp))
+        self.scan_waves.append(float(wave))
+        self.scan_rs.append(float(r))
         self.update_plot()
         
     def update_plot(self):
@@ -154,12 +155,17 @@ class TempScanThread(QThread):
     def run(self):
         '''Main scan loop
         '''         
+        first_time = True
         for temp in self.list:
             self.parent.parent.probe.set_temp(temp)
-            time.sleep(0.1)
+            if first_time:
+                time.sleep(2)
+                first_time = False
+            else:    
+                time.sleep(self.parent.settings['temp_scan_wait'])
             wave = self.parent.parent.meter.read_wavelength(1)
-            x, y, r, theta = self.parent.parent.lockin.read_all()
-            self.reply.emit(temp, wave, r)      
+            x, y, r = self.parent.parent.lockin.read_all()
+            self.reply.emit((temp, wave, r))      
   
         self.finished.emit()
 

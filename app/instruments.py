@@ -4,6 +4,7 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from toptica.lasersdk.dlcpro.v2_0_3 import DLCpro, NetworkConnection, DeviceNotFoundError, DecopError, UserLevel
 from labjack import ljm
 import telnetlib
+import time
 
             
 class ProbeLaser():      
@@ -75,9 +76,8 @@ class WavelengthMeter():
  
         try:
             self.tn = telnetlib.Telnet(self.ip, port=self.port, timeout=3)
-            self.tn.write(bytes(f"MEAS:POW:WAV? DEF,(@2)\n", 'ascii'))
-            outp = self.tn.read_some().decode('ascii')
-            print(outp)    
+            self.tn.write(bytes(f"MEAS:POW:WAV?\n", 'ascii'))
+            outp = self.tn.read_some().decode('ascii')   
                         
         except Exception as e:
             print(f"Meter connection failed on {self.ip}: {e}")
@@ -88,10 +88,12 @@ class WavelengthMeter():
     def read_wavelength(self, channel):
         '''Arguments:
                 channel: 1 or 2 for pump or probe
+            Returns wavelenth in nm    
+                
         '''
         self.tn.write(bytes(f"READ:POW:WAV? DEF,(@{channel})\r", 'ascii'))
         outp = self.tn.read_some().decode('ascii')
-        return outp    
+        return float(outp)*1e9      
 	
         
 class LockIn():
@@ -105,7 +107,7 @@ class LockIn():
  
         try:
             self.tn = telnetlib.Telnet(self.ip, port=self.port, timeout=5)
-            outp = self.tn.read_some().decode('ascii')
+            outp = self.tn.read_until(bytes("\r", 'ascii'),2).decode('ascii')
                         
         except Exception as e:
             print(f"Lock-in connection failed on {self.ip}: {e}")
@@ -116,9 +118,9 @@ class LockIn():
     def read_all(self):
         '''Returns both all four lock-in parameters as x,y,r,theta
         '''
-        self.tn.write(bytes(f"SNAPD?\n", 'ascii'))
-        x, y, r, theta = self.tn.read_some().decode('ascii').split(',')
-        return x, y, r, theta
+        self.tn.write(bytes(f"SNAPD?\r", 'ascii'))
+        x, y, r, th = self.tn.read_until(bytes("\r", 'ascii'),2).decode('ascii').split(',')
+        return x, y, r
         
 class LabJack():      
     '''Access LabJack device 

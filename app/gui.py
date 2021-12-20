@@ -59,12 +59,14 @@ class MainWindow(QMainWindow):
             print(f"Unable to connect to probe laser at {self.settings['probe_ip']}")
             
         try: 
-            self.meter = WavelengthMeter(self.settings)
+            self.meter = WavelengthMeter(self.settings)           
+            self.status_bar.showMessage(f"Connected to wavelength meter at {self.settings['meter_ip']}")
         except Exception as e:
             print(f"Unable to connect to meter at {self.settings['meter_ip']}, {e}")
                  
         try: 
             self.lockin = LockIn(self.settings)
+            self.status_bar.showMessage(f"Connected to lock-in at {self.settings['lockin_ip']}")
         except Exception as e:
             print(f"Unable to connect to Lock In at {self.settings['lockin_ip']}, {e}")
             
