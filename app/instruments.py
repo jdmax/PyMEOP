@@ -91,7 +91,7 @@ class WavelengthMeter():
             Returns wavelenth in nm    
                 
         '''
-        self.tn.write(bytes(f"READ:POW:WAV? DEF,(@{channel})\r", 'ascii'))
+        self.tn.write(bytes(f"READ:POW:WAV?\r", 'ascii'))
         outp = self.tn.read_some().decode('ascii')
         return float(outp)*1e9      
 	

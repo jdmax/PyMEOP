@@ -129,6 +129,7 @@ class FindTab(QWidget):
     def update_plot(self):
         '''Update plots with new data
         '''
+        print(self.scan_waves, self.scan_rs)
         self.abs_plot.setData(self.scan_waves, self.scan_rs)
         
     def done_scan(self):
