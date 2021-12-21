@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import QWidget, QLabel, QGroupBox, QHBoxLayout, QVBoxLayout
 from PyQt5.QtGui import QIntValidator, QDoubleValidator, QValidator
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 import pyqtgraph as pg
+import numpy as np
  
    
 class MainTab(QWidget):
@@ -19,7 +20,7 @@ class MainTab(QWidget):
                
         # pyqtgrph styles        
         pg.setConfigOptions(antialias=True)
-        self.raw_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
+        self.abs_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
         pg.setConfigOption('background', 'w')
         pg.setConfigOption('foreground', 'k')
         
@@ -35,57 +36,117 @@ class MainTab(QWidget):
         self.controls_box.setLayout(QGridLayout())
         self.left.addWidget(self.controls_box)
         
-        self.temp_lo_label = QLabel('Temperature Lower Limit:')
-        self.controls_box.layout().addWidget(self.temp_lo_label, 0, 0)
-        self.temp_lo_edit =  QLineEdit()
-        self.temp_lo_edit.setValidator(QDoubleValidator(3.0, 45.0, 3, notation=QDoubleValidator.StandardNotation))
-        self.controls_box.layout().addWidget(self.temp_lo_edit, 0, 1)
+        self.curr_label = QLabel('Current Range (mA):')
+        self.controls_box.layout().addWidget(self.curr_label, 0, 0)
+        self.curr_lo_edit =  QLineEdit()
+        self.curr_lo_edit.setValidator(QDoubleValidator(3.0, 45.0, 3, notation=QDoubleValidator.StandardNotation))
+        self.controls_box.layout().addWidget(self.curr_lo_edit, 0, 1)        
+        self.curr_up_edit =  QLineEdit()
+        self.curr_up_edit.setValidator(QDoubleValidator(3.0, 45.0, 3, notation=QDoubleValidator.StandardNotation))
+        self.controls_box.layout().addWidget(self.curr_up_edit, 0, 2)
+                
+        self.step_label = QLabel('Number of Steps:')
+        self.controls_box.layout().addWidget(self.step_label, 1, 0)
+        self.step_edit =  QLineEdit()
+        self.controls_box.layout().addWidget(self.step_edit, 1, 1)
         
-        self.temp_up_label = QLabel('Temperature Upper Limit:')
-        self.controls_box.layout().addWidget(self.temp_up_label, 1, 0)
-        self.temp_up_edit =  QLineEdit()
-        self.temp_up_edit.setValidator(QDoubleValidator(3.0, 45.0, 3, notation=QDoubleValidator.StandardNotation))
-        self.controls_box.layout().addWidget(self.temp_up_edit, 1, 1)
-        
-        self.temp_sw_button = QPushButton("Run Temperature Sweep")      
-        self.controls_box.layout().addWidget(self.temp_sw_button, 1, 2)
-        self.temp_sw_button.clicked.connect(self.temp_sw_pushed)
-        
-        self.temp_label = QLabel('Temperature:')
+        self.temp_label = QLabel('Temperature (C):')
         self.controls_box.layout().addWidget(self.temp_label, 2, 0)
         self.temp_edit =  QLineEdit()
         self.controls_box.layout().addWidget(self.temp_edit, 2, 1)
         
-        self.start_button = QPushButton("Start Sweeps")      
-        self.controls_box.layout().addWidget(self.start_button, 2, 2)
-        self.start_button.clicked.connect(self.start_pushed)
         
-        self.read_button = QPushButton("Read Voltage")      
-        self.controls_box.layout().addWidget(self.read_button, 3, 2)
-        self.read_button.clicked.connect(self.read_pushed)
+        self.scan_button = QPushButton("Run Current Scan")      
+        self.controls_box.layout().addWidget(self.scan_button, 2, 2)
+        self.scan_button.clicked.connect(self.scan_pushed)
         
         
         self.right = QVBoxLayout()     # right part of main layout
         self.main.addLayout(self.right)
+              
         
+        self.scan_wid = pg.PlotWidget(title='Scan')
+        self.scan_wid.showGrid(True,True)
+        self.abs_plot = self.scan_wid.plot([], [], pen=self.abs_pen) 
+        self.right.addWidget(self.scan_wid)
         
-        self.base_wid = pg.PlotWidget(title='Graph or something')
-        self.base_wid.showGrid(True,True)
-        self.base_wid.addLegend(offset=(0.5, 0))
-        self.right.addWidget(self.base_wid)
-
-
-
-    def temp_sw_pushed(self):
+    def scan_pushed(self):
         '''Doc'''
-        print(self.parent.lockin.read_all())
+        self.scan_button.setEnabled(False)
+    
+        self.scan_currs = []
+        self.scan_waves = []
+        self.scan_rs = []
+    
+        start = float(self.curr_lo_edit.text())
+        stop = float(self.curr_up_edit.text())
+        step_size = (stop - start)/float(self.step_edit.text())
+        curr_list = np.arange(start, stop, step_size)
+        
+        try:
+            self.scan_thread = CurrScanThread(self, curr_list, float(self.temp_edit.text()))
+            self.scan_thread.finished.connect(self.done_scan)
+            self.scan_thread.reply.connect(self.build_scan)
+            self.scan_thread.start()
+        except Exception as e: 
+            print('Exception starting run thread, lost connection: '+str(e))
+        
+    def build_scan(self, tup):
+        '''Take emit from thread and add point to data        
+        '''
+        curr, wave, r = tup
+        self.scan_currs.append(float(curr))
+        self.scan_waves.append(float(wave))
+        self.scan_rs.append(float(r))
+        self.update_plot()        
+        
+    def update_plot(self):
+        '''Update plots with new data
+        '''
+        #print(self.scan_waves, self.scan_rs)
+        self.abs_plot.setData(self.scan_currs, self.scan_rs)
 
-    def start_pushed(self):
-        '''Doc'''
-        self.parent.probe.set_temp(float(self.temp_edit.text()))
+    def done_scan(self):
+        self.scan_button.setEnabled(True)
+
         
-    def read_pushed(self):
-        '''Doc'''
-        print(self.parent.meter.read_wavelength(2))
+class CurrScanThread(QThread):
+    '''Thread class for Current scan
+    Args:
+        templist: List of currents to scan through
+        parent
+    '''
+    reply = pyqtSignal(tuple)     # reply signal
+    finished = pyqtSignal()       # finished signal
+    def __init__(self, parent, curr_list, temp):
+        QThread.__init__(self)
+        self.parent = parent  
+        self.list = curr_list
+        self.temp = temp
+                
+    def __del__(self):
+        self.wait()
         
+    def run(self):
+        '''Main scan loop
+        '''         
+        first_time = True
+        self.parent.parent.probe.set_temp(self.temp)
+        start_time = datetime.datetime.now()
+        for curr in self.list:
+            self.parent.parent.probe.set_current(curr)
+            if first_time:
+                time.sleep(2)
+                first_time = False
+            else:    
+                time.sleep(self.parent.settings['curr_scan_wait'])
+            #wave = self.parent.parent.meter.read_wavelength(1)
+            wave = 0
+            x, y, r = self.parent.parent.lockin.read_all()
+            self.reply.emit((curr, wave, r))  
+
+            print(datetime.datetime.now() - start_time)
+            
+  
+        self.finished.emit()
         
