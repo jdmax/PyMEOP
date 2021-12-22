@@ -1,4 +1,4 @@
-# PyNMR Config file, YAML
+# PyMEOP Config file, YAML
 ---
 settings:
     probe_ip: 129.57.36.81
@@ -7,4 +7,4 @@ settings:
     lockin_ip: 129.57.37.101
     labjack_ip: 129.57.37.97
     temp_scan_wait: 0.05         # seconds between temp change and read
-    curr_scan_wait: 0.05         # seconds between temp change and read
+    curr_scan_wait: 0.05         # seconds between curr change and read

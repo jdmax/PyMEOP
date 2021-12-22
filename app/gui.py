@@ -1,4 +1,4 @@
-''' J.Maxwell 2021
+'''PyMEOP J.Maxwell 2021
 '''
 
 import datetime
@@ -14,8 +14,9 @@ from PyQt5.QtGui import QIntValidator, QDoubleValidator, QValidator
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from logging.handlers import TimedRotatingFileHandler
 
-from app.gui_main_tab import MainTab
+from app.gui_run_tab import RunTab
 from app.gui_find_tab import FindTab
+from app.classes import Event
 from app.instruments import ProbeLaser, WavelengthMeter, LabJack, LockIn
 
 

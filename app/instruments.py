@@ -1,4 +1,4 @@
-'''J.Maxwell 2021
+'''PyMEOP J.Maxwell 2021
 '''
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from toptica.lasersdk.dlcpro.v2_0_3 import DLCpro, NetworkConnection, DeviceNotFoundError, DecopError, UserLevel

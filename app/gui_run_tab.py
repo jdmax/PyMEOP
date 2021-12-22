@@ -1,4 +1,4 @@
-'''PyNMR, J.Maxwell 2020
+'''PyMEOP, J.Maxwell 2020
 '''
 import datetime
 import time
@@ -10,8 +10,8 @@ import pyqtgraph as pg
 import numpy as np
  
    
-class MainTab(QWidget):
-    '''Creates main tab. Starts threads for run and to update plots'''
+class RunTab(QWidget):
+    '''Creates run tab. Starts threads for run and to update plots'''
     def __init__(self, parent):
         super(QWidget,self).__init__(parent)
         self.__dict__.update(parent.__dict__)
@@ -72,6 +72,7 @@ class MainTab(QWidget):
         
     def scan_pushed(self):
         '''Doc'''
+        #add here: write all text boxes to event
         self.scan_button.setEnabled(False)
     
         self.scan_currs = []
@@ -111,8 +112,10 @@ class MainTab(QWidget):
 
         
 class RunThread(QThread):
-    '''Thread class for run
+    '''Thread class for running
     Args:
+        templist: List of currents to scan through
+        parent
     '''
     reply = pyqtSignal(tuple)     # reply signal
     finished = pyqtSignal()       # finished signal
