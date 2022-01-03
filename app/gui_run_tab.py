@@ -61,14 +61,33 @@ class RunTab(QWidget):
         self.scan_button.clicked.connect(self.scan_pushed)
         
         
-        self.right = QVBoxLayout()     # right part of main layout
-        self.main.addLayout(self.right)
-              
+        # Populate Analysis box
+        self.anal_box = QGroupBox('Analysis Settings')
+        self.anal_box.setLayout(QGridLayout())
+        self.left.addWidget(self.anal_box)
         
-        self.scan_wid = pg.PlotWidget(title='Scan')
-        self.scan_wid.showGrid(True,True)
-        self.abs_plot = self.scan_wid.plot([], [], pen=self.abs_pen) 
-        self.right.addWidget(self.scan_wid)
+        
+        
+        
+        
+        self.right = QVBoxLayout()     # right part of main layout
+        self.main.addLayout(self.right)              
+        
+        self.pol_wid = pg.PlotWidget(title='Polarization')
+        self.pol_wid.showGrid(True,True)
+        self.pol_wid.addLegend(offset=(0.5, 0))
+        self.right.addWidget(self.pol_wid)
+        
+        self.run_wid = pg.PlotWidget(title='Running Scan')
+        self.run_wid.showGrid(True,True)
+        self.run_wid.addLegend(offset=(0.5, 0))
+        self.right.addWidget(self.run_wid)
+        
+        self.peak_wid = pg.PlotWidget(title='Probe Peaks')
+        self.peak_wid.showGrid(True,True)
+        self.peak_wid.addLegend(offset=(0.5, 0))
+        self.right.addWidget(self.peak_wid)
+
         
     def scan_pushed(self):
         '''Doc'''

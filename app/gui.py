@@ -16,7 +16,6 @@ from logging.handlers import TimedRotatingFileHandler
 
 from app.gui_run_tab import RunTab
 from app.gui_find_tab import FindTab
-from app.gui_main_tab import MainTab
 from app.classes import Event
 from app.instruments import ProbeLaser, WavelengthMeter, LabJack, LockIn
 
@@ -49,8 +48,8 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tab_widget)
 
         # Make tabs
-        self.main_tab = MainTab(self)
-        self.tab_widget.addTab(self.main_tab, "Main")
+        self.run_tab = RunTab(self)
+        self.tab_widget.addTab(self.run_tab, "Run")
         self.find_tab = FindTab(self)
         self.tab_widget.addTab(self.find_tab, "Find Peaks")
 		
@@ -93,3 +92,36 @@ class MainWindow(QMainWindow):
         div.setMaximumHeight (2)
         return div
 
+
+class Event():
+    '''Data and method object for single event point. Takes config instance on init.
+    '''
+       
+    def __init__(self, parent):
+        self.parent = parent
+        
+        self.start_time =  datetime.datetime.now(tz=datetime.timezone.utc)        
+        self.start_stamp = self.start_time.timestamp()
+
+
+    def print_event(self, eventfile):
+        '''Print out event to eventfile, formatting to dict to write to json line.
+        
+        Args:
+            eventfile: File object to write event to
+        '''
+        
+        exclude_list = [ 'parent' ]
+        json_dict = {}        
+        #json_dict.update(self.scan.__dict__)
+        for key, entry in self.__dict__.items():               # filter event attributes for json dict
+            if isinstance(entry, datetime.datetime):
+                json_dict.update({key:entry.__str__()})  # datetime to string
+            elif key in exclude_list: pass
+            else:
+                json_dict.update({key:entry})
+        for key, entry in json_dict.items():   
+            if isinstance(entry, np.ndarray):       
+                json_dict[key] = entry.tolist()    
+        json_record = json.dumps(json_dict)
+        eventfile.write(json_record+'\n')               # write to file as json line
