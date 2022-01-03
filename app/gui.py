@@ -16,6 +16,7 @@ from logging.handlers import TimedRotatingFileHandler
 
 from app.gui_run_tab import RunTab
 from app.gui_find_tab import FindTab
+from app.gui_main_tab import MainTab
 from app.classes import Event
 from app.instruments import ProbeLaser, WavelengthMeter, LabJack, LockIn
 

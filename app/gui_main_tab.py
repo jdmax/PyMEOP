@@ -84,7 +84,7 @@ class MainTab(QWidget):
         curr_list = np.arange(start, stop, step_size)
         
         try:
-            self.scan_thread = CurrScanThread(self, curr_list, float(self.temp_edit.text()))
+            self.scan_thread = ScanThread(self, curr_list, float(self.temp_edit.text()))
             self.scan_thread.finished.connect(self.done_scan)
             self.scan_thread.reply.connect(self.build_scan)
             self.scan_thread.start()
