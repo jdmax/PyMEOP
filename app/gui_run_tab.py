@@ -17,10 +17,15 @@ class RunTab(QWidget):
         self.__dict__.update(parent.__dict__)
         
         self.parent = parent
+                              
+        self.scan_currs = []
+        self.scan_waves = []
+        self.scan_rs = []
+        self.scan_time = []
                
         # pyqtgrph styles        
         pg.setConfigOptions(antialias=True)
-        self.abs_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
+        self.run_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
         pg.setConfigOption('background', 'w')
         pg.setConfigOption('foreground', 'k')
         
@@ -56,7 +61,7 @@ class RunTab(QWidget):
         self.controls_box.layout().addWidget(self.temp_edit, 2, 1)
         
         
-        self.scan_button = QPushButton("Run Current Scan")      
+        self.scan_button = QPushButton("Run Scan",checkable=True)      
         self.controls_box.layout().addWidget(self.scan_button, 2, 2)
         self.scan_button.clicked.connect(self.scan_pushed)
         
@@ -78,9 +83,14 @@ class RunTab(QWidget):
         self.pol_wid.addLegend(offset=(0.5, 0))
         self.right.addWidget(self.pol_wid)
         
-        self.run_wid = pg.PlotWidget(title='Running Scan')
+        self.run_wid = pg.PlotWidget()
+        self.time_axis = pg.DateAxisItem(orientation='bottom')
+        self.run_wid = pg.PlotWidget(
+            title='Running Scan', axisItems={'bottom': self.time_axis}
+        )
         self.run_wid.showGrid(True,True)
         self.run_wid.addLegend(offset=(0.5, 0))
+        self.run_plot = self.run_wid.plot([], [], pen=self.run_pen)         
         self.right.addWidget(self.run_wid)
         
         self.peak_wid = pg.PlotWidget(title='Probe Peaks')
@@ -88,23 +98,46 @@ class RunTab(QWidget):
         self.peak_wid.addLegend(offset=(0.5, 0))
         self.right.addWidget(self.peak_wid)
 
+    def run_pushed(self):
+        '''Start main loop if conditions met'''
+               
+        if self.run_button.isChecked():        
+            self.parent.status_bar.showMessage('Running sweeps...')
+            #self.abort_button.setEnabled(True)
+            self.lock_button.setEnabled(False)
+            self.run_button.setText('Finish')
+            self.start_thread()
+            self.parent.run_toggle()
+                   
+        else:
+            if self.run_thread.isRunning:
+                self.run_button.setText('Finishing...')
+                self.run_button.setEnabled(False)
         
     def scan_pushed(self):
-        '''Doc'''
-        #add here: write all text boxes to event
-        self.scan_button.setEnabled(False)
-    
-        self.scan_currs = []
-        self.scan_waves = []
-        self.scan_rs = []
-    
+        '''Start main loop if conditions met'''
+               
+        if self.scan_button.isChecked():        
+            self.scan_button.setText('Stop')
+            self.start_scan()
+                   
+        else:
+            try:
+                if self.scan_thread.isRunning:
+                    self.scan_button.setText('Finishing...')
+                    self.scan_button.setEnabled(False)
+            except:
+                pass
+            
+    def start_scan(self):
+        
         start = float(self.curr_lo_edit.text())
         stop = float(self.curr_up_edit.text())
         step_size = (stop - start)/float(self.step_edit.text())
         curr_list = np.arange(start, stop, step_size)
         
         try:
-            self.scan_thread = CurrScanThread(self, curr_list, float(self.temp_edit.text()))
+            self.scan_thread = RunThread(self, curr_list, float(self.temp_edit.text()))
             self.scan_thread.finished.connect(self.done_scan)
             self.scan_thread.reply.connect(self.build_scan)
             self.scan_thread.start()
@@ -114,20 +147,28 @@ class RunTab(QWidget):
     def build_scan(self, tup):
         '''Take emit from thread and add point to data        
         '''
-        curr, wave, r = tup
+        curr, wave, r, time = tup            
         self.scan_currs.append(float(curr))
         self.scan_waves.append(float(wave))
         self.scan_rs.append(float(r))
+        self.scan_time.append(time.timestamp())
+        if len(self.scan_currs) > 1000:
+            self.scan_currs.pop(0)
+            self.scan_waves.pop(0)
+            self.scan_rs.pop(0)
+            self.scan_time.pop(0)
         self.update_plot()        
         
     def update_plot(self):
         '''Update plots with new data
         '''
         #print(self.scan_waves, self.scan_rs)
-        self.abs_plot.setData(self.scan_currs, self.scan_rs)
+        self.run_plot.setData(self.scan_time, self.scan_rs)
 
     def done_scan(self):
-        self.scan_button.setEnabled(True)
+        #self.scan_button.setEnabled(True)
+        self.scan_button.setText("Run Scan")
+        self.scan_button.toggle()
 
         
 class RunThread(QThread):
@@ -163,9 +204,9 @@ class RunThread(QThread):
             #wave = self.parent.parent.meter.read_wavelength(1)
             wave = 0
             x, y, r = self.parent.parent.lockin.read_all()
-            self.reply.emit((curr, wave, r))  
+            self.reply.emit((curr, wave, r, datetime.datetime.now()))  
 
-            print(datetime.datetime.now() - start_time)
+            #print(datetime.datetime.now() - start_time)
             
   
         self.finished.emit()
