@@ -1,14 +1,13 @@
 '''PyMEOP J.Maxwell 2021
 '''
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
-from toptica.lasersdk.dlcpro.v2_0_3 import DLCpro, NetworkConnection, DeviceNotFoundError, DecopError, UserLevel
 from labjack import ljm
 import telnetlib
 import time
 
             
 class ProbeLaser():      
-    '''Access Toptica Laser SDK to control probe laser    
+    '''Access Probe laser over telnet
     '''
     
     
@@ -30,8 +29,8 @@ class ProbeLaser():
         except Exception as e:
             print(f"Probe connection failed on {self.ip}: {e}")
             
-    def __del__(self):
-        self.tn.close()
+    # def __del__(self):
+        # self.tn.close()
         
     def read_current(self):
         '''
@@ -83,8 +82,8 @@ class WavelengthMeter():
             print(f"Meter connection failed on {self.ip}: {e}")
                 
     def __del__(self):
-        self.tn.close()  
-        
+        #self.tn.close()  
+        pass
     def read_wavelength(self, channel):
         '''Arguments:
                 channel: 1 or 2 for pump or probe
@@ -113,7 +112,8 @@ class LockIn():
             print(f"Lock-in connection failed on {self.ip}: {e}")
                 
     def __del__(self):
-        self.tn.close()  
+        #self.tn.close()  
+        pass
         
     def read_all(self):
         '''Returns both all four lock-in parameters as x,y,r,theta

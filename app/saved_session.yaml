@@ -1,0 +1,14 @@
+find_tab:
+  curr_edit1: '3'
+  curr_edit2: ''
+  stat_curr_edit: ''
+  stat_temp_edit: ''
+  step_curr_edit: '4'
+  step_temp_edit: '2'
+  temp_edit1: '1'
+  temp_edit2: ''
+run_tab:
+  curr_lo_edit: '1'
+  curr_up_edit: '2'
+  step_edit: '3'
+  temp_edit: '4'

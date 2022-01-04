@@ -9,7 +9,7 @@ import os
 import yaml
 import pytz
 import logging
-from PyQt5.QtWidgets import QMainWindow, QErrorMessage, QTabWidget, QLabel, QWidget
+from PyQt5.QtWidgets import QMainWindow, QErrorMessage, QTabWidget, QLabel, QWidget, QLineEdit 
 from PyQt5.QtGui import QIntValidator, QDoubleValidator, QValidator
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from logging.handlers import TimedRotatingFileHandler
@@ -35,7 +35,6 @@ class MainWindow(QMainWindow):
         self.config_filename = 'config.yaml'
         self.load_settings()
 
-
         self.left = 100
         self.top = 100
         self.title = 'JLab Polarization Display'
@@ -52,6 +51,9 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.run_tab, "Run")
         self.find_tab = FindTab(self)
         self.tab_widget.addTab(self.find_tab, "Find Peaks")
+        
+        self.restore_session()
+
 		
         try:
             self.probe = ProbeLaser(self.settings)            
@@ -90,26 +92,37 @@ class MainWindow(QMainWindow):
         '''Print session settings before app exit to a file for recall on restart'''
         saved_dict  =  {}        
         
-        for key, entry in self.run_tab.__dict__.items():
-            if isinstance(entry, QLineEdit):
-                saved_dict.update({key: entry.text()})
-        
-        with open('app/saved_settings.yaml', 'w') as file:
+        for k, e in self.__dict__.items():   # go through all "tabs" and save all edit values
+            if '_tab' in k:
+                saved_dict.update({k: {}})
+                for key, entry in e.__dict__.items():
+                    if isinstance(entry, QLineEdit):
+                        saved_dict[k].update({key: entry.text()})        
+        with open('app/saved_session.yaml', 'w') as file:
             documents = yaml.dump(saved_dict, file)
-            #print(saved_dict)            
     
     def restore_session(self):
         '''Restore settings from previous session'''
         with open('app/saved_session.yaml') as f:                           # Load settings from YAML files
-           self.restore_dict = yaml.load(f, Loader=yaml.FullLoader)   
-           print(self.restore_dict)
+           restore_dict = yaml.load(f, Loader=yaml.FullLoader)   
+        try:   
+            for k, e in restore_dict.items():   
+                for key, entry in e.items():
+                    self.__dict__[k].__dict__[key].setText(entry)             # set line edit text for each
+        except Exception as ex:
+            print('Failed to import previous session.', ex)
            
     def divider(self):
         div = QLabel ('')
         div.setStyleSheet ("QLabel {background-color: #eeeeee; padding: 0; margin: 0; border-bottom: 0 solid #eeeeee; border-top: 1 solid #eeeeee;}")
         div.setMaximumHeight (2)
         return div
-
+        
+    def closeEvent(self, event):
+        '''Things to do on close of window ("events" here are not related to nmr data events)
+        '''
+        self.save_session()
+        event.accept()
 
 class Event():
     '''Data and method object for single event point. Takes config instance on init.
