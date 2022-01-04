@@ -10,5 +10,13 @@ find_tab:
 run_tab:
   curr_lo_edit: '1'
   curr_up_edit: '2'
+  g1_hei_edit: ''
+  g1_pos_edit: ''
+  g1_sig_edit: ''
+  g2_hei_edit: ''
+  g2_pos_edit: ''
+  g2_sig_edit: ''
+  int_edit: ''
+  slope_edit: ''
   step_edit: '3'
   temp_edit: '4'

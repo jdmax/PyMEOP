@@ -132,6 +132,11 @@ class MainWindow(QMainWindow):
         self.previous_event = self.event         # set this as previous event
         self.new_event()                        # start new event to accept next scan
         
+        
+        
+        
+    def finished_anal(self):
+           
         self.eventfile_lines += 1
         if self.eventfile_lines > 1000:            # open new eventfile once the current one has a number of entries
             self.new_eventfile()
@@ -198,8 +203,8 @@ class Event():
         self.scan_rs = []
         self.scan_time = []
         
-    def new_scan(self, tup):
-        '''Add new data to scan'''
+    def fit_scan(self, pars):
+        '''Fit Scan data with linear and two gaussians, using starting params passed'''
 
 
     def print_event(self, eventfile):
@@ -211,7 +216,6 @@ class Event():
         
         exclude_list = [ 'parent' ]
         json_dict = {}        
-        #json_dict.update(self.scan.__dict__)
         for key, entry in self.__dict__.items():               # filter event attributes for json dict
             if isinstance(entry, datetime.datetime):
                 json_dict.update({key:entry.__str__()})  # datetime to string
@@ -223,3 +227,26 @@ class Event():
                 json_dict[key] = entry.tolist()    
         json_record = json.dumps(json_dict)
         eventfile.write(json_record+'\n')               # write to file as json line
+        
+        
+               
+class AnalThread(QThread):
+    '''Thread class for running analysis
+    '''
+    reply = pyqtSignal(tuple)     # reply signal
+    finished = pyqtSignal()       # finished signal
+    def __init__(self, parent):
+        QThread.__init__(self)
+        self.parent = parent  
+                
+    def __del__(self):
+        self.wait()
+        
+    def run(self):
+        '''Main scan loop
+        '''         
+                
+        self.reply.emit(("scan done", 0, 0, datetime.datetime.now()))    
+        self.finished.emit()
+  
+        
