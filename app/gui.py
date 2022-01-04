@@ -85,7 +85,25 @@ class MainWindow(QMainWindow):
         self.settings = self.config_dict['settings']                    # dict of settings
 
         self.status_bar.showMessage(f"Loaded settings from {self.config_filename}.")
-
+    
+    def save_session(self):
+        '''Print session settings before app exit to a file for recall on restart'''
+        saved_dict  =  {}        
+        
+        for key, entry in self.run_tab.__dict__.items():
+            if isinstance(entry, QLineEdit):
+                saved_dict.update({key: entry.text()})
+        
+        with open('app/saved_settings.yaml', 'w') as file:
+            documents = yaml.dump(saved_dict, file)
+            #print(saved_dict)            
+    
+    def restore_session(self):
+        '''Restore settings from previous session'''
+        with open('app/saved_session.yaml') as f:                           # Load settings from YAML files
+           self.restore_dict = yaml.load(f, Loader=yaml.FullLoader)   
+           print(self.restore_dict)
+           
     def divider(self):
         div = QLabel ('')
         div.setStyleSheet ("QLabel {background-color: #eeeeee; padding: 0; margin: 0; border-bottom: 0 solid #eeeeee; border-top: 1 solid #eeeeee;}")

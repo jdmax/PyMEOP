@@ -138,7 +138,7 @@ class RunTab(QWidget):
         
         try:
             self.scan_thread = RunThread(self, curr_list, float(self.temp_edit.text()))
-            self.scan_thread.finished.connect(self.done_scan)
+            self.scan_thread.finished.connect(self.finish_scans)
             self.scan_thread.reply.connect(self.build_scan)
             self.scan_thread.start()
         except Exception as e: 
@@ -147,17 +147,20 @@ class RunTab(QWidget):
     def build_scan(self, tup):
         '''Take emit from thread and add point to data        
         '''
-        curr, wave, r, time = tup            
-        self.scan_currs.append(float(curr))
-        self.scan_waves.append(float(wave))
-        self.scan_rs.append(float(r))
-        self.scan_time.append(time.timestamp())
-        if len(self.scan_currs) > 1000:
-            self.scan_currs.pop(0)
-            self.scan_waves.pop(0)
-            self.scan_rs.pop(0)
-            self.scan_time.pop(0)
-        self.update_plot()        
+        curr, wave, r, time = tup     
+        if 'done' in curr: 
+            pass   # do things to end event
+        else    
+            self.scan_currs.append(float(curr))
+            self.scan_waves.append(float(wave))
+            self.scan_rs.append(float(r))
+            self.scan_time.append(time.timestamp())
+            if len(self.scan_currs) > 1000:
+                self.scan_currs.pop(0)
+                self.scan_waves.pop(0)
+                self.scan_rs.pop(0)
+                self.scan_time.pop(0)
+            self.update_plot()        
         
     def update_plot(self):
         '''Update plots with new data
@@ -165,7 +168,7 @@ class RunTab(QWidget):
         #print(self.scan_waves, self.scan_rs)
         self.run_plot.setData(self.scan_time, self.scan_rs)
 
-    def done_scan(self):
+    def finish_scans(self):
         #self.scan_button.setEnabled(True)
         self.scan_button.setText("Run Scan")
         self.scan_button.toggle()
@@ -183,7 +186,9 @@ class RunThread(QThread):
         QThread.__init__(self)
         self.parent = parent  
         self.list = curr_list
+        self.reverse_list = curr_list[::-1]
         self.temp = temp
+        self.scans = 0   # number of scans that we've been through
                 
     def __del__(self):
         self.wait()
@@ -191,23 +196,25 @@ class RunThread(QThread):
     def run(self):
         '''Main scan loop
         '''         
-        first_time = True
         self.parent.parent.probe.set_temp(self.temp)
         start_time = datetime.datetime.now()
-        for curr in self.list:
-            self.parent.parent.probe.set_current(curr)
-            if first_time:
-                time.sleep(2)
-                first_time = False
-            else:    
+        list = self.list if (self.scans % 2 == 0) else self.reverse_list  # use reverse list on odd iterations
+        
+        while self.parent.run_button.isChecked():
+            for curr in list:
+                self.parent.parent.probe.set_current(curr)
+                # if self.scans = 0:
+                    # time.sleep(2)
+                # else:    
                 time.sleep(self.parent.settings['curr_scan_wait'])
-            #wave = self.parent.parent.meter.read_wavelength(1)
-            wave = 0
-            x, y, r = self.parent.parent.lockin.read_all()
-            self.reply.emit((curr, wave, r, datetime.datetime.now()))  
-
-            #print(datetime.datetime.now() - start_time)
-            
-  
+                #wave = self.parent.parent.meter.read_wavelength(1)
+                wave = 0
+                x, y, r = self.parent.parent.lockin.read_all()
+                self.reply.emit((curr, wave, r, datetime.datetime.now()))  
+                
+            self.scans++    
+            self.reply.emit(("scan done", 0, 0, datetime.datetime.now()))    
+                
+        self.parent.parent.probe.set_current(self.list[0])
         self.finished.emit()
         
