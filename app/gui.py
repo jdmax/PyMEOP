@@ -34,6 +34,7 @@ class MainWindow(QMainWindow):
 
         self.config_filename = 'config.yaml'
         self.load_settings()
+        self.start_logger()
 
         self.left = 100
         self.top = 100
@@ -52,7 +53,9 @@ class MainWindow(QMainWindow):
         self.find_tab = FindTab(self)
         self.tab_widget.addTab(self.find_tab, "Find Peaks")
         
-        self.restore_session()
+        self.restore_session()        
+        self.event = Event(self)
+        self.new_eventfile()
 
 		
         try:
@@ -111,7 +114,53 @@ class MainWindow(QMainWindow):
                     self.__dict__[k].__dict__[key].setText(entry)             # set line edit text for each
         except Exception as ex:
             print('Failed to import previous session.', ex)
-           
+            
+            
+    def new_event(self):
+        '''Create new event instance'''
+        self.event = Event(self)
+        
+    def end_event(self):
+        self.event.stop_time =  datetime.datetime.now(tz=datetime.timezone.utc)        
+        self.event.stop_stamp = self.stop_time.timestamp()
+        self.eventfile_lines += 1
+        if self.eventfile_lines > 1000:            # open new eventfile once the current one has a number of entries
+            self.new_eventfile()
+        self.event.print_event(self.eventfile)    
+        
+    def new_eventfile(self):
+        '''Open new eventfile'''
+        self.close_eventfile()    # try to close previous eventfile
+        now = datetime.datetime.now(tz=datetime.timezone.utc)
+        self.eventfile_start = now.strftime("%Y-%m-%d_%H-%M-%S")
+        self.eventfile_name = os.path.join(self.settings["event_dir"], f'current_{self.eventfile_start}.txt')
+        self.eventfile = open(self.eventfile_name, "w")
+        self.eventfile_lines = 0
+        logging.info(f"Opened new eventfile {self.eventfile_name}")
+
+    def close_eventfile(self):
+        '''Try to close and rename eventfile'''
+        try:
+            self.eventfile.close()
+            now = datetime.datetime.now(tz=datetime.timezone.utc)
+            new = f'{self.eventfile_start}__{now.strftime("%Y-%m-%d_%H-%M-%S")}.txt'
+            os.rename(self.eventfile_name, os.path.join(self.config.settings["event_dir"], new))
+            logging.info(f"Closed eventfile and moved to {new}.")
+        except AttributeError:
+            logging.info(f"Error closing eventfile.")        
+            
+    def start_logger(self):
+        '''Start logger
+        '''
+        logHandler = TimedRotatingFileHandler(os.path.join(self.settings['log_dir'],"log"),when="midnight")    # setup logfiles
+        logHandler.suffix = "%Y-%m-%d.txt"
+        logFormatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+        logHandler.setFormatter(logFormatter)
+        logger = logging.getLogger()
+        logger.addHandler(logHandler)
+        logger.setLevel(logging.INFO)
+        logging.info("Loaded config file")
+        
     def divider(self):
         div = QLabel ('')
         div.setStyleSheet ("QLabel {background-color: #eeeeee; padding: 0; margin: 0; border-bottom: 0 solid #eeeeee; border-top: 1 solid #eeeeee;}")
@@ -130,13 +179,28 @@ class Event():
        
     def __init__(self, parent):
         self.parent = parent
+        self.settings = parent.settings
         
         self.start_time =  datetime.datetime.now(tz=datetime.timezone.utc)        
         self.start_stamp = self.start_time.timestamp()
+        
+        self.scan_currs = []
+        self.scan_waves = []
+        self.scan_rs = []
+        self.scan_time = []
+        
+    def build_scan(self, tup):
+        '''Add new data to scan'''
+        curr, wave, r, time = tup    
+        
+        self.scan_currs.append(float(curr))
+        self.scan_waves.append(float(wave))
+        self.scan_rs.append(float(r))
+        self.scan_time.append(time.timestamp())
 
 
     def print_event(self, eventfile):
-        '''Print out event to eventfile, formatting to dict to write to json line.
+        '''Print out all event attributes to eventfile, formatting to dict to write to json line.
         
         Args:
             eventfile: File object to write event to

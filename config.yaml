@@ -8,3 +8,5 @@ settings:
     labjack_ip: 129.57.37.97
     temp_scan_wait: 0.05         # seconds between temp change and read
     curr_scan_wait: 0.05         # seconds between curr change and read
+    event_dir: 'data'
+    log_dir: 'log'

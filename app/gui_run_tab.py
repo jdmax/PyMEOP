@@ -17,17 +17,17 @@ class RunTab(QWidget):
         self.__dict__.update(parent.__dict__)
         
         self.parent = parent
-                              
-        self.scan_currs = []
-        self.scan_waves = []
-        self.scan_rs = []
-        self.scan_time = []
-               
+        
         # pyqtgrph styles        
         pg.setConfigOptions(antialias=True)
         self.run_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
         pg.setConfigOption('background', 'w')
         pg.setConfigOption('foreground', 'k')
+        
+        self.scan_currs = []
+        self.scan_waves = []
+        self.scan_rs = []
+        self.scan_time = []
         
         
         # Populate Run Tab
@@ -149,8 +149,11 @@ class RunTab(QWidget):
         '''
         curr, wave, r, time = tup     
         if 'done' in curr: 
+            self.parent.end_event()
             pass   # do things to end event
         else:    
+            self.parent.event.build_scan(tup)  # send data to event
+            
             self.scan_currs.append(float(curr))
             self.scan_waves.append(float(wave))
             self.scan_rs.append(float(r))
