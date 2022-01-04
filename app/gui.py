@@ -120,13 +120,22 @@ class MainWindow(QMainWindow):
         '''Create new event instance'''
         self.event = Event(self)
         
-    def end_event(self):
+    def end_event(self, currs, waves, rs, times):
+    
+        self.event.currs = currs
+        self.event.waves = waves
+        self.event.rs = rs
+        self.event.times = times
+    
         self.event.stop_time =  datetime.datetime.now(tz=datetime.timezone.utc)        
         self.event.stop_stamp = self.stop_time.timestamp()
+        self.previous_event = self.event         # set this as previous event
+        self.new_event()                        # start new event to accept next scan
+        
         self.eventfile_lines += 1
         if self.eventfile_lines > 1000:            # open new eventfile once the current one has a number of entries
             self.new_eventfile()
-        self.event.print_event(self.eventfile)    
+        self.previous_event.print_event(self.eventfile)    
         
     def new_eventfile(self):
         '''Open new eventfile'''
@@ -189,14 +198,8 @@ class Event():
         self.scan_rs = []
         self.scan_time = []
         
-    def build_scan(self, tup):
+    def new_scan(self, tup):
         '''Add new data to scan'''
-        curr, wave, r, time = tup    
-        
-        self.scan_currs.append(float(curr))
-        self.scan_waves.append(float(wave))
-        self.scan_rs.append(float(r))
-        self.scan_time.append(time.timestamp())
 
 
     def print_event(self, eventfile):

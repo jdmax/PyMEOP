@@ -27,7 +27,12 @@ class RunTab(QWidget):
         self.scan_currs = []
         self.scan_waves = []
         self.scan_rs = []
-        self.scan_time = []
+        self.scan_times = []
+        
+        self.currs = []
+        self.waves = []
+        self.rs = []
+        self.times = []
         
         
         # Populate Run Tab
@@ -76,12 +81,7 @@ class RunTab(QWidget):
         
         
         self.right = QVBoxLayout()     # right part of main layout
-        self.main.addLayout(self.right)              
-        
-        self.pol_wid = pg.PlotWidget(title='Polarization')
-        self.pol_wid.showGrid(True,True)
-        self.pol_wid.addLegend(offset=(0.5, 0))
-        self.right.addWidget(self.pol_wid)
+        self.main.addLayout(self.right)             
         
         self.run_wid = pg.PlotWidget()
         self.time_axis = pg.DateAxisItem(orientation='bottom')
@@ -96,7 +96,12 @@ class RunTab(QWidget):
         self.peak_wid = pg.PlotWidget(title='Probe Peaks')
         self.peak_wid.showGrid(True,True)
         self.peak_wid.addLegend(offset=(0.5, 0))
-        self.right.addWidget(self.peak_wid)
+        self.right.addWidget(self.peak_wid) 
+        
+        self.pol_wid = pg.PlotWidget(title='Polarization')
+        self.pol_wid.showGrid(True,True)
+        self.pol_wid.addLegend(offset=(0.5, 0))
+        self.right.addWidget(self.pol_wid)
 
     def run_pushed(self):
         '''Start main loop if conditions met'''
@@ -148,21 +153,26 @@ class RunTab(QWidget):
         '''Take emit from thread and add point to data        
         '''
         curr, wave, r, time = tup     
-        if 'done' in curr: 
-            self.parent.end_event()
-            pass   # do things to end event
-        else:    
-            self.parent.event.build_scan(tup)  # send data to event
-            
+        if 'done' in curr:     # got last part of scan, rest and send to event
+            self.parent.end_event(self.scan_currs, self.scan_waves, self.scan_rs, self.scan_times)
+            self.scan_currs = []
+            self.scan_waves = []
+            self.scan_rs = []
+            self.scan_times = []
+        else:             
+            self.currs.append(float(curr))
+            self.waves.append(float(wave))
+            self.rs.append(float(r))
+            self.times.append(time.timestamp())
             self.scan_currs.append(float(curr))
             self.scan_waves.append(float(wave))
             self.scan_rs.append(float(r))
-            self.scan_time.append(time.timestamp())
+            self.scan_times.append(time.timestamp())
             if len(self.scan_currs) > 1000:
-                self.scan_currs.pop(0)
-                self.scan_waves.pop(0)
-                self.scan_rs.pop(0)
-                self.scan_time.pop(0)
+                self.currs.pop(0)
+                self.waves.pop(0)
+                self.rs.pop(0)
+                self.time.pop(0)
             self.update_plot()        
         
     def update_plot(self):
