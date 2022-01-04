@@ -150,7 +150,7 @@ class RunTab(QWidget):
         curr, wave, r, time = tup     
         if 'done' in curr: 
             pass   # do things to end event
-        else    
+        else:    
             self.scan_currs.append(float(curr))
             self.scan_waves.append(float(wave))
             self.scan_rs.append(float(r))
@@ -212,7 +212,7 @@ class RunThread(QThread):
                 x, y, r = self.parent.parent.lockin.read_all()
                 self.reply.emit((curr, wave, r, datetime.datetime.now()))  
                 
-            self.scans++    
+            self.scans += 1   
             self.reply.emit(("scan done", 0, 0, datetime.datetime.now()))    
                 
         self.parent.parent.probe.set_current(self.list[0])
