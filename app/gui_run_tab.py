@@ -76,43 +76,46 @@ class RunTab(QWidget):
         self.anal_box.setLayout(QGridLayout())
         self.left.addWidget(self.anal_box)
         
-        self.pos_label = QLabel("Position:")
-        self.anal_box.layout().addWidget(self.pos_label, 0, 1)
-        self.sig_label = QLabel("Sigma:")
-        self.anal_box.layout().addWidget(self.sig_label, 0, 2)
-        self.hei_label = QLabel("Height:")
-        self.anal_box.layout().addWidget(self.hei_label, 0, 3)
+        # self.pos_label = QLabel("Position:")
+        # self.anal_box.layout().addWidget(self.pos_label, 4, 1)
+        # self.sig_label = QLabel("Sigma:")
+        # self.anal_box.layout().addWidget(self.sig_label, 4, 2)
+        # self.hei_label = QLabel("Height:")
+        # self.anal_box.layout().addWidget(self.hei_label, 4, 3)
         
         
         self.g1_label = QLabel("Gaussian 1:")
         self.anal_box.layout().addWidget(self.g1_label, 1, 0)
         self.g1_pos_edit =  QLineEdit()
+        self.g1_pos_edit.setPlaceholderText("Position")
         self.anal_box.layout().addWidget(self.g1_pos_edit, 1, 1)
         self.g1_sig_edit =  QLineEdit()
+        self.g1_sig_edit.setPlaceholderText("Sigma")
         self.anal_box.layout().addWidget(self.g1_sig_edit, 1, 2)
         self.g1_hei_edit =  QLineEdit()
-        self.anal_box.layout().addWidget(self.g1_hei_edit, 1, 3)
-        
+        self.g1_hei_edit.setPlaceholderText("Height")
+        self.anal_box.layout().addWidget(self.g1_hei_edit, 1, 3)        
         
         self.g2_label = QLabel("Gaussian 2:")
         self.anal_box.layout().addWidget(self.g2_label, 2, 0)
         self.g2_pos_edit =  QLineEdit()
+        self.g2_pos_edit.setPlaceholderText("Position")
         self.anal_box.layout().addWidget(self.g2_pos_edit, 2, 1)
         self.g2_sig_edit =  QLineEdit()
+        self.g2_sig_edit.setPlaceholderText("Sigma")
         self.anal_box.layout().addWidget(self.g2_sig_edit, 2, 2)
         self.g2_hei_edit =  QLineEdit()
-        self.anal_box.layout().addWidget(self.g2_hei_edit, 2, 3)
+        self.g2_hei_edit.setPlaceholderText("Height")
+        self.anal_box.layout().addWidget(self.g2_hei_edit, 2, 3)        
         
-        
-        self.slope_label = QLabel("Slope:")
+        self.slope_label = QLabel("Linear:")
         self.anal_box.layout().addWidget(self.slope_label, 3, 0)
         self.slope_edit =  QLineEdit()
+        self.slope_edit.setPlaceholderText("Slope")
         self.anal_box.layout().addWidget(self.slope_edit, 3, 1)
-        self.int_label = QLabel("Intercept:")
-        self.anal_box.layout().addWidget(self.int_label, 3, 2)
         self.int_edit =  QLineEdit()
-        self.anal_box.layout().addWidget(self.int_edit, 3, 3)
-        
+        self.int_edit.setPlaceholderText("Intercept")
+        self.anal_box.layout().addWidget(self.int_edit, 3, 2)        
         
         
         self.right = QVBoxLayout()     # right part of main layout
@@ -189,7 +192,16 @@ class RunTab(QWidget):
         '''
         curr, wave, r, time = tup     
         if 'done' in curr:     # got last part of scan, rest and send to event
-            self.parent.end_event(self.scan_currs, self.scan_waves, self.scan_rs, self.scan_times)
+            params =  [float(self.g1_pos_edit.text()),
+                float(self.g1_sig_edit.text()),
+                float(self.g1_hei_edit.text()),
+                float(self.g2_pos_edit.text()),
+                float(self.g2_sig_edit.text()),
+                float(self.g2_hei_edit.text()),
+                float(self.slope_edit.text()),
+                float(self.int_edit.text())]            
+            
+            self.parent.end_event(self.scan_currs, self.scan_waves, self.scan_rs, self.scan_times, params)
             self.scan_currs = []
             self.scan_waves = []
             self.scan_rs = []

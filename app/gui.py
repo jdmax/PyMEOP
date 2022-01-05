@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import QMainWindow, QErrorMessage, QTabWidget, QLabel, QWid
 from PyQt5.QtGui import QIntValidator, QDoubleValidator, QValidator
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from logging.handlers import TimedRotatingFileHandler
+import numpy as np
 
 from app.gui_run_tab import RunTab
 from app.gui_find_tab import FindTab
@@ -120,7 +121,7 @@ class MainWindow(QMainWindow):
         '''Create new event instance'''
         self.event = Event(self)
         
-    def end_event(self, currs, waves, rs, times):
+    def end_event(self, currs, waves, rs, times, params):
     
         self.event.currs = currs
         self.event.waves = waves
@@ -132,9 +133,13 @@ class MainWindow(QMainWindow):
         self.previous_event = self.event         # set this as previous event
         self.new_event()                        # start new event to accept next scan
         
-        
-        
-        
+        try:
+            self.anal_thread = AnalThread(self, self.previous_event, params)
+            self.anal_thread.finished.connect(self.finished_anal)
+            self.anal_thread.start()
+        except Exception as e: 
+            print('Exception starting run thread, lost connection: '+str(e))
+                
     def finished_anal(self):
            
         self.eventfile_lines += 1
@@ -205,7 +210,17 @@ class Event():
         
     def fit_scan(self, pars):
         '''Fit Scan data with linear and two gaussians, using starting params passed'''
-
+        
+        X = np.array(self.scan_currs)
+        pf, pcov = optimize.curve_fit(self.peaks, X, p0 = pars)
+        pstd = np.sqrt(np.diag(pcov))
+        fit = self.peaks(freqs, *pf)
+        
+    def peaks(self, x, *p): 
+        g1 = p[2]*np.exp(-np.power((x-p[0]),2)/(2*np.power(p[1],2)))
+        g2 = p[5]*np.exp(-np.power((x-p[3]),2)/(2*np.power(p[4],2)))
+        lin = p[6]*x + p[7]
+        return g1 + g2 + lin
 
     def print_event(self, eventfile):
         '''Print out all event attributes to eventfile, formatting to dict to write to json line.
@@ -233,9 +248,8 @@ class Event():
 class AnalThread(QThread):
     '''Thread class for running analysis
     '''
-    reply = pyqtSignal(tuple)     # reply signal
     finished = pyqtSignal()       # finished signal
-    def __init__(self, parent):
+    def __init__(self, parent, event, params):
         QThread.__init__(self)
         self.parent = parent  
                 
@@ -245,8 +259,7 @@ class AnalThread(QThread):
     def run(self):
         '''Main scan loop
         '''         
-                
-        self.reply.emit(("scan done", 0, 0, datetime.datetime.now()))    
+        event.fit_scan(params)
         self.finished.emit()
   
         
