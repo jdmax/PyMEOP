@@ -14,6 +14,7 @@ from PyQt5.QtGui import QIntValidator, QDoubleValidator, QValidator
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from logging.handlers import TimedRotatingFileHandler
 import numpy as np
+from scipy import optimize
 
 from app.gui_run_tab import RunTab
 from app.gui_find_tab import FindTab
@@ -129,7 +130,7 @@ class MainWindow(QMainWindow):
         self.event.times = times
     
         self.event.stop_time =  datetime.datetime.now(tz=datetime.timezone.utc)        
-        self.event.stop_stamp = self.stop_time.timestamp()
+        self.event.stop_stamp = self.event.stop_time.timestamp()
         self.previous_event = self.event         # set this as previous event
         self.new_event()                        # start new event to accept next scan
         
@@ -252,6 +253,8 @@ class AnalThread(QThread):
     def __init__(self, parent, event, params):
         QThread.__init__(self)
         self.parent = parent  
+        self.event = event
+        self.params = params
                 
     def __del__(self):
         self.wait()
@@ -259,7 +262,7 @@ class AnalThread(QThread):
     def run(self):
         '''Main scan loop
         '''         
-        event.fit_scan(params)
+        self.event.fit_scan(self.params)
         self.finished.emit()
   
         
