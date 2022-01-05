@@ -219,7 +219,7 @@ class RunTab(QWidget):
             self.scan_waves.append(float(wave))
             self.scan_rs.append(float(r))
             self.scan_times.append(time.timestamp())
-            if len(self.scan_currs) > 600:
+            if len(self.currs) > 600:
                 self.currs.pop(0)
                 self.waves.pop(0)
                 self.rs.pop(0)
