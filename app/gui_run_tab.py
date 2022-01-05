@@ -21,6 +21,8 @@ class RunTab(QWidget):
         # pyqtgrph styles        
         pg.setConfigOptions(antialias=True)
         self.run_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
+        self.peak_pen = pg.mkPen(color=(0, 250, 0), width=1.5)
+        self.fit_pen = pg.mkPen(color=(0, 0, 250), width=1.5)
         pg.setConfigOption('background', 'w')
         pg.setConfigOption('foreground', 'k')
         
@@ -134,6 +136,8 @@ class RunTab(QWidget):
         self.peak_wid = pg.PlotWidget(title='Probe Peaks')
         self.peak_wid.showGrid(True,True)
         self.peak_wid.addLegend(offset=(0.5, 0))
+        self.peak_plot = self.peak_wid.plot([], [], pen=self.peak_pen)   
+        self.fit_plot = self.peak_wid.plot([], [], pen=self.fit_pen)   
         self.right.addWidget(self.peak_wid) 
         
         self.pol_wid = pg.PlotWidget(title='Polarization')
@@ -204,7 +208,6 @@ class RunTab(QWidget):
                     float(self.int_edit.text())]     
             except ValueError:
                 params = [0, 0, 0, 0, 0, 0, 0, 0]
-            
             self.parent.end_event(self.scan_currs, self.scan_waves, self.scan_rs, self.scan_times, params)
             self.scan_currs = []
             self.scan_waves = []
@@ -224,13 +227,20 @@ class RunTab(QWidget):
                 self.waves.pop(0)
                 self.rs.pop(0)
                 self.times.pop(0)
-            self.update_plot()        
+            self.update_run_plot()        
         
-    def update_plot(self):
+    def update_run_plot(self):
         '''Update plots with new data
         '''
         #print(self.scan_waves, self.scan_rs)
         self.run_plot.setData(self.times, self.rs)
+        
+    def update_scan_plot(self):
+        '''Update plots with new data
+        '''
+        #print(self.scan_waves, self.scan_rs)
+        self.peak_plot.setData(self.scan_currs, self.scan_rs)
+        self.fit_plot.setData(self.scan_currs, self.fit)
 
     def finish_scans(self):
         #self.scan_button.setEnabled(True)

@@ -146,6 +146,7 @@ class MainWindow(QMainWindow):
         self.eventfile_lines += 1
         if self.eventfile_lines > 1000:            # open new eventfile once the current one has a number of entries
             self.new_eventfile()
+        self.run_tab.update_scan_plot()    
         self.previous_event.print_event(self.eventfile)    
         
     def new_eventfile(self):
@@ -212,10 +213,11 @@ class Event():
     def fit_scan(self, pars):
         '''Fit Scan data with linear and two gaussians, using starting params passed'''
         
-        X = np.array(self.scan_currs)
-        pf, pcov = optimize.curve_fit(self.peaks, X, p0 = pars)
-        pstd = np.sqrt(np.diag(pcov))
-        fit = self.peaks(freqs, *pf)
+        X = np.array(self.currs)
+        Y = np.array(self.rs)
+        self.pf, self.pcov = optimize.curve_fit(self.peaks, X, Y, p0 = pars)
+        self.pstd = np.sqrt(np.diag(self.pcov))
+        self.fit = self.peaks(self.scan_rs, *self.pf)
         
     def peaks(self, x, *p): 
         g1 = p[2]*np.exp(-np.power((x-p[0]),2)/(2*np.power(p[1],2)))
@@ -261,7 +263,7 @@ class AnalThread(QThread):
         
     def run(self):
         '''Main scan loop
-        '''         
+        '''               
         self.event.fit_scan(self.params)
         self.finished.emit()
   
