@@ -9,6 +9,7 @@ import os
 import yaml
 import pytz
 import logging
+import json
 from PyQt5.QtWidgets import QMainWindow, QErrorMessage, QTabWidget, QLabel, QWidget, QLineEdit 
 from PyQt5.QtGui import QIntValidator, QDoubleValidator, QValidator
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
@@ -218,7 +219,6 @@ class Event():
         self.pf, self.pcov = optimize.curve_fit(self.peaks, X, Y, p0 = pars)
         self.pstd = np.sqrt(np.diag(self.pcov))
         self.fit = self.peaks(X, *self.pf)
-        print(self.fit)
         
     def peaks(self, x, *p): 
         g1 = p[2]*np.exp(-np.power((x-p[0]),2)/(2*np.power(p[1],2)))

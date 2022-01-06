@@ -21,7 +21,7 @@ class RunTab(QWidget):
         # pyqtgrph styles        
         pg.setConfigOptions(antialias=True)
         self.run_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
-        self.peak_pen = pg.mkPen(color=(0, 250, 0), width=1.5)
+        self.peak_pen = pg.mkPen(color=(0, 250, 0), width=3)
         self.fit_pen = pg.mkPen(color=(0, 0, 250), width=1.5)
         pg.setConfigOption('background', 'w')
         pg.setConfigOption('foreground', 'k')
@@ -74,7 +74,7 @@ class RunTab(QWidget):
         
         
         # Populate Analysis box
-        self.anal_box = QGroupBox('Analysis Settings')
+        self.anal_box = QGroupBox('Fit Settings')
         self.anal_box.setLayout(QGridLayout())
         self.left.addWidget(self.anal_box)
         
@@ -117,7 +117,22 @@ class RunTab(QWidget):
         self.anal_box.layout().addWidget(self.slope_edit, 3, 1)
         self.int_edit =  QLineEdit()
         self.int_edit.setPlaceholderText("Intercept")
-        self.anal_box.layout().addWidget(self.int_edit, 3, 2)        
+        self.anal_box.layout().addWidget(self.int_edit, 3, 2)       
+
+
+        # Populate Analysis box
+        self.res_box = QGroupBox('Results')
+        self.res_box.setLayout(QGridLayout())
+        self.left.addWidget(self.res_box)     
+
+        # self.params_label = QLabel('Result Parameters:')
+        # self.res_box.layout().addWidget(self.params_label , 0, 0)
+        # self.results_labels = []
+        # for i in range(8):
+            # self.results_labels.append(QLabel(''))
+            # print(int((i+1)/3), i - 3*int((i+1)/3) + 1)
+            # self.res_box.layout().addWidget(self.results_labels[i] , int((i+1)/3), i - 3*int((i+1)/3) + 1)
+            
         
         
         self.right = QVBoxLayout()     # right part of main layout
@@ -241,6 +256,16 @@ class RunTab(QWidget):
         #print(self.scan_waves, self.scan_rs)
         self.peak_plot.setData(self.parent.previous_event.currs, self.parent.previous_event.rs)
         self.fit_plot.setData(self.parent.previous_event.currs, self.parent.previous_event.fit)
+        #for i, label in enumerate(self.results_labels):
+        #   label.setText(f"{self.parent.previous_event.pf[i]:.3f}")
+        self.g1_pos_edit.setText(f"{self.parent.previous_event.pf[0]:.3f}")
+        self.g1_sig_edit.setText(f"{self.parent.previous_event.pf[1]:.3f}")
+        self.g1_hei_edit.setText(f"{self.parent.previous_event.pf[2]:.3f}")
+        self.g2_pos_edit.setText(f"{self.parent.previous_event.pf[3]:.3f}")
+        self.g2_sig_edit.setText(f"{self.parent.previous_event.pf[4]:.3f}")
+        self.g2_hei_edit.setText(f"{self.parent.previous_event.pf[5]:.3f}")
+        self.slope_edit.setText(f"{self.parent.previous_event.pf[6]:.3f}")
+        self.int_edit.setText(f"{self.parent.previous_event.pf[7]:.3f}")
 
     def finish_scans(self):
         #self.scan_button.setEnabled(True)
