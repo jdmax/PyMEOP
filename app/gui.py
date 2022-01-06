@@ -205,10 +205,10 @@ class Event():
         self.start_time =  datetime.datetime.now(tz=datetime.timezone.utc)        
         self.start_stamp = self.start_time.timestamp()
         
-        self.scan_currs = []
-        self.scan_waves = []
-        self.scan_rs = []
-        self.scan_time = []
+        self.currs = []
+        self.waves = []
+        self.rs = []
+        self.times = []
         
     def fit_scan(self, pars):
         '''Fit Scan data with linear and two gaussians, using starting params passed'''
@@ -217,7 +217,8 @@ class Event():
         Y = np.array(self.rs)
         self.pf, self.pcov = optimize.curve_fit(self.peaks, X, Y, p0 = pars)
         self.pstd = np.sqrt(np.diag(self.pcov))
-        self.fit = self.peaks(self.scan_rs, *self.pf)
+        self.fit = self.peaks(X, *self.pf)
+        print(self.fit)
         
     def peaks(self, x, *p): 
         g1 = p[2]*np.exp(-np.power((x-p[0]),2)/(2*np.power(p[1],2)))

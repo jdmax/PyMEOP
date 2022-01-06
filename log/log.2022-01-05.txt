@@ -1,0 +1,115 @@
+2022-01-04 13:17:20 Loaded config file
+2022-01-04 13:17:47 Loaded config file
+2022-01-04 13:23:19 Loaded config file
+2022-01-04 13:23:19 Error closing eventfile.
+2022-01-04 13:23:19 Opened new eventfile data\current_2022-01-04_18-23-19.txt
+2022-01-04 14:36:56 Loaded config file
+2022-01-04 14:36:56 Error closing eventfile.
+2022-01-04 14:36:56 Opened new eventfile data\current_2022-01-04_19-36-56.txt
+2022-01-04 15:13:51 Loaded config file
+2022-01-04 15:13:51 Error closing eventfile.
+2022-01-04 15:13:51 Opened new eventfile data\current_2022-01-04_20-13-51.txt
+2022-01-04 15:14:42 Loaded config file
+2022-01-04 15:14:42 Error closing eventfile.
+2022-01-04 15:14:42 Opened new eventfile data\current_2022-01-04_20-14-42.txt
+2022-01-04 15:18:22 Loaded config file
+2022-01-04 15:18:23 Error closing eventfile.
+2022-01-04 15:18:23 Opened new eventfile data\current_2022-01-04_20-18-23.txt
+2022-01-04 15:21:01 Loaded config file
+2022-01-04 15:21:53 Loaded config file
+2022-01-04 15:22:04 Loaded config file
+2022-01-04 15:23:34 Loaded config file
+2022-01-04 15:23:35 Error closing eventfile.
+2022-01-04 15:23:35 Opened new eventfile data\current_2022-01-04_20-23-35.txt
+2022-01-04 15:59:19 Loaded config file
+2022-01-04 15:59:19 Error closing eventfile.
+2022-01-04 15:59:19 Opened new eventfile data\current_2022-01-04_20-59-19.txt
+2022-01-04 16:00:13 Loaded config file
+2022-01-04 16:00:13 Error closing eventfile.
+2022-01-04 16:00:13 Opened new eventfile data\current_2022-01-04_21-00-13.txt
+2022-01-04 16:01:04 Loaded config file
+2022-01-04 16:01:05 Error closing eventfile.
+2022-01-04 16:01:05 Opened new eventfile data\current_2022-01-04_21-01-05.txt
+2022-01-04 16:01:27 Loaded config file
+2022-01-04 16:01:27 Error closing eventfile.
+2022-01-04 16:01:27 Opened new eventfile data\current_2022-01-04_21-01-27.txt
+2022-01-04 16:02:50 Loaded config file
+2022-01-04 16:03:06 Loaded config file
+2022-01-04 16:03:06 Error closing eventfile.
+2022-01-04 16:03:06 Opened new eventfile data\current_2022-01-04_21-03-06.txt
+2022-01-04 16:04:41 Loaded config file
+2022-01-04 16:04:47 Loaded config file
+2022-01-04 16:04:48 Error closing eventfile.
+2022-01-04 16:04:48 Opened new eventfile data\current_2022-01-04_21-04-48.txt
+2022-01-04 16:05:35 Loaded config file
+2022-01-04 16:05:35 Error closing eventfile.
+2022-01-04 16:05:35 Opened new eventfile data\current_2022-01-04_21-05-35.txt
+2022-01-05 11:02:43 Loaded config file
+2022-01-05 11:02:44 Error closing eventfile.
+2022-01-05 11:02:44 Opened new eventfile data\current_2022-01-05_16-02-44.txt
+2022-01-05 11:10:48 Loaded config file
+2022-01-05 11:10:49 Error closing eventfile.
+2022-01-05 11:10:49 Opened new eventfile data\current_2022-01-05_16-10-49.txt
+2022-01-05 11:13:02 Loaded config file
+2022-01-05 11:13:03 Error closing eventfile.
+2022-01-05 11:13:03 Opened new eventfile data\current_2022-01-05_16-13-03.txt
+2022-01-05 11:13:41 Loaded config file
+2022-01-05 11:13:41 Error closing eventfile.
+2022-01-05 11:13:41 Opened new eventfile data\current_2022-01-05_16-13-41.txt
+2022-01-05 11:14:08 Loaded config file
+2022-01-05 11:14:09 Error closing eventfile.
+2022-01-05 11:14:09 Opened new eventfile data\current_2022-01-05_16-14-09.txt
+2022-01-05 11:17:07 Loaded config file
+2022-01-05 11:17:07 Error closing eventfile.
+2022-01-05 11:17:07 Opened new eventfile data\current_2022-01-05_16-17-07.txt
+2022-01-05 11:17:49 Loaded config file
+2022-01-05 11:17:50 Error closing eventfile.
+2022-01-05 11:17:50 Opened new eventfile data\current_2022-01-05_16-17-50.txt
+2022-01-05 11:23:18 Loaded config file
+2022-01-05 11:23:19 Error closing eventfile.
+2022-01-05 11:23:19 Opened new eventfile data\current_2022-01-05_16-23-19.txt
+2022-01-05 11:24:06 Loaded config file
+2022-01-05 11:24:07 Error closing eventfile.
+2022-01-05 11:24:07 Opened new eventfile data\current_2022-01-05_16-24-07.txt
+2022-01-05 11:25:42 Loaded config file
+2022-01-05 11:25:42 Error closing eventfile.
+2022-01-05 11:25:42 Opened new eventfile data\current_2022-01-05_16-25-42.txt
+2022-01-05 11:26:39 Loaded config file
+2022-01-05 11:26:39 Error closing eventfile.
+2022-01-05 11:26:39 Opened new eventfile data\current_2022-01-05_16-26-39.txt
+2022-01-05 11:27:50 Loaded config file
+2022-01-05 11:27:51 Error closing eventfile.
+2022-01-05 11:27:51 Opened new eventfile data\current_2022-01-05_16-27-51.txt
+2022-01-05 11:30:49 Loaded config file
+2022-01-05 11:30:50 Error closing eventfile.
+2022-01-05 11:30:50 Opened new eventfile data\current_2022-01-05_16-30-50.txt
+2022-01-05 15:31:08 Loaded config file
+2022-01-05 15:31:09 Error closing eventfile.
+2022-01-05 15:31:09 Opened new eventfile data\current_2022-01-05_20-31-09.txt
+2022-01-05 15:33:22 Loaded config file
+2022-01-05 15:33:22 Error closing eventfile.
+2022-01-05 15:33:22 Opened new eventfile data\current_2022-01-05_20-33-22.txt
+2022-01-05 15:34:41 Loaded config file
+2022-01-05 15:34:41 Error closing eventfile.
+2022-01-05 15:34:41 Opened new eventfile data\current_2022-01-05_20-34-41.txt
+2022-01-05 15:36:15 Loaded config file
+2022-01-05 15:36:16 Error closing eventfile.
+2022-01-05 15:36:16 Opened new eventfile data\current_2022-01-05_20-36-16.txt
+2022-01-05 15:37:15 Loaded config file
+2022-01-05 15:37:15 Error closing eventfile.
+2022-01-05 15:37:15 Opened new eventfile data\current_2022-01-05_20-37-15.txt
+2022-01-05 15:37:52 Loaded config file
+2022-01-05 15:37:52 Error closing eventfile.
+2022-01-05 15:37:52 Opened new eventfile data\current_2022-01-05_20-37-52.txt
+2022-01-05 15:38:25 Loaded config file
+2022-01-05 15:38:26 Error closing eventfile.
+2022-01-05 15:38:26 Opened new eventfile data\current_2022-01-05_20-38-26.txt
+2022-01-05 15:39:07 Loaded config file
+2022-01-05 15:39:07 Error closing eventfile.
+2022-01-05 15:39:08 Opened new eventfile data\current_2022-01-05_20-39-07.txt
+2022-01-05 15:39:53 Loaded config file
+2022-01-05 15:39:53 Error closing eventfile.
+2022-01-05 15:39:53 Opened new eventfile data\current_2022-01-05_20-39-53.txt
+2022-01-05 15:40:38 Loaded config file
+2022-01-05 15:40:38 Error closing eventfile.
+2022-01-05 15:40:38 Opened new eventfile data\current_2022-01-05_20-40-38.txt

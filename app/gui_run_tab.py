@@ -239,14 +239,13 @@ class RunTab(QWidget):
         '''Update plots with new data
         '''
         #print(self.scan_waves, self.scan_rs)
-        self.peak_plot.setData(self.scan_currs, self.scan_rs)
-        self.fit_plot.setData(self.scan_currs, self.fit)
+        self.peak_plot.setData(self.parent.previous_event.currs, self.parent.previous_event.rs)
+        self.fit_plot.setData(self.parent.previous_event.currs, self.parent.previous_event.fit)
 
     def finish_scans(self):
         #self.scan_button.setEnabled(True)
         self.scan_button.setText("Run Scan")
         self.scan_button.setEnabled(True)
-        self.scan_button.toggle()
 
         
 class RunThread(QThread):
