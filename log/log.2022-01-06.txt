@@ -1,0 +1,103 @@
+2022-01-06 11:29:28 Loaded config file
+2022-01-06 11:29:29 Error closing eventfile.
+2022-01-06 11:29:29 Opened new eventfile data\current_2022-01-06_16-29-29.txt
+2022-01-06 11:32:25 Loaded config file
+2022-01-06 11:32:25 Error closing eventfile.
+2022-01-06 11:32:25 Opened new eventfile data\current_2022-01-06_16-32-25.txt
+2022-01-06 11:35:18 Loaded config file
+2022-01-06 11:35:18 Error closing eventfile.
+2022-01-06 11:35:18 Opened new eventfile data\current_2022-01-06_16-35-18.txt
+2022-01-06 11:37:03 Loaded config file
+2022-01-06 11:37:03 Error closing eventfile.
+2022-01-06 11:37:03 Opened new eventfile data\current_2022-01-06_16-37-03.txt
+2022-01-06 11:38:24 Loaded config file
+2022-01-06 11:38:25 Error closing eventfile.
+2022-01-06 11:38:25 Opened new eventfile data\current_2022-01-06_16-38-25.txt
+2022-01-06 11:39:07 Loaded config file
+2022-01-06 11:39:07 Error closing eventfile.
+2022-01-06 11:39:07 Opened new eventfile data\current_2022-01-06_16-39-07.txt
+2022-01-06 11:40:00 Loaded config file
+2022-01-06 11:40:00 Error closing eventfile.
+2022-01-06 11:40:00 Opened new eventfile data\current_2022-01-06_16-40-00.txt
+2022-01-06 11:40:07 Loaded config file
+2022-01-06 11:40:08 Error closing eventfile.
+2022-01-06 11:40:08 Opened new eventfile data\current_2022-01-06_16-40-08.txt
+2022-01-06 11:46:02 Loaded config file
+2022-01-06 11:46:02 Error closing eventfile.
+2022-01-06 11:46:02 Opened new eventfile data\current_2022-01-06_16-46-02.txt
+2022-01-06 11:47:32 Loaded config file
+2022-01-06 11:47:32 Error closing eventfile.
+2022-01-06 11:47:32 Opened new eventfile data\current_2022-01-06_16-47-32.txt
+2022-01-06 11:49:15 Loaded config file
+2022-01-06 11:49:16 Error closing eventfile.
+2022-01-06 11:49:16 Opened new eventfile data\current_2022-01-06_16-49-16.txt
+2022-01-06 11:50:55 Loaded config file
+2022-01-06 11:50:55 Error closing eventfile.
+2022-01-06 11:50:55 Opened new eventfile data\current_2022-01-06_16-50-55.txt
+2022-01-06 11:51:27 Loaded config file
+2022-01-06 11:51:28 Error closing eventfile.
+2022-01-06 11:51:28 Opened new eventfile data\current_2022-01-06_16-51-28.txt
+2022-01-06 11:52:09 Loaded config file
+2022-01-06 11:52:10 Error closing eventfile.
+2022-01-06 11:52:10 Opened new eventfile data\current_2022-01-06_16-52-10.txt
+2022-01-06 11:54:19 Loaded config file
+2022-01-06 11:54:19 Error closing eventfile.
+2022-01-06 11:54:19 Opened new eventfile data\current_2022-01-06_16-54-19.txt
+2022-01-06 11:54:54 Loaded config file
+2022-01-06 11:54:54 Error closing eventfile.
+2022-01-06 11:54:54 Opened new eventfile data\current_2022-01-06_16-54-54.txt
+2022-01-06 11:56:43 Loaded config file
+2022-01-06 11:56:43 Error closing eventfile.
+2022-01-06 11:56:43 Opened new eventfile data\current_2022-01-06_16-56-43.txt
+2022-01-06 11:58:06 Loaded config file
+2022-01-06 11:58:07 Error closing eventfile.
+2022-01-06 11:58:07 Opened new eventfile data\current_2022-01-06_16-58-07.txt
+2022-01-06 12:54:48 Loaded config file
+2022-01-06 12:54:48 Error closing eventfile.
+2022-01-06 12:54:48 Opened new eventfile data\current_2022-01-06_17-54-48.txt
+2022-01-06 13:04:56 Loaded config file
+2022-01-06 13:04:57 Error closing eventfile.
+2022-01-06 13:04:57 Opened new eventfile data\current_2022-01-06_18-04-57.txt
+2022-01-06 13:13:21 Loaded config file
+2022-01-06 13:13:22 Error closing eventfile.
+2022-01-06 13:13:22 Opened new eventfile data\current_2022-01-06_18-13-22.txt
+2022-01-06 13:14:22 Loaded config file
+2022-01-06 13:14:22 Error closing eventfile.
+2022-01-06 13:14:22 Opened new eventfile data\current_2022-01-06_18-14-22.txt
+2022-01-06 13:15:25 Loaded config file
+2022-01-06 13:15:25 Error closing eventfile.
+2022-01-06 13:15:25 Opened new eventfile data\current_2022-01-06_18-15-25.txt
+2022-01-06 13:21:28 Loaded config file
+2022-01-06 13:22:22 Loaded config file
+2022-01-06 13:22:39 Loaded config file
+2022-01-06 13:22:40 Error closing eventfile.
+2022-01-06 13:22:40 Opened new eventfile data\current_2022-01-06_18-22-40.txt
+2022-01-06 13:23:21 Loaded config file
+2022-01-06 13:23:21 Error closing eventfile.
+2022-01-06 13:23:21 Opened new eventfile data\current_2022-01-06_18-23-21.txt
+2022-01-06 13:24:26 Loaded config file
+2022-01-06 13:24:27 Error closing eventfile.
+2022-01-06 13:24:27 Opened new eventfile data\current_2022-01-06_18-24-27.txt
+2022-01-06 13:26:41 Loaded config file
+2022-01-06 13:27:02 Loaded config file
+2022-01-06 13:27:14 Loaded config file
+2022-01-06 13:27:15 Error closing eventfile.
+2022-01-06 13:27:15 Opened new eventfile data\current_2022-01-06_18-27-15.txt
+2022-01-06 13:28:34 Loaded config file
+2022-01-06 13:28:34 Error closing eventfile.
+2022-01-06 13:28:34 Opened new eventfile data\current_2022-01-06_18-28-34.txt
+2022-01-06 13:30:58 Loaded config file
+2022-01-06 13:30:58 Error closing eventfile.
+2022-01-06 13:30:58 Opened new eventfile data\current_2022-01-06_18-30-58.txt
+2022-01-06 13:32:18 Loaded config file
+2022-01-06 13:32:19 Error closing eventfile.
+2022-01-06 13:32:19 Opened new eventfile data\current_2022-01-06_18-32-19.txt
+2022-01-06 13:32:40 Loaded config file
+2022-01-06 13:32:40 Error closing eventfile.
+2022-01-06 13:32:40 Opened new eventfile data\current_2022-01-06_18-32-40.txt
+2022-01-06 13:37:12 Loaded config file
+2022-01-06 13:37:12 Error closing eventfile.
+2022-01-06 13:37:12 Opened new eventfile data\current_2022-01-06_18-37-12.txt
+2022-01-06 13:42:11 Loaded config file
+2022-01-06 13:42:11 Error closing eventfile.
+2022-01-06 13:42:11 Opened new eventfile data\current_2022-01-06_18-42-11.txt

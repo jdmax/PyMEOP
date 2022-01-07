@@ -23,6 +23,7 @@ class RunTab(QWidget):
         self.run_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
         self.peak_pen = pg.mkPen(color=(0, 250, 0), width=3)
         self.fit_pen = pg.mkPen(color=(0, 0, 250), width=1.5)
+        self.pol_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
         pg.setConfigOption('background', 'w')
         pg.setConfigOption('foreground', 'k')
         
@@ -35,6 +36,8 @@ class RunTab(QWidget):
         self.waves = []
         self.rs = []
         self.times = []
+        
+        self.pol_hist = {}    # polarization history keyed on stop timestamp
         
         
         # Populate Run Tab
@@ -120,10 +123,50 @@ class RunTab(QWidget):
         self.anal_box.layout().addWidget(self.int_edit, 3, 2)       
 
 
-        # Populate Analysis box
+        # Populate Results box
         self.res_box = QGroupBox('Results')
-        self.res_box.setLayout(QGridLayout())
+        self.res_box.setLayout(QVBoxLayout())
         self.left.addWidget(self.res_box)     
+        
+        self.peaks_layout = QGridLayout()
+        self.res_box.layout().addLayout(self.peaks_layout)
+        self.peaks_label = QLabel("Peak Amplitudes:")
+        self.peaks_layout.addWidget(self.peaks_label, 0, 0)
+        self.peak1_edit = QLineEdit()
+        self.peak1_edit.setEnabled(False)
+        self.peaks_layout.addWidget(self.peak1_edit, 0, 1)
+        self.peak2_edit = QLineEdit()
+        self.peak2_edit.setEnabled(False)
+        self.peaks_layout.addWidget(self.peak2_edit, 0, 2)
+        
+        
+        self.res_box.layout().addWidget(self.parent.divider())
+        
+        self.zero_layout = QGridLayout()
+        self.res_box.layout().addLayout(self.zero_layout)
+        self.zero_label = QLabel("Zero Amplitudes:")
+        self.zero_layout.addWidget(self.zero_label, 0, 0)
+        self.zero1_edit = QLineEdit()
+        self.zero1_edit.setEnabled(False)
+        self.zero_layout.addWidget(self.zero1_edit, 0, 1)
+        self.zero2_edit = QLineEdit()
+        self.zero2_edit.setEnabled(False)
+        self.zero_layout.addWidget(self.zero2_edit, 0, 2)
+        
+        self.zero_button = QPushButton("Set Current as Zero")      
+        self.zero_layout.addWidget(self.zero_button, 1, 2)
+        self.zero_button.clicked.connect(self.zero_pushed)
+        
+        self.res_box.layout().addWidget(self.parent.divider())
+        
+        self.pol_layout = QGridLayout()
+        self.res_box.layout().addLayout(self.pol_layout)
+        self.pol_label = QLabel("Polarization:")
+        self.pol_layout.addWidget(self.pol_label, 0, 0)
+        self.pol_value = QLabel()
+        self.pol_value.setStyleSheet("font:30pt")
+        self.pol_layout.addWidget(self.pol_value, 0, 1)
+        
 
         # self.params_label = QLabel('Result Parameters:')
         # self.res_box.layout().addWidget(self.params_label , 0, 0)
@@ -155,9 +198,14 @@ class RunTab(QWidget):
         self.fit_plot = self.peak_wid.plot([], [], pen=self.fit_pen)   
         self.right.addWidget(self.peak_wid) 
         
-        self.pol_wid = pg.PlotWidget(title='Polarization')
+        self.pol_wid = pg.PlotWidget()
+        self.time2_axis = pg.DateAxisItem(orientation='bottom')
+        self.pol_wid = pg.PlotWidget(
+            title='Polarization (%)', axisItems={'bottom': self.time2_axis}
+        )
         self.pol_wid.showGrid(True,True)
         self.pol_wid.addLegend(offset=(0.5, 0))
+        self.pol_plot = self.pol_wid.plot([], [], pen=self.peak_pen)   
         self.right.addWidget(self.pol_wid)
 
     def run_pushed(self):
@@ -251,28 +299,43 @@ class RunTab(QWidget):
         self.run_plot.setData(self.times, self.rs)
         
     def update_scan_plot(self):
-        '''Update plots with new data
+        '''Update tab with new data
         '''
-        #print(self.scan_waves, self.scan_rs)
+        self.pol_hist[self.parent.previous_event.stop_stamp] = self.parent.previous_event.pol*100
+        time_list = list(self.pol_hist.keys())
+        pol_list = [self.pol_hist[k] for k in self.pol_hist.keys()]
+        
         self.peak_plot.setData(self.parent.previous_event.currs, self.parent.previous_event.rs)
         self.fit_plot.setData(self.parent.previous_event.currs, self.parent.previous_event.fit)
-        #for i, label in enumerate(self.results_labels):
-        #   label.setText(f"{self.parent.previous_event.pf[i]:.3f}")
-        self.g1_pos_edit.setText(f"{self.parent.previous_event.pf[0]:.3f}")
-        self.g1_sig_edit.setText(f"{self.parent.previous_event.pf[1]:.3f}")
-        self.g1_hei_edit.setText(f"{self.parent.previous_event.pf[2]:.3f}")
-        self.g2_pos_edit.setText(f"{self.parent.previous_event.pf[3]:.3f}")
-        self.g2_sig_edit.setText(f"{self.parent.previous_event.pf[4]:.3f}")
-        self.g2_hei_edit.setText(f"{self.parent.previous_event.pf[5]:.3f}")
-        self.slope_edit.setText(f"{self.parent.previous_event.pf[6]:.3f}")
-        self.int_edit.setText(f"{self.parent.previous_event.pf[7]:.3f}")
+        self.pol_plot.setData(time_list, pol_list)
+                
+        self.g1_pos_edit.setText(f"{self.parent.previous_event.pf[0]:.4f}")
+        self.g1_sig_edit.setText(f"{self.parent.previous_event.pf[1]:.4f}")
+        self.g1_hei_edit.setText(f"{self.parent.previous_event.pf[2]:.4f}")
+        self.g2_pos_edit.setText(f"{self.parent.previous_event.pf[3]:.4f}")
+        self.g2_sig_edit.setText(f"{self.parent.previous_event.pf[4]:.4f}")
+        self.g2_hei_edit.setText(f"{self.parent.previous_event.pf[5]:.4f}")
+        self.slope_edit.setText(f"{self.parent.previous_event.pf[6]:.4f}")
+        self.int_edit.setText(f"{self.parent.previous_event.pf[7]:.4f}")
+        
+        self.peak1_edit.setText(f"{self.parent.previous_event.pf[2]:.4f}")
+        self.peak2_edit.setText(f"{self.parent.previous_event.pf[5]:.4f}")
+        
+        self.pol_value.setText(f"{self.parent.previous_event.pol*100:.2f}%")
 
     def finish_scans(self):
         #self.scan_button.setEnabled(True)
         self.scan_button.setText("Run Scan")
         self.scan_button.setEnabled(True)
-
         
+    def zero_pushed(self):
+        '''Set current peak amplitudes as zero'''
+        self.parent.event.p1_zero = float(self.peak1_edit.text())
+        self.parent.event.p2_zero = float(self.peak2_edit.text())   
+        self.zero1_edit.setText(self.peak1_edit.text())
+        self.zero2_edit.setText(self.peak2_edit.text())
+               
+               
 class RunThread(QThread):
     '''Thread class for running
     Args:
@@ -307,8 +370,8 @@ class RunThread(QThread):
                 time.sleep(self.parent.settings['curr_scan_wait'])
                 #wave = self.parent.parent.meter.read_wavelength(1)
                 wave = 0
-                x, y, r = self.parent.parent.lockin.read_all()
-                self.reply.emit((curr, wave, r, datetime.datetime.now(), 'running'))  
+                x, y, r = self.parent.parent.lockin.read_all() 
+                self.reply.emit((curr, wave, float(r)*1000, datetime.datetime.now(), 'running'))    # turning lock-in V to mV
                 
             self.scans += 1   
             self.reply.emit((0, 0, 0, datetime.datetime.now(), 'done'))    

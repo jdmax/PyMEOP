@@ -56,9 +56,11 @@ class MainWindow(QMainWindow):
         self.find_tab = FindTab(self)
         self.tab_widget.addTab(self.find_tab, "Find Peaks")
         
-        self.restore_session()        
-        self.event = Event(self)
+        self.restore_session()   
+        
+        self.new_event()
         self.new_eventfile()
+        
 
 		
         try:
@@ -211,6 +213,10 @@ class Event():
         self.rs = []
         self.times = []
         
+        self.p1_zero = float(parent.run_tab.zero1_edit.text())
+        self.p2_zero = float(parent.run_tab.zero2_edit.text())
+        
+        
     def fit_scan(self, pars):
         '''Fit Scan data with linear and two gaussians, using starting params passed'''
         
@@ -219,6 +225,12 @@ class Event():
         self.pf, self.pcov = optimize.curve_fit(self.peaks, X, Y, p0 = pars)
         self.pstd = np.sqrt(np.diag(self.pcov))
         self.fit = self.peaks(X, *self.pf)
+        self.peak1 = self.pf[2]
+        self.peak2 = self.pf[5]
+        
+        self.r = self.peak1/self.peak2     
+        self.r0 = self.p1_zero/self.p2_zero        
+        self.pol = (self.r/self.r0 - 1)/(self.r/self.r0 + 1)   
         
     def peaks(self, x, *p): 
         g1 = p[2]*np.exp(-np.power((x-p[0]),2)/(2*np.power(p[1],2)))
