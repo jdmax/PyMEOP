@@ -37,7 +37,7 @@ class FindTab(QWidget):
         self.scan_temp_box.setLayout(QGridLayout())
         self.left.addWidget(self.scan_temp_box)
         
-        self.temp_label = QLabel('Temperature Range:')
+        self.temp_label = QLabel('Temperature Range ('+u"\u00b0"+'C):')
         self.scan_temp_box.layout().addWidget(self.temp_label, 0, 0)
         self.temp_edit1 =  QLineEdit()
         self.scan_temp_box.layout().addWidget(self.temp_edit1, 0, 1)
@@ -47,7 +47,7 @@ class FindTab(QWidget):
         self.scan_temp_box.layout().addWidget(self.temp_step_label, 1, 0)
         self.step_temp_edit =  QLineEdit()
         self.scan_temp_box.layout().addWidget(self.step_temp_edit, 1, 1)
-        self.stat_curr_label = QLabel('Static Current:')
+        self.stat_curr_label = QLabel('Static Current (mA):')
         self.scan_temp_box.layout().addWidget(self.stat_curr_label, 2, 0)
         self.stat_curr_edit =  QLineEdit()
         self.scan_temp_box.layout().addWidget(self.stat_curr_edit, 2, 1)
@@ -61,7 +61,7 @@ class FindTab(QWidget):
         self.scan_curr_box.setLayout(QGridLayout())
         self.left.addWidget(self.scan_curr_box)
         
-        self.curr_label = QLabel('Current Range:')
+        self.curr_label = QLabel('Current Range (mA):')
         self.scan_curr_box.layout().addWidget(self.curr_label, 0, 0)
         self.curr_edit1 =  QLineEdit()
         self.scan_curr_box.layout().addWidget(self.curr_edit1, 0, 1)
@@ -71,7 +71,7 @@ class FindTab(QWidget):
         self.scan_curr_box.layout().addWidget(self.curr_step_label, 1, 0)
         self.step_curr_edit =  QLineEdit()
         self.scan_curr_box.layout().addWidget(self.step_curr_edit, 1, 1)
-        self.stat_temp_label = QLabel('Static Temperature:')
+        self.stat_temp_label = QLabel('Static Temperature ('+u"\u00b0"+'C):')
         self.scan_curr_box.layout().addWidget(self.stat_temp_label, 2, 0)
         self.stat_temp_edit =  QLineEdit()
         self.scan_curr_box.layout().addWidget(self.stat_temp_edit, 2, 1)
@@ -85,12 +85,12 @@ class FindTab(QWidget):
         self.main.addLayout(self.right)
         
         
-        self.scan_temp_wid = pg.PlotWidget(title='Temperature Scan')
+        self.scan_temp_wid = pg.PlotWidget(title='Grating Temperature Scan ('+u"\u00b0"+'C)')
         self.scan_temp_wid.showGrid(True,True)
         self.temp_plot = self.scan_temp_wid.plot([], [], pen=self.temp_pen) 
         self.right.addWidget(self.scan_temp_wid)
         
-        self.scan_curr_wid = pg.PlotWidget(title='Current Scan')
+        self.scan_curr_wid = pg.PlotWidget(title='Diode Current Scan (mA)')
         self.scan_curr_wid.showGrid(True,True)
         self.curr_plot = self.scan_curr_wid.plot([], [], pen=self.curr_pen) 
         self.right.addWidget(self.scan_curr_wid)

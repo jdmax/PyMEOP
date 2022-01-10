@@ -77,7 +77,7 @@ class RunTab(QWidget):
         
         
         # Populate Analysis box
-        self.anal_box = QGroupBox('Fit Settings')
+        self.anal_box = QGroupBox('Fit Parameters')
         self.anal_box.setLayout(QGridLayout())
         self.left.addWidget(self.anal_box)
         
@@ -367,7 +367,7 @@ class RunThread(QThread):
                 # if self.scans = 0:
                     # time.sleep(2)
                 # else:    
-                time.sleep(self.parent.settings['curr_scan_wait'])
+                time.sleep(self.parent.settings['scan_wait'])
                 #wave = self.parent.parent.meter.read_wavelength(1)
                 wave = 0
                 x, y, r = self.parent.parent.lockin.read_all() 
