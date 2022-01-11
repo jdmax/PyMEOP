@@ -220,7 +220,12 @@ class Event():
     def fit_scan(self, pars):
         '''Fit Scan data with linear and two gaussians, using starting params passed'''
         
-        X = np.array(self.currs)
+        if 'wave' in self.parent.settings['scan_x_axis']:
+            self.x_axis = self.waves
+        else:
+            self.x_axis = self.currs
+        
+        X = np.array(self.x_axis)
         Y = np.array(self.rs)
         self.pf, self.pcov = optimize.curve_fit(self.peaks, X, Y, p0 = pars)
         self.pstd = np.sqrt(np.diag(self.pcov))

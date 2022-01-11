@@ -243,8 +243,7 @@ class RunTab(QWidget):
         
         start = float(self.curr_lo_edit.text())
         stop = float(self.curr_up_edit.text())
-        step_size = (stop - start)/float(self.step_edit.text())
-        curr_list = np.arange(start, stop, step_size)
+        curr_list = np.linspace(start, stop, int(self.step_edit.text()))
         
         try:
             self.scan_thread = RunThread(self, curr_list, float(self.temp_edit.text()))
@@ -305,8 +304,8 @@ class RunTab(QWidget):
         time_list = list(self.pol_hist.keys())
         pol_list = [self.pol_hist[k] for k in self.pol_hist.keys()]
         
-        self.peak_plot.setData(self.parent.previous_event.currs, self.parent.previous_event.rs)
-        self.fit_plot.setData(self.parent.previous_event.currs, self.parent.previous_event.fit)
+        self.peak_plot.setData(self.parent.previous_event.x_axis, self.parent.previous_event.rs)
+        self.fit_plot.setData(self.parent.previous_event.x_axis, self.parent.previous_event.fit)
         self.pol_plot.setData(time_list, pol_list)
                 
         self.g1_pos_edit.setText(f"{self.parent.previous_event.pf[0]:.4f}")
@@ -359,23 +358,34 @@ class RunThread(QThread):
         '''Main scan loop
         '''         
         self.parent.parent.probe.set_temp(self.temp)
+        if self.parent.parent.settings['scan_wave']: self.parent.parent.meter.start_cont()
         start_time = datetime.datetime.now()
         while self.parent.scan_button.isChecked():
             list = self.list if (self.scans % 2 == 0) else self.reverse_list  # use reverse list on odd iterations
-            for curr in list:
+            for i, curr in enumerate(list):
                 self.parent.parent.probe.set_current(curr)
-                # if self.scans = 0:
-                    # time.sleep(2)
-                # else:    
-                time.sleep(self.parent.settings['scan_wait'])
-                #wave = self.parent.parent.meter.read_wavelength(1)
-                wave = 0
+                if i == 0 and self.scans == 0:
+                    time.sleep(0.5)
+                else:                 
+                    time.sleep(self.parent.settings['scan_wait'])
+                #time1 = datetime.datetime.now()
+                if self.parent.parent.settings['scan_wave']:
+                    wave = self.parent.parent.meter.read_wavelength(1)
+                else:
+                    wave = 0
+                #print("wave read time", datetime.datetime.now() - time1)
+                #time2 = datetime.datetime.now()
                 x, y, r = self.parent.parent.lockin.read_all() 
+                #print("lock read time", datetime.datetime.now() - time2)
+                #print("after lock", datetime.datetime.now() - time1)
+                #if i%20 == 0:    
+                #    print(f"point {i}:", curr, wave)
                 self.reply.emit((curr, wave, float(r)*1000, datetime.datetime.now(), 'running'))    # turning lock-in V to mV
                 
             self.scans += 1   
             self.reply.emit((0, 0, 0, datetime.datetime.now(), 'done'))    
                 
+        if self.parent.parent.settings['scan_wave']: self.parent.parent.meter.stop_cont()
         self.parent.parent.probe.set_current(self.list[0])
         self.finished.emit()
         

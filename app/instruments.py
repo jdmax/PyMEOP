@@ -84,13 +84,22 @@ class WavelengthMeter():
     def __del__(self):
         #self.tn.close()  
         pass
+        
+    def start_cont(self):
+        '''Start continuous measurements'''
+        self.tn.write(bytes(f"INIT:CONT 1\r", 'ascii'))
+        
+    def stop_cont(self):
+        '''Stop continuous measurements'''
+        self.tn.write(bytes(f"INIT:CONT 0\r", 'ascii')) 
+    
     def read_wavelength(self, channel):
         '''Arguments:
                 channel: 1 or 2 for pump or probe
             Returns wavelenth in nm    
                 
         '''
-        self.tn.write(bytes(f"READ:POW:WAV?\r", 'ascii'))
+        self.tn.write(bytes(f"FETC:POW:WAV?\r", 'ascii'))
         outp = self.tn.read_some().decode('ascii')
         return float(outp)*1e9      
 	

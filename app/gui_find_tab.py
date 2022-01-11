@@ -179,7 +179,8 @@ class FindTab(QWidget):
         '''Update plots with new data
         '''
         #print(self.scan_waves, self.scan_rs)
-        self.curr_plot.setData(self.scan_currs, self.scan_rs)
+        #self.curr_plot.setData(self.scan_currs, self.scan_rs)
+        self.curr_plot.setData(self.scan_waves, self.scan_rs)
 
     def done_curr_scan(self):
         self.start_curr_button.setEnabled(True)
@@ -208,6 +209,7 @@ class ScanThread(QThread):
         '''Main scan loop
         '''         
         first_time = True
+        self.parent.parent.meter.start_cont()
         for v in self.list:
             if 'temp' in self.type:
                 self.parent.parent.probe.set_current(self.static)
@@ -229,11 +231,12 @@ class ScanThread(QThread):
                     first_time = False
                 else:    
                     time.sleep(self.parent.settings['curr_scan_wait'])
-                #wave = self.parent.parent.meter.read_wavelength(1)
-                wave = 0
+                wave = self.parent.parent.meter.read_wavelength(1)
+                #wave = 0
                 x, y, r = self.parent.parent.lockin.read_all()
                 self.reply.emit((v, wave, r))      
   
+        self.parent.parent.meter.stop_cont()
         self.finished.emit()
 
         
