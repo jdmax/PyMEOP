@@ -11,7 +11,7 @@ def main():
     '''
     app = QtWidgets.QApplication([])
     #app.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling, True) #enable highdpi scaling
-    app.setApplicationName("JLab Polarization Display")
+    app.setApplicationName("MEOP Polarization Display")
     gui = MainWindow()
     gui.show()
     app.exec_()
