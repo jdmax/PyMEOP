@@ -20,7 +20,7 @@ from scipy import optimize
 from app.gui_run_tab import RunTab
 from app.gui_find_tab import FindTab
 from app.classes import Event
-from app.instruments import ProbeLaser, WavelengthMeter, LabJack, LockIn
+from app.instruments import ProbeLaser, WavelengthMeter, LabJack, LockIn, SigGen
 
 
 class MainWindow(QMainWindow):
@@ -73,13 +73,19 @@ class MainWindow(QMainWindow):
             self.meter = WavelengthMeter(self.settings)           
             self.status_bar.showMessage(f"Connected to wavelength meter at {self.settings['meter_ip']}")
         except Exception as e:
-            print(f"Unable to connect to meter at {self.settings['meter_ip']}, {e}")
+            print(f"Unable to connect to wavelngh meter at {self.settings['meter_ip']}, {e}")
                  
         try: 
             self.lockin = LockIn(self.settings)
             self.status_bar.showMessage(f"Connected to lock-in at {self.settings['lockin_ip']}")
         except Exception as e:
             print(f"Unable to connect to Lock In at {self.settings['lockin_ip']}, {e}")
+            
+        try: 
+            self.siggen = SigGen(self.settings)
+            self.status_bar.showMessage(f"Connected to signal generator at {self.settings['siggen_ip']}")
+        except Exception as e:
+            print(f"Unable to connect to Signal Generator at {self.settings['siggen_ip']}, {e}")
             
             
         # try: 
