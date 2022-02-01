@@ -172,7 +172,7 @@ class SigGen():
         
     def set_amp(self, amp):
         '''Set amplitude in volt peak to peak'''
-        self.tn.write(bytes(f"AMBR {amp} Vpp\r", 'ascii'))
+        self.tn.write(bytes(f"AMPR {amp} Vpp\r", 'ascii'))
         
 class LabJack():      
     '''Access LabJack device 
