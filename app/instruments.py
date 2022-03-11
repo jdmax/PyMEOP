@@ -76,7 +76,8 @@ class WavelengthMeter():
         try:
             self.tn = telnetlib.Telnet(self.ip, port=self.port, timeout=4)
             self.tn.write(bytes(f"MEAS:POW:WAV?\n", 'ascii'))
-            outp = self.tn.read_some().decode('ascii')   
+            outp = self.tn.read_some().decode('ascii')
+            
                         
         except Exception as e:
             print(f"Meter connection failed on {self.ip}: {e}")
@@ -153,14 +154,14 @@ class SigGen():
         '''Set initial settings'''
         
         self.tn.write(bytes(f"ENBL 0\r", 'ascii'))            # BNC output off
-        self.tn.write(bytes(f"AMPR 0.1 Vpp\r", 'ascii'))      # N output to 0.1 Vpp
-        self.tn.write(bytes(f"FREQ 12 MHz\r", 'ascii'))       # Freq start at 12 MHz
-        self.tn.write(bytes(f"ENBR 1\r", 'ascii'))            # N output on
-        self.tn.write(bytes(f"TYPE 0\r", 'ascii'))            # AM modulation
-        self.tn.write(bytes(f"ADEP 50.0\r", 'ascii'))         # Modulation to 50% depth
-        self.tn.write(bytes(f"MFNC 0\r", 'ascii'))            # Modulation is sine wave
-        self.tn.write(bytes(f"RATE 1 kHz\r", 'ascii'))        # Modulation to 1 kHz
-        self.tn.write(bytes(f"MODL 1\r", 'ascii'))            # Modulation ON           
+        #self.tn.write(bytes(f"AMPR 0.1 Vpp\r", 'ascii'))      # N output to 0.1 Vpp
+        #self.tn.write(bytes(f"FREQ 12 MHz\r", 'ascii'))       # Freq start at 12 MHz
+        #self.tn.write(bytes(f"ENBR 1\r", 'ascii'))            # N output on
+        #self.tn.write(bytes(f"TYPE 0\r", 'ascii'))            # AM modulation
+        #self.tn.write(bytes(f"ADEP 50.0\r", 'ascii'))         # Modulation to 50% depth
+        #self.tn.write(bytes(f"MFNC 0\r", 'ascii'))            # Modulation is sine wave
+        #self.tn.write(bytes(f"RATE 1 kHz\r", 'ascii'))        # Modulation to 1 kHz
+        #self.tn.write(bytes(f"MODL 1\r", 'ascii'))            # Modulation ON           
                 
     def __del__(self):
         #self.tn.close()  

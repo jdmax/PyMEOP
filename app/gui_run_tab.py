@@ -380,7 +380,7 @@ class RunThread(QThread):
                 #print("after lock", datetime.datetime.now() - time1)
                 #if i%20 == 0:    
                 #    print(f"point {i}:", curr, wave)
-                self.reply.emit((curr, wave, float(r)*1000, datetime.datetime.now(), 'running'))    # turning lock-in V to mV
+                self.reply.emit((curr, wave, float(x)*1000, datetime.datetime.now(), 'running'))    # turning lock-in V to mV
                 
             self.scans += 1   
             self.reply.emit((0, 0, 0, datetime.datetime.now(), 'done'))    

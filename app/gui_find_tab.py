@@ -85,7 +85,8 @@ class FindTab(QWidget):
         self.main.addLayout(self.right)
         
         
-        self.scan_temp_wid = pg.PlotWidget(title='Grating Temperature Scan ('+u"\u00b0"+'C)')
+        #self.scan_temp_wid = pg.PlotWidget(title='Grating Temperature Scan ('+u"\u00b0"+'C)')
+        self.scan_temp_wid = pg.PlotWidget(title='Grating Temperature Scan (nm)')
         self.scan_temp_wid.showGrid(True,True)
         self.temp_plot = self.scan_temp_wid.plot([], [], pen=self.temp_pen) 
         self.right.addWidget(self.scan_temp_wid)
@@ -135,8 +136,9 @@ class FindTab(QWidget):
     def update_temp_plot(self):
         '''Update plots with new data
         '''
-        #print(self.scan_waves, self.scan_rs)
-        self.temp_plot.setData(self.scan_temps, self.scan_rs)
+        #print(, self.scan_rs)
+        #self.temp_plot.setData(self.scan_temps, self.scan_rs)
+        self.temp_plot.setData(self.scan_waves, self.scan_rs)
         
     def done_temp_scan(self):
         self.start_curr_button.setEnabled(True)
@@ -179,8 +181,8 @@ class FindTab(QWidget):
         '''Update plots with new data
         '''
         #print(self.scan_waves, self.scan_rs)
-        #self.curr_plot.setData(self.scan_currs, self.scan_rs)
-        self.curr_plot.setData(self.scan_waves, self.scan_rs)
+        self.curr_plot.setData(self.scan_currs, self.scan_rs)
+        #self.curr_plot.setData(self.scan_waves, self.scan_rs)
 
     def done_curr_scan(self):
         self.start_curr_button.setEnabled(True)
@@ -217,17 +219,22 @@ class ScanThread(QThread):
                 if first_time:
                     time.sleep(2)
                     first_time = False
+                    for i in range(10):
+                        wave = self.parent.parent.meter.read_wavelength(1)
+                        time.sleep(0.2)                 
+                    
                 else:    
                     time.sleep(self.parent.settings['temp_scan_wait'])
-                #wave = self.parent.parent.meter.read_wavelength(1)
-                wave = 0
+                wave = self.parent.parent.meter.read_wavelength(1)
+                #wave = 0
                 x, y, r = self.parent.parent.lockin.read_all()
                 self.reply.emit((v, wave, r))
             if 'curr' in self.type:
                 self.parent.parent.probe.set_temp(self.static)
                 self.parent.parent.probe.set_current(v)
+                self.parent.parent.meter.read_wavelength(1)
                 if first_time:
-                    time.sleep(2)
+                    time.sleep(4)
                     first_time = False
                 else:    
                     time.sleep(self.parent.settings['curr_scan_wait'])

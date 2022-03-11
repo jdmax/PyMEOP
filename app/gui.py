@@ -153,7 +153,7 @@ class MainWindow(QMainWindow):
     def finished_anal(self):
            
         self.eventfile_lines += 1
-        if self.eventfile_lines > 1000:            # open new eventfile once the current one has a number of entries
+        if self.eventfile_lines > 200:            # open new eventfile once the current one has a number of entries
             self.new_eventfile()
         self.run_tab.update_scan_plot()    
         self.previous_event.print_event(self.eventfile)    
