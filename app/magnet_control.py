@@ -1,6 +1,7 @@
 import serial
 from serial.tools.list_ports import comports
 import time
+import re
 
 
 class MagnetControl():
@@ -33,6 +34,54 @@ class MagnetControl():
             }
         self.fast_mode = ''    
         self.s = serial.Serial()
+        self.open_port()
+        self.current_regex = re.compile('(\d+.\d+)')   
+
+
+    def open_port(self):
+        '''Open serial connection'''
+        #port = "/dev/ttyUSB1"
+        self.port = 'COM11'
+        self.s=serial.Serial(self.port, baudrate=9600, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=0.1) 
+
+    def read_port(self):
+        '''Read from serial port until encounter space'''
+        message = ""
+        while True:
+            message1 = self.s.readline().decode("utf-8") 
+            message2 = self.s.readline().decode("utf-8")    
+            return message2
+
+    def write_port(self, string):
+        '''Write to serial'''
+        self.s.flushInput()
+        self.s.flushOutput()
+        self.s.write((string+"\n").encode())
+        
+    def read_current_mag(self):
+        self.write_port('IMAG?')
+        data = self.read_port()
+        m = self.current_regex.search(data)
+        return float(m.group())
+        
+    def read_current_pow(self):
+        self.write_port('IOUT?')
+        data = self.read_port()
+        m = self.current_regex.search(data)
+        return float(m.group())
+        
+    def set_llim(self, value):
+        self.write_port(f"LLIM {value}")
+        self.write_port(f"LLIM?")
+        data = self.read_port()
+        m = self.current_regex.search(data)
+        return float(m.group())
+    
+    def set_ulim(self, value):
+        self.write_port(f"ULIM {value}")
+    
+    
+    
     
     def fast(self, bool):
         '''Select fast for sweep mode'''
@@ -58,14 +107,10 @@ class MagnetControl():
     def set_port(self, port):
         self.port = port
     
-    def close_port (self):
+    def close_port(self):
         '''Close serial connection'''
         self.s.close()
         
-    def open_port (self):
-        '''Open serial connection'''
-        #port = "/dev/ttyUSB1"
-        self.s=serial.Serial(self.port, baudrate=9600, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_ONE, timeout=0.1) 
    
         if self.s.is_open:
             self.read_all()
@@ -76,19 +121,6 @@ class MagnetControl():
             self.write_port('LOCAL')
             self.s.close()
         
-    def write_port(self, string):
-        '''Write to serial'''
-        self.s.flushInput()
-        self.s.flushOutput()
-        self.s.write((string+"\n").encode())
-
-    def read_port(self):
-        '''Read from serial port until encounter space'''
-        message = ""
-        while True:
-            message1 = self.s.readline().decode("utf-8") 
-            message2 = self.s.readline().decode("utf-8")    
-            return message2
                   
     def read_all(self):
         '''Read all magnet parameters and write to instance state attribute'''
@@ -102,6 +134,9 @@ class MagnetControl():
       
         self.s.flushInput()
         self.s.flushOutput()  
+        
+        
+       
         
 
         
