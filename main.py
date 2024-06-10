@@ -4,7 +4,7 @@
 from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 from app.gui import MainWindow
-
+# If there is a wayland error on Ubuntu, install qtwayland5
 
 def main():
     '''Main executable calls main gui

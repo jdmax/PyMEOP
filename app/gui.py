@@ -20,7 +20,7 @@ from scipy import optimize
 from app.gui_run_tab import RunTab
 from app.gui_find_tab import FindTab
 from app.classes import Event
-from app.instruments import ProbeLaser, WavelengthMeter, LabJack, LockIn, SigGen
+from app.instruments import ProbeLaser, WavelengthMeter, LockIn, SigGen
 
 
 class MainWindow(QMainWindow):
