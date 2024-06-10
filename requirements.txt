@@ -1,0 +1,5 @@
+pytz~=2024.1
+numpy~=1.26.4
+PyQt5~=5.15.10
+pyqtgraph~=0.13.7
+pyserial~=3.5
