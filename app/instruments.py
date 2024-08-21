@@ -174,6 +174,25 @@ class SigGen():
     def set_amp(self, amp):
         '''Set amplitude in volt peak to peak'''
         self.tn.write(bytes(f"AMPR {amp} Vpp\r", 'ascii'))
+
+
+class Keopsys():
+    '''Controls for Keopsys pump laser'''
+
+    def __init__(self, settings):
+        '''Start connection over telnet'''
+        self.ip = settings['siggen_ip']
+        self.port = 5025
+
+        try:
+            self.tn = telnetlib.Telnet(self.ip, port=self.port, timeout=2)
+            outp = self.tn.read_until(bytes("\r", 'ascii'), 2).decode('ascii')
+
+        except Exception as e:
+            print(f"Signal generator connection failed on {self.ip}: {e}")
+
+        self.init_settings()
+
         
 # class LabJack():
 #     '''Access LabJack device

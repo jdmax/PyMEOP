@@ -92,33 +92,41 @@ class RunTab(QWidget):
         self.g1_label = QLabel("Gaussian 1:")
         self.anal_box.layout().addWidget(self.g1_label, 1, 0)
         self.g1_pos_edit =  QLineEdit()
+        self.g1_pos_edit.setEnabled(False)
         self.g1_pos_edit.setPlaceholderText("Position")
         self.anal_box.layout().addWidget(self.g1_pos_edit, 1, 1)
         self.g1_sig_edit =  QLineEdit()
+        self.g1_sig_edit.setEnabled(False)
         self.g1_sig_edit.setPlaceholderText("Sigma")
         self.anal_box.layout().addWidget(self.g1_sig_edit, 1, 2)
         self.g1_hei_edit =  QLineEdit()
+        self.g1_hei_edit.setEnabled(False)
         self.g1_hei_edit.setPlaceholderText("Height")
         self.anal_box.layout().addWidget(self.g1_hei_edit, 1, 3)        
         
         self.g2_label = QLabel("Gaussian 2:")
         self.anal_box.layout().addWidget(self.g2_label, 2, 0)
         self.g2_pos_edit =  QLineEdit()
+        self.g2_pos_edit.setEnabled(False)
         self.g2_pos_edit.setPlaceholderText("Position")
         self.anal_box.layout().addWidget(self.g2_pos_edit, 2, 1)
         self.g2_sig_edit =  QLineEdit()
+        self.g2_sig_edit.setEnabled(False)
         self.g2_sig_edit.setPlaceholderText("Sigma")
         self.anal_box.layout().addWidget(self.g2_sig_edit, 2, 2)
         self.g2_hei_edit =  QLineEdit()
+        self.g2_hei_edit.setEnabled(False)
         self.g2_hei_edit.setPlaceholderText("Height")
         self.anal_box.layout().addWidget(self.g2_hei_edit, 2, 3)        
         
         self.slope_label = QLabel("Linear:")
         self.anal_box.layout().addWidget(self.slope_label, 3, 0)
         self.slope_edit =  QLineEdit()
+        self.slope_edit.setEnabled(False)
         self.slope_edit.setPlaceholderText("Slope")
         self.anal_box.layout().addWidget(self.slope_edit, 3, 1)
         self.int_edit =  QLineEdit()
+        self.int_edit.setEnabled(False)
         self.int_edit.setPlaceholderText("Intercept")
         self.anal_box.layout().addWidget(self.int_edit, 3, 2)       
 
@@ -257,19 +265,26 @@ class RunTab(QWidget):
         '''Take emit from thread and add point to data        
         '''
         curr, wave, r, time, status = tup     
-        if 'done' in status:     # got last part of scan, rest and send to event
-        
+        if 'done' in status:     # got last part of scan, reset and send to event
             try:
-                params =  [float(self.g1_pos_edit.text()),
-                    float(self.g1_sig_edit.text()),
-                    float(self.g1_hei_edit.text()),
-                    float(self.g2_pos_edit.text()),
-                    float(self.g2_sig_edit.text()),
-                    float(self.g2_hei_edit.text()),
-                    float(self.slope_edit.text()),
-                    float(self.int_edit.text())]     
+                curr_max = self.currs.max()
+                curr_min = self.currs.min()
+                p0 = curr_min + (curr_max - curr_min)*0.333
+                p4 = curr_min + (curr_max - curr_min)*0.666
+                params =  [p0, 2, 1, p4, 2, 1, 0.1, 0.1]
             except ValueError:
                 params = [0, 0, 0, 0, 0, 0, 0, 0]
+            # try:
+            #     params =  [float(self.g1_pos_edit.text()),
+            #         float(self.g1_sig_edit.text()),
+            #         float(self.g1_hei_edit.text()),
+            #         float(self.g2_pos_edit.text()),
+            #         float(self.g2_sig_edit.text()),
+            #         float(self.g2_hei_edit.text()),
+            #         float(self.slope_edit.text()),
+            #         float(self.int_edit.text())]
+            # except ValueError:
+            #     params = [0, 0, 0, 0, 0, 0, 0, 0]
             self.parent.end_event(self.scan_currs, self.scan_waves, self.scan_rs, self.scan_times, params)
             self.scan_currs = []
             self.scan_waves = []
