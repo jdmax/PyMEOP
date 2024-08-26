@@ -33,8 +33,8 @@ class ProbeLaser():
         # self.tn.close()
         
     def read_current(self):
-        '''
-        '''
+        """
+        """
         self.tn.write(bytes(f"(param-disp 'laser1:dl:cc:current-set)\n", 'ascii'))
         outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
         return outp
@@ -55,14 +55,54 @@ class ProbeLaser():
         outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
         return outp
         
-    def set_temp(self, temp):
-        '''Arguments:
-                temp: float
-        '''
-        self.tn.write(bytes(f"(param-set! 'laser1:dl:tc:temp-set {temp})\n", 'ascii'))
-        outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
-        return outp
+    def config_scan(self, type, begin, end, mode, shape, speed):
+        """ Configure parameters for a wide-scan
+        Arguments:
+            type: STR: current or temp (mA or C)
+            begin: start value (mA or C)
+            end: stop value
+            mode: BOOL: true (#t) for continuous, false (#f) for one-shot
+            shape: INT: 0 for sawtooth, 1 for triangle
+            speed: rate in mA/s or K/s
+        """
+        try:
+            type_code = 56 if 'temp' in type else 63  # 56 is temp, 63 or current
+            self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:output-channel {type_code})\n", 'ascii'))
+            outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+            self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:scan-begin {begin})\n", 'ascii'))
+            outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+            self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:scan-end {end})\n", 'ascii'))
+            outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+            mode_str = "#t" if mode else "#f"
+            self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:continuous-mode {mode_str})\n", 'ascii'))
+            outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+            self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:shape {shape})\n", 'ascii'))
+            outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+            self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:speed {speed})\n", 'ascii'))
+            outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+            return True
+        except Exception as e:
+            print(f"Scan config failed: {e}")
+            return False
 
+
+    def start_scan(self):
+        """ Start wide scan
+        """
+        try:
+            self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:start)\n", 'ascii'))
+        except Exception as e:
+            print(f"Start scan failed: {e}")
+            return False
+
+    def stop_scan(self):
+        """ Start wide scan
+        """
+        try:
+            self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:stop)\n", 'ascii'))
+        except Exception as e:
+            print(f"Stop scan failed: {e}")
+            return False
 	        
 class WavelengthMeter():
     '''Access Wavelength meter'''
