@@ -154,10 +154,10 @@ class RunTab(QWidget):
         self.res_box.layout().addLayout(self.zero_layout)
         self.zero_label = QLabel("Zero Amplitudes:")
         self.zero_layout.addWidget(self.zero_label, 0, 0)
-        self.zero1_edit = QLineEdit()
+        self.zero1_edit = QLineEdit('0')
         self.zero1_edit.setEnabled(False)
         self.zero_layout.addWidget(self.zero1_edit, 0, 1)
-        self.zero2_edit = QLineEdit()
+        self.zero2_edit = QLineEdit('0')
         self.zero2_edit.setEnabled(False)
         self.zero_layout.addWidget(self.zero2_edit, 0, 2)
         

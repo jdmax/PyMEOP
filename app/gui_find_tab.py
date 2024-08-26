@@ -3,7 +3,8 @@
 import datetime
 import time
 import math
-from PyQt5.QtWidgets import QWidget, QLabel, QGroupBox, QHBoxLayout, QVBoxLayout, QGridLayout, QLineEdit, QSpacerItem, QSizePolicy, QComboBox, QPushButton, QProgressBar
+from PyQt5.QtWidgets import QWidget, QLabel, QGroupBox, QHBoxLayout, QVBoxLayout, QGridLayout, QLineEdit, QSpacerItem, \
+    QSizePolicy, QComboBox, QPushButton, QProgressBar, QCheckBox
 from PyQt5.QtGui import QIntValidator, QDoubleValidator, QValidator
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 import pyqtgraph as pg
@@ -32,53 +33,69 @@ class FindTab(QWidget):
         self.left = QVBoxLayout()     # left part of main layout
         self.main.addLayout(self.left)
 
-        # Find Temp peaks box
-        self.scan_temp_box = QGroupBox('Scan Temperature Peaks')
-        self.scan_temp_box.setLayout(QGridLayout())
-        self.left.addWidget(self.scan_temp_box)
-        
+        # Wide scan box
+        self.scan_wide_box = QGroupBox('Wide Spectrum Scan')
+        self.scan_wide_box.setLayout(QGridLayout())
+        self.left.addWidget(self.scan_wide_box)
+
+
+        self.wave_label = QLabel('Read Wavelength Meter?')
+        self.scan_wide_box.layout().addWidget(self.wave_label, 3, 0)
+        self.wave_check = QCheckBox()
+        self.wave_check.setChecked(False)
+        self.scan_wide_box.layout().addWidget(self.wave_check, 3, 1)
+        #self.wave_check.currentIndexChanged.connect(self.wave_check_changed)
+
         self.temp_label = QLabel('Temperature Range ('+u"\u00b0"+'C):')
-        self.scan_temp_box.layout().addWidget(self.temp_label, 0, 0)
+        self.scan_wide_box.layout().addWidget(self.temp_label, 0, 0)
         self.temp_edit1 =  QLineEdit()
-        self.scan_temp_box.layout().addWidget(self.temp_edit1, 0, 1)
+        self.scan_wide_box.layout().addWidget(self.temp_edit1, 0, 1)
         self.temp_edit2 =  QLineEdit()
-        self.scan_temp_box.layout().addWidget(self.temp_edit2, 0, 2)
-        self.temp_step_label = QLabel('Number of Steps:')
-        self.scan_temp_box.layout().addWidget(self.temp_step_label, 1, 0)
-        self.step_temp_edit =  QLineEdit()
-        self.scan_temp_box.layout().addWidget(self.step_temp_edit, 1, 1)
+        self.scan_wide_box.layout().addWidget(self.temp_edit2, 0, 2)
+        self.temp_step_label = QLabel('Scan Time:')
+        self.scan_wide_box.layout().addWidget(self.temp_step_label, 1, 0)
+        self.wide_time_edit =  QLineEdit()
+        self.scan_wide_box.layout().addWidget(self.wide_time_edit, 1, 1)
         self.stat_curr_label = QLabel('Static Current (mA):')
-        self.scan_temp_box.layout().addWidget(self.stat_curr_label, 2, 0)
-        self.stat_curr_edit =  QLineEdit()
-        self.scan_temp_box.layout().addWidget(self.stat_curr_edit, 2, 1)
+        self.scan_wide_box.layout().addWidget(self.stat_curr_label, 2, 0)
+        self.stat_wide_edit =  QLineEdit()
+        self.scan_wide_box.layout().addWidget(self.stat_wide_edit, 2, 1)
         
-        self.start_temp_button = QPushButton("Run Temperature Search")      
-        self.scan_temp_box.layout().addWidget(self.start_temp_button, 2, 2)
-        self.start_temp_button.clicked.connect(self.scan_temp_pushed)
+        self.start_wide_button = QPushButton("Run Wide Scan")
+        self.scan_wide_box.layout().addWidget(self.start_wide_button, 2, 2)
+        self.start_wide_button.clicked.connect(self.scan_wide_pushed)
         
         # Find current peaks box
-        self.scan_curr_box = QGroupBox('Scan Current Peaks')
-        self.scan_curr_box.setLayout(QGridLayout())
-        self.left.addWidget(self.scan_curr_box)
+        self.scan_fine_box = QGroupBox('Fine Peaks Scan')
+        self.scan_fine_box.setLayout(QGridLayout())
+        self.left.addWidget(self.scan_fine_box)
+
+        self.type_label = QLabel('Scan Type:')
+        self.scan_fine_box.layout().addWidget(self.type_label, 0, 0)
+        self.type_combo = QComboBox()
+        self.type_combo.addItems(['Temperature', 'Current'])
+        self.scan_fine_box.layout().addWidget(self.type_combo, 0, 1)
+        self.type_combo.currentIndexChanged.connect(self.type_combo_changed)
+        self.fine_scan_type = 'temp'
         
-        self.curr_label = QLabel('Current Range (mA):')
-        self.scan_curr_box.layout().addWidget(self.curr_label, 0, 0)
-        self.curr_edit1 =  QLineEdit()
-        self.scan_curr_box.layout().addWidget(self.curr_edit1, 0, 1)
-        self.curr_edit2 =  QLineEdit()
-        self.scan_curr_box.layout().addWidget(self.curr_edit2, 0, 2)
-        self.curr_step_label = QLabel('Number of Steps:')
-        self.scan_curr_box.layout().addWidget(self.curr_step_label, 1, 0)
-        self.step_curr_edit =  QLineEdit()
-        self.scan_curr_box.layout().addWidget(self.step_curr_edit, 1, 1)
-        self.stat_temp_label = QLabel('Static Temperature ('+u"\u00b0"+'C):')
-        self.scan_curr_box.layout().addWidget(self.stat_temp_label, 2, 0)
+        self.scan_label = QLabel('Temperature Range (' + u"\u00b0" + 'C):')
+        self.scan_fine_box.layout().addWidget(self.scan_label, 1, 0)
+        self.scan_edit1 =  QLineEdit()
+        self.scan_fine_box.layout().addWidget(self.scan_edit1, 1, 1)
+        self.scan_edit2 =  QLineEdit()
+        self.scan_fine_box.layout().addWidget(self.scan_edit2, 1, 2)
+        self.fine_step_label = QLabel('Scan Time:')
+        self.scan_fine_box.layout().addWidget(self.fine_step_label, 2, 0)
+        self.step_fine_edit =  QLineEdit()
+        self.scan_fine_box.layout().addWidget(self.step_fine_edit, 2, 1)
+        self.stat_temp_label = QLabel('Static Current (mA):')
+        self.scan_fine_box.layout().addWidget(self.stat_temp_label, 3, 0)
         self.stat_temp_edit =  QLineEdit()
-        self.scan_curr_box.layout().addWidget(self.stat_temp_edit, 2, 1)
+        self.scan_fine_box.layout().addWidget(self.stat_temp_edit, 3, 1)
         
-        self.start_curr_button = QPushButton("Run Current Search")      
-        self.scan_curr_box.layout().addWidget(self.start_curr_button, 2, 2)
-        self.start_curr_button.clicked.connect(self.scan_curr_pushed)
+        self.start_fine_button = QPushButton("Run Fine Scan")
+        self.scan_fine_box.layout().addWidget(self.start_fine_button, 3, 2)
+        self.start_fine_button.clicked.connect(self.scan_fine_pushed)
         
         
         self.right = QVBoxLayout()     # right part of main layout
@@ -86,38 +103,56 @@ class FindTab(QWidget):
         
         
         #self.scan_temp_wid = pg.PlotWidget(title='Grating Temperature Scan ('+u"\u00b0"+'C)')
-        self.scan_temp_wid = pg.PlotWidget(title='Grating Temperature Scan (nm)')
-        self.scan_temp_wid.showGrid(True,True)
-        self.temp_plot = self.scan_temp_wid.plot([], [], pen=self.temp_pen) 
-        self.right.addWidget(self.scan_temp_wid)
+        self.scan_wide_wid = pg.PlotWidget(title='Wide Scan')
+        self.scan_wide_wid.showGrid(True, True)
+        self.temp_plot = self.scan_wide_wid.plot([], [], pen=self.temp_pen)
+        self.right.addWidget(self.scan_wide_wid)
         
-        self.scan_curr_wid = pg.PlotWidget(title='Diode Current Scan (mA)')
-        self.scan_curr_wid.showGrid(True,True)
-        self.curr_plot = self.scan_curr_wid.plot([], [], pen=self.curr_pen) 
-        self.right.addWidget(self.scan_curr_wid)
+        self.scan_fine_wid = pg.PlotWidget(title='Fine Scan')
+        self.scan_fine_wid.showGrid(True, True)
+        self.curr_plot = self.scan_fine_wid.plot([], [], pen=self.curr_pen)
+        self.right.addWidget(self.scan_fine_wid)
 
+    def type_combo_changed(self, i):
+        if i == 1:
+            self.fine_scan_type = 'current'
+            self.scan_label.setText('Current Range (mA):')
+            self.stat_temp_label.setText('Static Temperature ('+u"\u00b0"+'C):')
+        else:
+            self.fine_scan_type = 'temp'
+            self.scan_label.setText('Temperature Range (' + u"\u00b0" + 'C):')
+            self.stat_temp_label.setText('Static Current (mA):')
 
 
     def dis_pushed(self):
         '''Doc'''
         pass
 
-    def scan_temp_pushed(self):
-        self.start_curr_button.setEnabled(False)
-        self.start_temp_button.setEnabled(False)
+    def scan_wide_pushed(self):
+        self.start_fine_button.setEnabled(False)
+        self.start_wide_button.setEnabled(False)
     
-        self.scan_temps = []
+        self.scan_wide_values = []
         self.scan_waves = []
         self.scan_rs = []
     
         start = float(self.temp_edit1.text())
         stop = float(self.temp_edit2.text())
-        curr = float(self.stat_curr_edit.text())
-        step_size = (stop - start)/float(self.step_temp_edit.text())
-        temp_list = np.arange(start, stop, step_size)
-        
+        curr = float(self.stat_wide_edit.text())
+        speed = (stop - start)/float(self.wide_time_edit.text())
+        static = float(self.stat_wide_edit.text())
+
+        #config = type, begin, end, mode, shape, speed
+        config = {'type': 'temp',
+            'begin': start,
+            'end': stop,
+            'mode': False,
+            'shape': 0,
+            'speed': speed
+        }
+
         try:
-            self.scan_thread = ScanThread(self, 'temp', temp_list, curr)
+            self.scan_thread = ScanThread(self, config, static)
             self.scan_thread.finished.connect(self.done_temp_scan)
             self.scan_thread.reply.connect(self.build_temp_scan)
             self.scan_thread.start()
@@ -128,7 +163,7 @@ class FindTab(QWidget):
         '''Take emit from thread and add point to data        
         '''
         temp, wave, r = tup
-        self.scan_temps.append(float(temp))
+        self.scan_wide_values.append(float(temp))
         self.scan_waves.append(float(wave))
         self.scan_rs.append(float(r))
         self.update_temp_plot()
@@ -141,22 +176,22 @@ class FindTab(QWidget):
         self.temp_plot.setData(self.scan_waves, self.scan_rs)
         
     def done_temp_scan(self):
-        self.start_curr_button.setEnabled(True)
-        self.start_temp_button.setEnabled(True)
+        self.start_fine_button.setEnabled(True)
+        self.start_wide_button.setEnabled(True)
         
          
-    def scan_curr_pushed(self):
+    def scan_fine_pushed(self):
         '''Doc'''
-        self.start_curr_button.setEnabled(False)
-        self.start_temp_button.setEnabled(False)
+        self.start_fine_button.setEnabled(False)
+        self.start_wide_button.setEnabled(False)
     
         self.scan_currs = []
         self.scan_waves = []
         self.scan_rs = []
     
-        start = float(self.curr_edit1.text())
-        stop = float(self.curr_edit2.text())
-        step_size = (stop - start)/float(self.step_curr_edit.text())
+        start = float(self.scan_edit1.text())
+        stop = float(self.scan_edit2.text())
+        step_size = (stop - start)/float(self.step_fine_edit.text())
         curr_list = np.arange(start, stop, step_size)
         temp = float(self.stat_temp_edit.text())
         
@@ -185,8 +220,8 @@ class FindTab(QWidget):
         #self.curr_plot.setData(self.scan_waves, self.scan_rs)
 
     def done_curr_scan(self):
-        self.start_curr_button.setEnabled(True)
-        self.start_temp_button.setEnabled(True)
+        self.start_fine_button.setEnabled(True)
+        self.start_wide_button.setEnabled(True)
        
     
 class ScanThread(QThread):
@@ -197,10 +232,10 @@ class ScanThread(QThread):
     '''
     reply = pyqtSignal(tuple)     # reply signal
     finished = pyqtSignal()       # finished signal
-    def __init__(self, parent, type, list, static):
+    def __init__(self, parent, config, static):
         QThread.__init__(self)
         self.parent = parent  
-        self.list = list
+        self.config = config
         self.static = static  
         self.type = type # 'temp' or 'curr'
                 
