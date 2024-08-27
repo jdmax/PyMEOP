@@ -4,6 +4,7 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt
 # from labjack import ljm
 import telnetlib
 import time
+from struct import unpack_from
 
             
 class ProbeLaser():      
@@ -170,7 +171,42 @@ class LockIn():
         '''
         self.tn.write(bytes(f"SNAPD?\r", 'ascii'))
         x, y, r, th = self.tn.read_until(bytes("\r", 'ascii'),2).decode('ascii').split(',')
-        return x, y, r   
+        return x, y, r
+
+    def capture_start(self):
+        """Configure and start SRS 860 capture mode. Configres for max buffer size, assuming it will be stopped before full
+        """
+        try:
+            self.tn.write(bytes(f"CAPTURELEN 4096\r", 'ascii'))
+            self.tn.write(bytes(f"CAPTURECFG 3\r", 'ascii'))
+            self.tn.write(bytes(f"CAPTURERATE 4\r", 'ascii'))  # 2^4 times slower capture rate than max
+            self.tn.write(bytes(f"CAPTURESTART 0, 0\r", 'ascii'))  # start one-shot immediately
+        except Exception as e:
+            print(f"Lock-in capture start failed: {e}")
+
+    def capture_stop(self):
+        """Stop capture and return data
+        """
+        data = [] # list of tups, tup is (X, Y, R, theta)
+        buffer = b'\x00'
+        try:
+            self.tn.write(bytes(f"CAPTURESTOP\r", 'ascii'))
+            self.tn.write(bytes(f"CAPTUREPROG?\r", 'ascii'))
+            kb = int(self.tn.read_until(bytes("\r", 'ascii'),2).decode('ascii'))
+
+            for i in range(0, kb, 32):
+                self.tn.write(bytes(f"CAPTUREGET? i, 32\r", 'ascii'))   # get 32 kbytes of data at offset i
+                block = self.tn.read_until(bytes("\r", 'ascii'),2)
+                digits = block[1]
+                buffer = int(block[2:digits])
+                data_size = (len())
+
+
+
+
+        except Exception as e:
+            print(f"Lock-in capture start failed: {e}")
+
         
 class SigGen():
     '''Access signal generator for discharge control'''
