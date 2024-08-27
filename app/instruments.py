@@ -197,12 +197,14 @@ class LockIn():
             for i in range(0, kb, 32):
                 self.tn.write(bytes(f"CAPTUREGET? i, 32\r", 'ascii'))   # get 32 kbytes of data at offset i
                 block = self.tn.read_until(bytes("\r", 'ascii'),2)
-                digits = block[1]
-                buffer = int(block[2:digits])
-                data_size = (len())
-
-
-
+                digits = block[1] -48
+                print(digits)
+                offset = digits + 2
+                data_size = (len(block) - offset)//4
+                print(data_size)
+                unpack_format = '>{}f'.format(data_size)
+                vals = unpack_from(unpack_format, block, offset)
+                print(vals)
 
         except Exception as e:
             print(f"Lock-in capture start failed: {e}")
