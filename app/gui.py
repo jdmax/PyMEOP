@@ -117,10 +117,15 @@ class MainWindow(QMainWindow):
         '''Restore settings from previous session'''
         with open('app/saved_session.yaml') as f:  # Load settings from YAML files
             restore_dict = yaml.load(f, Loader=yaml.FullLoader)
+
         try:
             for k, e in restore_dict.items():
                 for key, entry in e.items():
-                    self.__dict__[k].__dict__[key].setText(entry)  # set line edit text for each
+                    try:
+                        self.__dict__[k].__dict__[key].setText(entry)  # set line edit text for each
+                    except Exception as ex:
+                        self.__dict__[k].__dict__[key].setText('')
+                        print('Failed to import previous session.', ex)
         except Exception as ex:
             print('Failed to import previous session.', ex)
 
@@ -219,8 +224,13 @@ class Event():
         self.rs = []
         self.times = []
 
-        self.p1_zero = float(parent.run_tab.zero1_edit.text())
-        self.p2_zero = float(parent.run_tab.zero2_edit.text())
+        try:
+            self.p1_zero = float(parent.run_tab.zero1_edit.text())
+            self.p2_zero = float(parent.run_tab.zero2_edit.text())
+        except Exception as e:
+            print(e)
+            self.p1_zero = 0
+            self.p2_zero = 0
 
     def fit_scan(self, pars):
         '''Fit Scan data with linear and two gaussians, using starting params passed'''

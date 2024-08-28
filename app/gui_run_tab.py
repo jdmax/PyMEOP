@@ -174,7 +174,41 @@ class RunTab(QWidget):
         self.pol_value = QLabel()
         self.pol_value.setStyleSheet("font:30pt")
         self.pol_layout.addWidget(self.pol_value, 0, 1)
-        
+
+
+
+        # Populate Discharge Off Relaxation box
+        self.rel_box = QGroupBox('Discharge-Off Relaxation')
+        self.rel_box.setLayout(QVBoxLayout())
+        self.left.addWidget(self.rel_box)
+        self.rel_layout = QGridLayout()
+        self.rel_box.layout().addLayout(self.rel_layout)
+
+        self.dison_label = QLabel("Discharge On Time (s):")
+        self.rel_layout.addWidget(self.dison_label, 0,0)
+        self.dison_edit =  QLineEdit()
+        self.dison_edit.setValidator(QDoubleValidator(3.0, 45.0, 3, notation=QDoubleValidator.StandardNotation))
+        self.rel_layout.addWidget(self.dison_edit, 0, 1)
+
+        self.disoff_label = QLabel("Discharge Off Time (s):")
+        self.rel_layout.addWidget(self.disoff_label, 0,2)
+        self.disoff_edit =  QLineEdit()
+        self.disoff_edit.setValidator(QDoubleValidator(3.0, 45.0, 3, notation=QDoubleValidator.StandardNotation))
+        self.rel_layout.addWidget(self.disoff_edit, 0, 3)
+
+        self.disoff_button = QPushButton("Start")
+        self.disoff_button.setEnabled(False)
+        self.rel_layout.addWidget(self.disoff_button, 1, 3)
+        self.disoff_button.clicked.connect(self.start_discharge_off_pushed)
+
+
+        self.rel_box.layout().addWidget(self.parent.divider())
+
+        self.note_layout = QGridLayout()
+        self.rel_box.layout().addLayout(self.note_layout)
+        self.dis_label = QLabel("Discharge off routine can be started once scans are running.")
+        self.note_layout.addWidget(self.dis_label, 0,0)
+
 
         # self.params_label = QLabel('Result Parameters:')
         # self.res_box.layout().addWidget(self.params_label , 0, 0)
@@ -216,27 +250,12 @@ class RunTab(QWidget):
         self.pol_plot = self.pol_wid.plot([], [], pen=self.peak_pen)   
         self.right.addWidget(self.pol_wid)
 
-    def run_pushed(self):
-        '''Start main loop if conditions met'''
-               
-        if self.run_button.isChecked():        
-            self.parent.status_bar.showMessage('Running sweeps...')
-            #self.abort_button.setEnabled(True)
-            self.lock_button.setEnabled(False)
-            self.run_button.setText('Finish')
-            self.start_thread()
-            self.parent.run_toggle()
-                   
-        else:
-            if self.run_thread.isRunning:
-                self.run_button.setText('Finishing...')
-                self.run_button.setEnabled(False)
-        
     def scan_pushed(self):
         '''Start main loop if conditions met'''
                
         if self.scan_button.isChecked():        
             self.scan_button.setText('Stop')
+            self.disoff_button.setEnabled(True)
             self.start_scan()
                    
         else:
@@ -338,9 +357,10 @@ class RunTab(QWidget):
         self.pol_value.setText(f"{self.parent.previous_event.pol*100:.2f}%")
 
     def finish_scans(self):
-        #self.scan_button.setEnabled(True)
         self.scan_button.setText("Run Scan")
         self.scan_button.setEnabled(True)
+        self.disoff_button.setText("Start")
+        self.disoff_button.setEnabled(False)
         
     def zero_pushed(self):
         '''Set current peak amplitudes as zero'''
@@ -348,7 +368,45 @@ class RunTab(QWidget):
         self.parent.event.p2_zero = float(self.peak2_edit.text())   
         self.zero1_edit.setText(self.peak1_edit.text())
         self.zero2_edit.setText(self.peak2_edit.text())
-               
+
+    def start_discharge_off_pushed(self):
+        '''Start discharge off button pushed'''
+
+        if self.disoff_button.isChecked():
+            self.scan_button.setText("Running Relaxation")
+            self.scan_button.setEnabled(False)
+            self.disoff_button.setText("Running")
+            self.start_discharge_off()
+            self.turn_off_laser()
+        else:
+            try:
+                if self.scan_thread.isRunning:
+                    self.scan_button.setText('Finishing...')
+                    self.scan_button.setChecked(False)
+                    self.disoff_button.setText("Finishing...")
+                    self.disoff_button.setEnabled(False)
+                else:
+                    self.scan_button.setChecked(False)
+                    self.finish_scans()
+            except:
+                pass
+
+    def start_discharge_off(self):
+        '''Start discharge off measurement. Run while scans are running'''
+        pass
+
+
+    def turn_off_discharge(self):
+        '''Turn off signal generator'''
+        pass
+
+    def turn_on_discharge(self):
+        '''Turn off signal generator'''
+        pass
+
+    def turn_off_laser(self):
+        '''Turn off laser'''
+        pass
                
 class RunThread(QThread):
     '''Thread class for running
@@ -403,4 +461,43 @@ class RunThread(QThread):
         if self.parent.parent.settings['scan_wave']: self.parent.parent.meter.stop_cont()
         self.parent.parent.probe.set_current(self.list[0])
         self.finished.emit()
-        
+
+class RelaxThread(QThread):
+    '''Thread class for running discharge off relaxation
+    Args:
+        parent
+        on_time
+        off_time
+    '''
+    reply = pyqtSignal(tuple)  # reply signal
+    finished = pyqtSignal()  # finished signal
+
+    def __init__(self, parent, on_time, off_time):
+        QThread.__init__(self)
+        self.parent = parent
+        self.on_time = on_time
+        self.off_time = off_time
+
+    def __del__(self):
+        self.wait()
+
+    def run(self):
+        '''Main relaxation loop
+        '''
+
+        while self.parent.disoff_button.isChecked():
+            if self.parent.scan_button.isChecked():
+                time.sleep(self.on_time)    # wait at least this long, then wait for scan to finish
+                self.parent.scan_button.setChecked(False)
+                while self.parent.scan_thread.isRunning:
+                    time.sleep(0.5)
+                self.parent.scan_button.setText("Waiting...")
+                self.parent.turn_off_discharge()
+            else:
+                time.sleep(self.off_time)
+                self.parent.scan_button.setChecked(True)
+                self.parent.scan_button.setText("Running Relaxation")
+                self.parent.turn_on_discharge()
+                self.parent.start_scan()
+
+        self.finished.emit()
