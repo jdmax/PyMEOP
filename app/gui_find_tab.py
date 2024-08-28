@@ -137,8 +137,8 @@ class FindTab(QWidget):
         '''Update plots with new data
         '''
         #print(, self.scan_rs)
-        #self.temp_plot.setData(self.scan_temps, self.scan_rs)
-        self.temp_plot.setData(self.scan_waves, self.scan_rs)
+        self.temp_plot.setData(self.scan_temps, self.scan_rs)
+        #self.temp_plot.setData(self.scan_waves, self.scan_rs)
         
     def done_temp_scan(self):
         self.start_curr_button.setEnabled(True)
@@ -181,8 +181,8 @@ class FindTab(QWidget):
         '''Update plots with new data
         '''
         #print(self.scan_waves, self.scan_rs)
-        self.curr_plot.setData(self.scan_currs, self.scan_rs)
-        #self.curr_plot.setData(self.scan_waves, self.scan_rs)
+        #self.curr_plot.setData(self.scan_currs, self.scan_rs)
+        self.curr_plot.setData(self.scan_waves, self.scan_rs)
 
     def done_curr_scan(self):
         self.start_curr_button.setEnabled(True)

@@ -341,15 +341,16 @@ class RunTab(QWidget):
         self.peak_plot.setData(self.parent.previous_event.x_axis, self.parent.previous_event.rs)
         self.fit_plot.setData(self.parent.previous_event.x_axis, self.parent.previous_event.fit)
         self.pol_plot.setData(time_list, pol_list)
-                
-        self.g1_pos_edit.setText(f"{self.parent.previous_event.pf[0]:.4f}")
-        self.g1_sig_edit.setText(f"{self.parent.previous_event.pf[1]:.4f}")
-        self.g1_hei_edit.setText(f"{self.parent.previous_event.pf[2]:.4f}")
-        self.g2_pos_edit.setText(f"{self.parent.previous_event.pf[3]:.4f}")
-        self.g2_sig_edit.setText(f"{self.parent.previous_event.pf[4]:.4f}")
-        self.g2_hei_edit.setText(f"{self.parent.previous_event.pf[5]:.4f}")
-        self.slope_edit.setText(f"{self.parent.previous_event.pf[6]:.4f}")
-        self.int_edit.setText(f"{self.parent.previous_event.pf[7]:.4f}")
+
+        if float(self.curr_lo_edit.text()) < self.parent.previous_event.pf[0] < float(self.curr_up_edit.text()):
+            self.g1_pos_edit.setText(f"{self.parent.previous_event.pf[0]:.4f}")
+            self.g1_sig_edit.setText(f"{self.parent.previous_event.pf[1]:.4f}")
+            self.g1_hei_edit.setText(f"{self.parent.previous_event.pf[2]:.4f}")
+            self.g2_pos_edit.setText(f"{self.parent.previous_event.pf[3]:.4f}")
+            self.g2_sig_edit.setText(f"{self.parent.previous_event.pf[4]:.4f}")
+            self.g2_hei_edit.setText(f"{self.parent.previous_event.pf[5]:.4f}")
+            self.slope_edit.setText(f"{self.parent.previous_event.pf[6]:.4f}")
+            self.int_edit.setText(f"{self.parent.previous_event.pf[7]:.4f}")
         
         self.peak1_edit.setText(f"{self.parent.previous_event.pf[2]:.4f}")
         self.peak2_edit.setText(f"{self.parent.previous_event.pf[5]:.4f}")
