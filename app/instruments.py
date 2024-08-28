@@ -215,6 +215,10 @@ class SigGen():
         '''Set amplitude in volt peak to peak'''
         self.tn.write(bytes(f"AMPR {amp} Vpp\r", 'ascii'))
 
+    def enable_n(self, on):
+        """Turn on or off type N output"""
+        b = 1 if on else 0
+        self.tn.write(bytes(f"ENBR {b}\r", 'ascii'))
 
 class Keopsys():
     '''Controls for Keopsys pump laser'''

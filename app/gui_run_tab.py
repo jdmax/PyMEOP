@@ -393,16 +393,21 @@ class RunTab(QWidget):
 
     def start_discharge_off(self):
         '''Start discharge off measurement. Run while scans are running'''
-        pass
+        try:
+            self.relax_thread = RunThread(self, curr_list, float(self.temp_edit.text()))
+            #self.relax_thread.finished.connect()
+            self.relax_thread.start()
+        except Exception as e:
+            print('Exception starting relax thread: '+str(e))
 
 
     def turn_off_discharge(self):
         '''Turn off signal generator'''
-        pass
+        self.parent.siggen.enable_n(False)
 
     def turn_on_discharge(self):
         '''Turn off signal generator'''
-        pass
+        self.parent.siggen.enable_n(True)
 
     def turn_off_laser(self):
         '''Turn off laser'''
