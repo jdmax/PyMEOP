@@ -54,6 +54,14 @@ class ProbeLaser():
         self.tn.write(bytes(f"(param-disp 'laser1:dl:tc:temp-set)\n", 'ascii'))
         outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
         return outp
+
+    def set_temp(self, temp):
+        '''Arguments:
+                temp: float
+        '''
+        self.tn.write(bytes(f"(param-set! 'laser1:dl:tc:temp-set {temp})\n", 'ascii'))
+        outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+        return outp
         
     def config_scan(self, type, begin, end, mode, shape, speed):
         """ Configure parameters for a wide-scan
