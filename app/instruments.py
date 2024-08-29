@@ -4,8 +4,7 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt
 # from labjack import ljm
 import telnetlib
 import time
-from struct import unpack_from
-
+from srsinst.sr860 import SR860
             
 class ProbeLaser():      
     '''Access Probe laser over telnet
@@ -67,7 +66,7 @@ class ProbeLaser():
             speed: rate in mA/s or K/s
         """
         try:
-            type_code = 56 if 'temp' in type else 63  # 56 is temp, 63 or current
+            type_code = 56 if 'temp' in type else 63  # 56 is temp, 63 start(0,0)or current
             self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:output-channel {type_code})\n", 'ascii'))
             outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
             self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:scan-begin {begin})\n", 'ascii'))
@@ -143,25 +142,67 @@ class WavelengthMeter():
         '''
         self.tn.write(bytes(f"FETC:POW:WAV?\r", 'ascii'))
         outp = self.tn.read_some().decode('ascii')
-        return float(outp)*1e9      
-	
-        
+        return float(outp)*1e9
+
+
 class LockIn():
     '''Access lock-in meter'''
-    
 
-    def __init__(self, settings):
-        '''Start connection over telnet'''        
-        self.ip = settings['lockin_ip']
+    def __init__(self, ip):
+        '''Start connection to lockin with SRS driver'''
+        self.ip = ip
         self.port = 23
- 
+
         try:
-            self.tn = telnetlib.Telnet(self.ip, port=self.port, timeout=5)
-            outp = self.tn.read_until(bytes("\r", 'ascii'),2).decode('ascii')
-                        
+            self.lockin = SR860('vxi11', self.ip)
         except Exception as e:
             print(f"Lock-in connection failed on {self.ip}: {e}")
-                
+
+    def read_all(self):
+        '''Returns both all four lock-in parameters as x,y,r,theta
+        '''
+        x, y, r, theta = self.lockin.data.get_channel_values()
+        return x, y, r
+
+    def capture_start(self):
+        """Configure and start SRS 860 capture mode. Configures for max buffer size, assuming it will be stopped before full
+        """
+        self.lockin.capture.buffer_size_in_kilobytes = 2
+        self.lockin.capture.config = 'XYRT'
+        self.lockin.capture.rate_divisor_exponent = 10  # 1 ms time constant give 78 kHz, this is divisor exponent
+        self.lockin.capture.start(0,0)
+        #time.sleep(0.5)
+        print(self.lockin.capture.data_size_in_bytes)
+
+    def capture_stop(self):
+        """Configure and start SRS 860 capture mode. Configures for max buffer size, assuming it will be stopped before full
+        """
+        self.lockin.capture.stop()
+        print(self.lockin.capture.data_size_in_kilobytes)
+        print(self.lockin.capture.get_data(0))
+        print(self.lockin.capture.get_data(1))
+        print(self.lockin.capture.get_data(2))
+        data = self.lockin.capture.get_all_data()
+        # print(data[0])
+        return data[2] # return all r
+
+
+
+class LockInOld():
+    '''Access lock-in meter'''
+
+    def __init__(self, ip):
+        '''Start connection over telnet'''
+        self.ip = ip
+        self.port = 23
+
+        try:
+            self.tn = telnetlib.Telnet(self.ip, port=self.port, timeout=5)
+            outp = self.tn.read_until(bytes("\r", 'ascii'), 2).decode('ascii')
+
+        except Exception as e:
+            print(f"Lock-in connection failed on {self.ip}: {e}")
+
     def __del__(self):
         #self.tn.close()  
         pass
@@ -174,13 +215,16 @@ class LockIn():
         return x, y, r
 
     def capture_start(self):
-        """Configure and start SRS 860 capture mode. Configres for max buffer size, assuming it will be stopped before full
+        """Configure and start SRS 860 capture mode. Configures for max buffer size, assuming it will be stopped before full
         """
         try:
-            self.tn.write(bytes(f"CAPTURELEN 4096\r", 'ascii'))
-            self.tn.write(bytes(f"CAPTURECFG 3\r", 'ascii'))
-            self.tn.write(bytes(f"CAPTURERATE 4\r", 'ascii'))  # 2^4 times slower capture rate than max
+            self.tn.write(bytes(f"CAPTURELEN 4096; CAPTURECFG 2; CAPTURERATE 0\r", 'ascii'))
             self.tn.write(bytes(f"CAPTURESTART 0, 0\r", 'ascii'))  # start one-shot immediately
+            print("Started Lock-in capture")
+            self.tn.write(bytes(f"CAPTUREBYTES?\r", 'ascii'))  # start one-shot immediately
+            #outp = self.tn.read_until(bytes("\r", 'ascii'),1).decode('ascii')
+            outp = self.tn.read_some().decode('ascii')
+            print("out",outp)
         except Exception as e:
             print(f"Lock-in capture start failed: {e}")
 
@@ -193,18 +237,20 @@ class LockIn():
             self.tn.write(bytes(f"CAPTURESTOP\r", 'ascii'))
             self.tn.write(bytes(f"CAPTUREPROG?\r", 'ascii'))
             kb = int(self.tn.read_until(bytes("\r", 'ascii'),2).decode('ascii'))
+            print("kB",kb)
 
-            for i in range(0, kb, 32):
-                self.tn.write(bytes(f"CAPTUREGET? i, 32\r", 'ascii'))   # get 32 kbytes of data at offset i
-                block = self.tn.read_until(bytes("\r", 'ascii'),2)
+            for i in range(0, kb, 2):
+                self.tn.write(bytes(f"CAPTUREGET? {i}, 2\r", 'ascii'))   # get 32 kbytes of data at offset i
+                block = self.tn.read_until(bytes("\r", 'ascii'),5)
+                print("block", block)
                 digits = block[1] -48
-                print(digits)
+                print("digits",digits)
                 offset = digits + 2
                 data_size = (len(block) - offset)//4
-                print(data_size)
+                print("size",data_size)
                 unpack_format = '>{}f'.format(data_size)
                 vals = unpack_from(unpack_format, block, offset)
-                print(vals)
+                print("vals",vals)
 
         except Exception as e:
             print(f"Lock-in capture start failed: {e}")

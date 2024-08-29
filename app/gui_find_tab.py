@@ -128,36 +128,27 @@ class FindTab(QWidget):
         '''Doc'''
         pass
 
-    def scan_wide_pushed(self):
-        self.start_fine_button.setEnabled(False)
-        self.start_wide_button.setEnabled(False)
-    
-        self.scan_wide_values = []
+    def scan_temp_pushed(self):
+        self.start_curr_button.setEnabled(False)
+        self.start_temp_button.setEnabled(False)
+
+        self.scan_temps = []
         self.scan_waves = []
         self.scan_rs = []
-    
+
         start = float(self.temp_edit1.text())
         stop = float(self.temp_edit2.text())
-        curr = float(self.stat_wide_edit.text())
-        speed = (stop - start)/float(self.wide_time_edit.text())
-        static = float(self.stat_wide_edit.text())
-
-        #config = type, begin, end, mode, shape, speed
-        config = {'type': 'temp',
-            'begin': start,
-            'end': stop,
-            'mode': False,
-            'shape': 0,
-            'speed': speed
-        }
+        curr = float(self.stat_curr_edit.text())
+        step_size = (stop - start) / float(self.step_temp_edit.text())
+        temp_list = np.arange(start, stop, step_size)
 
         try:
-            self.scan_thread = ScanThread(self, config, static)
+            self.scan_thread = ScanThread(self, 'temp', temp_list, curr)
             self.scan_thread.finished.connect(self.done_temp_scan)
             self.scan_thread.reply.connect(self.build_temp_scan)
             self.scan_thread.start()
-        except Exception as e: 
-            print('Exception starting run thread, lost connection: '+str(e))
+        except Exception as e:
+            print('Exception starting run thread, lost connection: ' + str(e))
         
     def build_temp_scan(self, tup):
         '''Take emit from thread and add point to data        
@@ -232,10 +223,10 @@ class ScanThread(QThread):
     '''
     reply = pyqtSignal(tuple)     # reply signal
     finished = pyqtSignal()       # finished signal
-    def __init__(self, parent, config, static):
+    def __init__(self, parent, type, list, static):
         QThread.__init__(self)
-        self.parent = parent  
-        self.config = config
+        self.parent = parent
+        self.list = list
         self.static = static  
         self.type = type # 'temp' or 'curr'
                 

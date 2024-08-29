@@ -75,7 +75,7 @@ class MainWindow(QMainWindow):
             print(f"Unable to connect to wavelngh meter at {self.settings['meter_ip']}, {e}")
 
         try:
-            self.lockin = LockIn(self.settings)
+            self.lockin = LockIn(self.settings['lockin_ip'])
             self.status_bar.showMessage(f"Connected to lock-in at {self.settings['lockin_ip']}")
         except Exception as e:
             print(f"Unable to connect to Lock In at {self.settings['lockin_ip']}, {e}")
