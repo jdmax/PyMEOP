@@ -241,33 +241,32 @@ class Keopsys():
             outp = self.tn.read_until(bytes("\r", 'ascii'), 2).decode('ascii')
 
         except Exception as e:
-            print(f"Signal generator connection failed on {self.ip}: {e}")
+            print(f"Keopsys laser connection failed on {self.ip}: {e}")
 
-        self.init_settings()
 
         
-class LabJack():
-    '''Access LabJack device
-    '''
-
-    def __init__(self, settings):
-        '''Open connection to LabJack
-        '''
-        ip = settings['labjack_ip']
-        try:
-            self.lj = ljm.openS("T4", "TCP", ip)
-        except Exception as e:
-            print(f"Connection to LabJack failed on {ip}: {e}")
-
-
-
-    def read_back(self):
-        '''Read voltage in
-        '''
-        aNames = ["AIN0","AIN1"]
-        return ljm.eReadNames(self.lj, len(aNames), aNames)
-
-    def __del__(self):
-        '''Close on delete'''
-        ljm.close(self.lj)
+# class LabJack():
+#     '''Access LabJack device
+#     '''
+#
+#     def __init__(self, settings):
+#         '''Open connection to LabJack
+#         '''
+#         ip = settings['labjack_ip']
+#         try:
+#             self.lj = ljm.openS("T4", "TCP", ip)
+#         except Exception as e:
+#             print(f"Connection to LabJack failed on {ip}: {e}")
+#
+#
+#
+#     def read_back(self):
+#         '''Read voltage in
+#         '''
+#         aNames = ["AIN0","AIN1"]
+#         return ljm.eReadNames(self.lj, len(aNames), aNames)
+#
+#     def __del__(self):
+#         '''Close on delete'''
+#         ljm.close(self.lj)
             
