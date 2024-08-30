@@ -167,7 +167,7 @@ class LockIn():
     def capture_start(self):
         """Configure and start SRS 860 capture mode. Configures for max buffer size, assuming it will be stopped before full
         """
-        self.lockin.capture.buffer_size_in_kilobytes = 2
+        self.lockin.capture.buffer_size_in_kilobytes = 8
         self.lockin.capture.config = 'XYRT'
         self.lockin.capture.rate_divisor_exponent = 10  # 1 ms time constant give 78 kHz, this is divisor exponent
         self.lockin.capture.start(0,0)

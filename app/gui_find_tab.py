@@ -52,7 +52,7 @@ class FindTab(QWidget):
         self.scan_wide_box.layout().addWidget(self.temp_edit1, 0, 1)
         self.temp_edit2 =  QLineEdit()
         self.scan_wide_box.layout().addWidget(self.temp_edit2, 0, 2)
-        self.temp_step_label = QLabel('Scan Time:')
+        self.temp_step_label = QLabel('Scan Steps:')
         self.scan_wide_box.layout().addWidget(self.temp_step_label, 1, 0)
         self.wide_time_edit =  QLineEdit()
         self.scan_wide_box.layout().addWidget(self.wide_time_edit, 1, 1)
@@ -63,7 +63,7 @@ class FindTab(QWidget):
         
         self.start_wide_button = QPushButton("Run Wide Scan")
         self.scan_wide_box.layout().addWidget(self.start_wide_button, 2, 2)
-        self.start_wide_button.clicked.connect(self.scan_wide_pushed)
+        self.start_wide_button.clicked.connect(self.scan_temp_pushed)
         
         # Find current peaks box
         self.scan_fine_box = QGroupBox('Fine Peaks Scan')
@@ -175,22 +175,20 @@ class FindTab(QWidget):
         '''Doc'''
         self.start_fine_button.setEnabled(False)
         self.start_wide_button.setEnabled(False)
-    
-        self.scan_currs = []
-        self.scan_waves = []
-        self.scan_rs = []
+
     
         start = float(self.scan_edit1.text())
         stop = float(self.scan_edit2.text())
-        step_size = (stop - start)/float(self.step_fine_edit.text())
-        curr_list = np.arange(start, stop, step_size)
-        temp = float(self.stat_temp_edit.text())
+        static = float(self.stat_temp_edit.text())
+        scantime = float(self.step_fine_edit.text())
         
         try:
-            self.scan_thread = ScanThread(self, 'curr', curr_list, temp)
-            self.scan_thread.finished.connect(self.done_curr_scan)
-            self.scan_thread.reply.connect(self.build_curr_scan)
-            self.scan_thread.start()
+            self.quick_thread = QuickScanThread(self, self.parent.probe, self.parent.lockin,
+                                                self.type_combo.currentIndex(), start, stop,
+                                                static, scantime)
+            self.quick_thread.finished.connect(self.done_curr_scan)
+            #self.quick_thread.reply.connect(self.build_curr_scan)
+            self.quick_thread.start()
         except Exception as e: 
             print('Exception starting run thread, lost connection: '+str(e))
         
@@ -210,9 +208,10 @@ class FindTab(QWidget):
         self.curr_plot.setData(self.scan_currs, self.scan_rs)
         #self.curr_plot.setData(self.scan_waves, self.scan_rs)
 
-    def done_curr_scan(self):
+    def done_curr_scan(self, data):
         self.start_fine_button.setEnabled(True)
         self.start_wide_button.setEnabled(True)
+        self.curr_plot.setData(data)
        
     
 class ScanThread(QThread):
@@ -272,4 +271,49 @@ class ScanThread(QThread):
         self.parent.parent.meter.stop_cont()
         self.finished.emit()
 
-        
+
+class QuickScanThread(QThread):
+    '''Thread class for fast temperature or current scan
+    '''
+    reply = pyqtSignal(tuple)  # reply signal
+    finished = pyqtSignal()  # finished signal
+
+    def __init__(self,  probe, lockin, type, start, stop, static, scantime):
+        QThread.__init__(self)
+        self.list = list
+        self.probe = probe # probe laser interface instance
+        self.lockin = lockin # lock in interface instance
+        self.static = static
+        self.type = type  # 'temp' or 'curr'
+        self.stop = stop
+        self.start = start
+        self.time = scantime
+
+    def __del__(self):
+        self.wait()
+
+    def run(self):
+        '''Main quick scan loop.
+        Bring laser to correct temperature and voltage, then wait a sec, then start scan
+        '''
+
+        if self.type == 1:  # current scan
+            self.probe.set_current(self.start)
+            self.probe.set_temp(self.static)
+            type = 'curr'
+        else: # current scan
+            self.probe.set_temp(self.start)
+            self.probe.set_current(self.static)
+            type = 'temp'
+        time.sleep(1)
+        rate = (self.stop - self.start)/self.time
+        self.probe.config_scan(type, self.start, self.stop, False, 0, rate)
+        # one shot, sawtooth scan
+        self.probe.start_scan()
+        self.lockin.capture_start()
+        time.sleep(self.time)
+        print('Should be done with sweep. Stopping capture.')
+        data = self.lockin.capture_stop()
+
+        self.finished.emit(data)
+
