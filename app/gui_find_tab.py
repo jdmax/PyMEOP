@@ -314,6 +314,7 @@ class QuickScanThread(QThread):
         time.sleep(self.time)
         print('Should be done with sweep. Stopping capture.')
         data = self.lockin.capture_stop()
+        print('Capture returned.')
 
-        self.finished.emit(data)
+        self.finished.emit(data[0])
 
