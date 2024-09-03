@@ -38,7 +38,7 @@ class ProbeLaser():
         """
         """
         self.tn.write(bytes(f"(param-disp 'laser1:dl:cc:current-set)\n", 'ascii'))
-        outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+        outp = self.tn.read_until(bytes(">", 'ascii'),5).decode('ascii')
         return outp
         
     def set_current(self, current):
@@ -46,29 +46,34 @@ class ProbeLaser():
                 current: float
         '''
         self.tn.write(bytes(f"(param-set! 'laser1:dl:cc:current-set {current})\n", 'ascii'))
-        outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+        outp = self.tn.read_until(bytes(">", 'ascii'),5).decode('ascii')
+        print("current", outp)
         return outp
 
     def read_temp(self, temp):
         self.tn.write(bytes(f"(param-disp 'laser1:dl:tc:temp-set)\n", 'ascii'))
-        outp = self.tn.read_until(bytes(">", 'ascii'), 2).decode('ascii')
+        outp = self.tn.read_until(bytes(">", 'ascii'), 5).decode('ascii')
         return outp
 
     def set_temp(self, temp):
         self.tn.write(bytes(f"(param-set! 'laser1:dl:tc:temp-set {temp})\n", 'ascii'))
-        outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+        outp = self.tn.read_until(bytes(">", 'ascii'),5).decode('ascii')
         return outp
+
+    def clear_buffer(self):
+        self.tn.read_eager()
+        return
 
     def check_ready(self):
         self.tn.write(bytes(f"(param-disp 'laser1:dl:tc:ready)\n", 'ascii'))
-        outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+        outp = self.tn.read_until(bytes(">", 'ascii'),5).decode('ascii')
         out = True if '#t' in outp else False
         return out
 
     def wide_scan_state(self):
         self.tn.write(bytes(f"(param-disp 'laser1:wide-scan:state)\n", 'ascii'))
-        i, match, data = self.tn.expect([self.state_regex],timeout=2)
-        print("wide scan output", data)
+        i, match, data = self.tn.expect([self.state_regex],timeout=5)
+        print("wide scan state", data)
         return int(match.groups()[0])
         
     def config_scan(self, type, begin, end, mode, shape, speed):
@@ -82,20 +87,22 @@ class ProbeLaser():
             speed: rate in mA/s or K/s
         """
         try:
+            outp = ''
             type_code = 56 if 'temp' in type else 63  # 56 is temp, 63 start(0,0)or current
             self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:output-channel {type_code})\n", 'ascii'))
-            outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+            outp += "chan"+self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
             self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:scan-begin {begin})\n", 'ascii'))
-            outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+            outp += "begin"+self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
             self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:scan-end {end})\n", 'ascii'))
-            outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+            outp += "end"+self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
             mode_str = "#t" if mode else "#f"
             self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:continuous-mode {mode_str})\n", 'ascii'))
-            outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+            outp += "cont"+self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
             self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:shape {shape})\n", 'ascii'))
-            outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+            outp += "shape"+self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
             self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:speed {speed})\n", 'ascii'))
-            outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+            outp += "speed"+self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+            print(outp)
             return True
         except Exception as e:
             print(f"Scan config failed: {e}")
@@ -107,7 +114,8 @@ class ProbeLaser():
         """
         try:
             self.tn.write(bytes(f"(exec 'laser1:wide-scan:start)\n", 'ascii'))
-            outp = self.tn.read_until(bytes(">", 'ascii'),5).decode('ascii')
+            outp = self.tn.read_until(bytes(">", 'ascii'),10).decode('ascii')
+            print("start scan return", outp)
         except Exception as e:
             print(f"Start scan failed: {e}")
             return False

@@ -13,11 +13,12 @@ import numpy as np
    
 class FindTab(QWidget):
     '''Creates main tab. Starts threads for run and to update plots'''
-    def __init__(self, parent):
+    def __init__(self, parent, statusbar):
         super(QWidget,self).__init__(parent)
         self.__dict__.update(parent.__dict__)
         
         self.parent = parent
+        self.statusbar = statusbar
                
         # pyqtgrph styles        
         pg.setConfigOptions(antialias=True)
@@ -185,7 +186,7 @@ class FindTab(QWidget):
         scantime = float(self.step_fine_edit.text())
         
        # try:
-        self.quick_thread = QuickScanThread(self.parent.probe, self.parent.lockin,
+        self.quick_thread = QuickScanThread(self, self.parent.probe, self.parent.lockin,
                                             self.type_combo.currentIndex(), start, stop,
                                             static, scantime)
         self.quick_thread.finished.connect(self.done_curr_scan)
@@ -290,8 +291,9 @@ class QuickScanThread(QThread):
     reply = pyqtSignal(tuple)  # reply signal
     finished = pyqtSignal(np.ndarray)  # finished signal
 
-    def __init__(self, probe, lockin, type, start, stop, static, scantime):
+    def __init__(self, parent, probe, lockin, type, start, stop, static, scantime):
         QThread.__init__(self)
+        self.parent = parent
         self.list = list
         self.probe = probe # probe laser interface instance
         self.lockin = lockin # lock in interface instance
@@ -309,22 +311,23 @@ class QuickScanThread(QThread):
         Bring laser to correct temperature and voltage, then wait a sec, then start scan
         '''
 
+        #self.probe.clear_buffer()
+
         if self.type == 1:  # current scan
-            self.probe.set_current(self.begin)
             self.probe.set_temp(self.static)
             type = 'curr'
         else: # current scan
-            self.probe.set_temp(self.begin)
             self.probe.set_current(self.static)
             type = 'temp'
 
-        #time.sleep(1)
+        rate = (self.stop - self.begin)/self.time
+        self.probe.config_scan(type, self.begin, self.stop, False, 0, rate)
+
+        time.sleep(0.1)
         #while not self.probe.check_ready():
         #    time.sleep(0.5)
         #    print('Waiting to settle, first time')
 
-        rate = (self.stop - self.begin)/self.time
-        self.probe.config_scan(type, self.begin, self.stop, False, 0, rate)
         # one shot, sawtooth scan
         self.probe.start_scan()
 
@@ -332,10 +335,13 @@ class QuickScanThread(QThread):
             state = self.probe.wide_scan_state()
             print("state on loop", state)
             if state == 2:
-                break
                 print('Running')
+                self.parent.status_bar.showMessage(f"Running scan.")
+                break
             elif state == 1:
                 print('Waiting for start condition')
+                self.parent.status_bar.showMessage(f"Waiting for scan start.")
+
             else:
                 break
             time.sleep(0.01)
@@ -344,6 +350,7 @@ class QuickScanThread(QThread):
         print('Should be done with sweep. Stopping capture.')
         data = self.lockin.capture_stop()
         print('Capture returned.')
+        self.parent.status_bar.showMessage(f"Scan complete.")
 
         self.finished.emit(data)
 

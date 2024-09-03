@@ -1,225 +1,78 @@
-2024-08-29 10:14:11 Loaded config file
-2024-08-29 10:14:11 Error closing eventfile.
-2024-08-29 10:14:11 Opened new eventfile data/current_2024-08-29_14-14-11.txt
-2024-08-29 10:19:45 Loaded config file
-2024-08-29 10:19:45 Error closing eventfile.
-2024-08-29 10:19:45 Opened new eventfile data/current_2024-08-29_14-19-45.txt
-2024-08-29 10:31:00 Loaded config file
-2024-08-29 10:31:00 Error closing eventfile.
-2024-08-29 10:31:00 Opened new eventfile data/current_2024-08-29_14-31-00.txt
-2024-08-29 10:34:25 Loaded config file
-2024-08-29 10:34:25 Error closing eventfile.
-2024-08-29 10:34:25 Opened new eventfile data/current_2024-08-29_14-34-25.txt
-2024-08-29 10:38:29 Loaded config file
-2024-08-29 10:38:29 Error closing eventfile.
-2024-08-29 10:38:29 Opened new eventfile data/current_2024-08-29_14-38-29.txt
-2024-08-29 10:46:37 Loaded config file
-2024-08-29 10:46:51 Loaded config file
-2024-08-29 10:47:24 Loaded config file
-2024-08-29 10:47:24 Error closing eventfile.
-2024-08-29 10:47:24 Opened new eventfile data/current_2024-08-29_14-47-24.txt
-2024-08-29 10:49:26 Loaded config file
-2024-08-29 10:49:26 Error closing eventfile.
-2024-08-29 10:49:26 Opened new eventfile data/current_2024-08-29_14-49-26.txt
-2024-08-29 10:51:38 Loaded config file
-2024-08-29 10:51:38 Error closing eventfile.
-2024-08-29 10:51:38 Opened new eventfile data/current_2024-08-29_14-51-38.txt
-2024-08-29 10:56:26 Loaded config file
-2024-08-29 10:56:26 Error closing eventfile.
-2024-08-29 10:56:26 Opened new eventfile data/current_2024-08-29_14-56-26.txt
-2024-08-30 14:59:52 Loaded config file
-2024-08-30 15:00:29 Loaded config file
-2024-08-30 15:00:29 Error closing eventfile.
-2024-08-30 15:00:29 Opened new eventfile data/current_2024-08-30_19-00-29.txt
-2024-08-30 15:02:19 Loaded config file
-2024-08-30 15:02:19 Error closing eventfile.
-2024-08-30 15:02:19 Opened new eventfile data/current_2024-08-30_19-02-19.txt
-2024-08-30 15:03:39 Loaded config file
-2024-08-30 15:03:39 Error closing eventfile.
-2024-08-30 15:03:39 Opened new eventfile data/current_2024-08-30_19-03-39.txt
-2024-08-30 15:05:03 Loaded config file
-2024-08-30 15:05:03 Error closing eventfile.
-2024-08-30 15:05:03 Opened new eventfile data/current_2024-08-30_19-05-03.txt
-2024-08-30 15:12:10 Loaded config file
-2024-08-30 15:12:10 Error closing eventfile.
-2024-08-30 15:12:10 Opened new eventfile data/current_2024-08-30_19-12-10.txt
-2024-08-30 15:14:36 Loaded config file
-2024-08-30 15:14:36 Error closing eventfile.
-2024-08-30 15:14:36 Opened new eventfile data/current_2024-08-30_19-14-36.txt
-2024-08-30 15:16:45 Loaded config file
-2024-08-30 15:16:45 Error closing eventfile.
-2024-08-30 15:16:45 Opened new eventfile data/current_2024-08-30_19-16-45.txt
-2024-08-30 15:17:39 Loaded config file
-2024-08-30 15:17:39 Error closing eventfile.
-2024-08-30 15:17:39 Opened new eventfile data/current_2024-08-30_19-17-39.txt
-2024-08-30 15:18:52 Loaded config file
-2024-08-30 15:18:52 Error closing eventfile.
-2024-08-30 15:18:52 Opened new eventfile data/current_2024-08-30_19-18-52.txt
-2024-08-30 15:21:56 Loaded config file
-2024-08-30 15:21:56 Error closing eventfile.
-2024-08-30 15:21:56 Opened new eventfile data/current_2024-08-30_19-21-56.txt
-2024-08-30 15:23:03 Loaded config file
-2024-08-30 15:23:03 Error closing eventfile.
-2024-08-30 15:23:03 Opened new eventfile data/current_2024-08-30_19-23-03.txt
-2024-08-30 15:24:10 Loaded config file
-2024-08-30 15:24:10 Error closing eventfile.
-2024-08-30 15:24:10 Opened new eventfile data/current_2024-08-30_19-24-10.txt
-2024-08-30 15:25:52 Loaded config file
-2024-08-30 15:25:52 Error closing eventfile.
-2024-08-30 15:25:52 Opened new eventfile data/current_2024-08-30_19-25-52.txt
-2024-08-30 15:27:26 Loaded config file
-2024-08-30 15:27:26 Error closing eventfile.
-2024-08-30 15:27:26 Opened new eventfile data/current_2024-08-30_19-27-26.txt
-2024-08-30 15:28:53 Loaded config file
-2024-08-30 15:28:53 Error closing eventfile.
-2024-08-30 15:28:53 Opened new eventfile data/current_2024-08-30_19-28-53.txt
-2024-08-30 15:29:14 Loaded config file
-2024-08-30 15:29:14 Error closing eventfile.
-2024-08-30 15:29:14 Opened new eventfile data/current_2024-08-30_19-29-14.txt
-2024-08-30 15:30:18 Loaded config file
-2024-08-30 15:30:18 Error closing eventfile.
-2024-08-30 15:30:18 Opened new eventfile data/current_2024-08-30_19-30-18.txt
-2024-08-30 15:32:53 Loaded config file
-2024-08-30 15:32:53 Error closing eventfile.
-2024-08-30 15:32:53 Opened new eventfile data/current_2024-08-30_19-32-53.txt
-2024-08-30 15:33:33 Loaded config file
-2024-08-30 15:33:33 Error closing eventfile.
-2024-08-30 15:33:33 Opened new eventfile data/current_2024-08-30_19-33-33.txt
-2024-08-30 15:34:03 Loaded config file
-2024-08-30 15:34:03 Error closing eventfile.
-2024-08-30 15:34:03 Opened new eventfile data/current_2024-08-30_19-34-03.txt
-2024-08-30 15:35:08 Loaded config file
-2024-08-30 15:35:08 Error closing eventfile.
-2024-08-30 15:35:08 Opened new eventfile data/current_2024-08-30_19-35-08.txt
-2024-08-30 15:35:43 Loaded config file
-2024-08-30 15:35:43 Error closing eventfile.
-2024-08-30 15:35:43 Opened new eventfile data/current_2024-08-30_19-35-43.txt
-2024-08-30 15:38:37 Loaded config file
-2024-08-30 15:38:37 Error closing eventfile.
-2024-08-30 15:38:37 Opened new eventfile data/current_2024-08-30_19-38-37.txt
-2024-08-30 15:38:50 Loaded config file
-2024-08-30 15:38:50 Error closing eventfile.
-2024-08-30 15:38:50 Opened new eventfile data/current_2024-08-30_19-38-50.txt
-2024-08-30 15:39:20 Loaded config file
-2024-08-30 15:39:20 Error closing eventfile.
-2024-08-30 15:39:20 Opened new eventfile data/current_2024-08-30_19-39-20.txt
-2024-08-30 15:40:45 Loaded config file
-2024-08-30 15:40:45 Error closing eventfile.
-2024-08-30 15:40:45 Opened new eventfile data/current_2024-08-30_19-40-45.txt
-2024-08-30 15:48:26 Loaded config file
-2024-08-30 15:48:26 Error closing eventfile.
-2024-08-30 15:48:26 Opened new eventfile data/current_2024-08-30_19-48-26.txt
-2024-08-30 15:49:24 Loaded config file
-2024-08-30 15:49:24 Error closing eventfile.
-2024-08-30 15:49:24 Opened new eventfile data/current_2024-08-30_19-49-24.txt
-2024-08-30 15:49:48 Loaded config file
-2024-08-30 15:49:48 Error closing eventfile.
-2024-08-30 15:49:48 Opened new eventfile data/current_2024-08-30_19-49-48.txt
-2024-08-30 16:03:07 Loaded config file
-2024-08-30 16:03:07 Error closing eventfile.
-2024-08-30 16:03:07 Opened new eventfile data/current_2024-08-30_20-03-07.txt
-2024-08-30 16:04:19 Loaded config file
-2024-08-30 16:04:19 Error closing eventfile.
-2024-08-30 16:04:19 Opened new eventfile data/current_2024-08-30_20-04-19.txt
-2024-08-30 16:06:30 Loaded config file
-2024-08-30 16:06:30 Error closing eventfile.
-2024-08-30 16:06:30 Opened new eventfile data/current_2024-08-30_20-06-30.txt
-2024-08-30 16:07:23 Loaded config file
-2024-08-30 16:07:23 Error closing eventfile.
-2024-08-30 16:07:23 Opened new eventfile data/current_2024-08-30_20-07-23.txt
-2024-08-30 16:12:13 Loaded config file
-2024-08-30 16:12:13 Error closing eventfile.
-2024-08-30 16:12:13 Opened new eventfile data/current_2024-08-30_20-12-13.txt
-2024-08-30 16:15:46 Loaded config file
-2024-08-30 16:15:46 Error closing eventfile.
-2024-08-30 16:15:46 Opened new eventfile data/current_2024-08-30_20-15-46.txt
-2024-08-30 16:18:36 Loaded config file
-2024-08-30 16:18:36 Error closing eventfile.
-2024-08-30 16:18:36 Opened new eventfile data/current_2024-08-30_20-18-36.txt
-2024-08-30 16:22:22 Loaded config file
-2024-08-30 16:22:22 Error closing eventfile.
-2024-08-30 16:22:22 Opened new eventfile data/current_2024-08-30_20-22-22.txt
-2024-08-30 16:27:03 Loaded config file
-2024-08-30 16:27:03 Error closing eventfile.
-2024-08-30 16:27:03 Opened new eventfile data/current_2024-08-30_20-27-03.txt
-2024-08-30 16:31:37 Loaded config file
-2024-08-30 16:31:37 Error closing eventfile.
-2024-08-30 16:31:37 Opened new eventfile data/current_2024-08-30_20-31-37.txt
-2024-08-30 16:34:50 Loaded config file
-2024-08-30 16:34:50 Error closing eventfile.
-2024-08-30 16:34:50 Opened new eventfile data/current_2024-08-30_20-34-50.txt
-2024-08-30 16:36:17 Loaded config file
-2024-08-30 16:36:17 Error closing eventfile.
-2024-08-30 16:36:17 Opened new eventfile data/current_2024-08-30_20-36-17.txt
-2024-08-30 16:37:13 Loaded config file
-2024-08-30 16:37:13 Error closing eventfile.
-2024-08-30 16:37:13 Opened new eventfile data/current_2024-08-30_20-37-13.txt
-2024-08-30 16:38:07 Loaded config file
-2024-08-30 16:38:07 Error closing eventfile.
-2024-08-30 16:38:07 Opened new eventfile data/current_2024-08-30_20-38-07.txt
-2024-08-30 16:39:06 Loaded config file
-2024-08-30 16:39:06 Error closing eventfile.
-2024-08-30 16:39:06 Opened new eventfile data/current_2024-08-30_20-39-06.txt
-2024-08-30 16:40:10 Loaded config file
-2024-08-30 16:40:10 Error closing eventfile.
-2024-08-30 16:40:10 Opened new eventfile data/current_2024-08-30_20-40-10.txt
-2024-08-30 16:40:54 Loaded config file
-2024-08-30 16:40:54 Error closing eventfile.
-2024-08-30 16:40:54 Opened new eventfile data/current_2024-08-30_20-40-54.txt
-2024-08-30 16:41:34 Loaded config file
-2024-08-30 16:41:34 Error closing eventfile.
-2024-08-30 16:41:34 Opened new eventfile data/current_2024-08-30_20-41-34.txt
-2024-08-30 16:43:09 Loaded config file
-2024-08-30 16:43:09 Error closing eventfile.
-2024-08-30 16:43:09 Opened new eventfile data/current_2024-08-30_20-43-09.txt
-2024-08-30 16:44:43 Loaded config file
-2024-08-30 16:44:43 Error closing eventfile.
-2024-08-30 16:44:43 Opened new eventfile data/current_2024-08-30_20-44-43.txt
-2024-08-30 16:47:17 Loaded config file
-2024-08-30 16:47:17 Error closing eventfile.
-2024-08-30 16:47:17 Opened new eventfile data/current_2024-08-30_20-47-17.txt
-2024-08-30 16:47:32 Loaded config file
-2024-08-30 16:47:32 Error closing eventfile.
-2024-08-30 16:47:32 Opened new eventfile data/current_2024-08-30_20-47-32.txt
-2024-08-30 16:49:49 Loaded config file
-2024-08-30 16:49:49 Error closing eventfile.
-2024-08-30 16:49:49 Opened new eventfile data/current_2024-08-30_20-49-49.txt
-2024-08-30 16:51:25 Loaded config file
-2024-08-30 16:51:25 Error closing eventfile.
-2024-08-30 16:51:25 Opened new eventfile data/current_2024-08-30_20-51-25.txt
-2024-08-30 16:53:40 Loaded config file
-2024-08-30 16:53:40 Error closing eventfile.
-2024-08-30 16:53:40 Opened new eventfile data/current_2024-08-30_20-53-40.txt
-2024-08-30 16:54:03 Loaded config file
-2024-08-30 16:54:04 Error closing eventfile.
-2024-08-30 16:54:04 Opened new eventfile data/current_2024-08-30_20-54-04.txt
-2024-08-30 17:03:04 Loaded config file
-2024-08-30 17:03:04 Error closing eventfile.
-2024-08-30 17:03:04 Opened new eventfile data/current_2024-08-30_21-03-04.txt
-2024-08-30 17:06:56 Loaded config file
-2024-08-30 17:06:56 Error closing eventfile.
-2024-08-30 17:06:56 Opened new eventfile data/current_2024-08-30_21-06-56.txt
-2024-08-30 17:08:31 Loaded config file
-2024-08-30 17:08:31 Error closing eventfile.
-2024-08-30 17:08:31 Opened new eventfile data/current_2024-08-30_21-08-31.txt
-2024-08-30 17:09:38 Loaded config file
-2024-08-30 17:09:38 Error closing eventfile.
-2024-08-30 17:09:38 Opened new eventfile data/current_2024-08-30_21-09-38.txt
-2024-08-30 17:10:22 Loaded config file
-2024-08-30 17:10:22 Error closing eventfile.
-2024-08-30 17:10:22 Opened new eventfile data/current_2024-08-30_21-10-22.txt
-2024-08-30 17:11:37 Loaded config file
-2024-08-30 17:11:37 Error closing eventfile.
-2024-08-30 17:11:37 Opened new eventfile data/current_2024-08-30_21-11-37.txt
-2024-08-30 17:12:41 Loaded config file
-2024-08-30 17:12:41 Error closing eventfile.
-2024-08-30 17:12:41 Opened new eventfile data/current_2024-08-30_21-12-41.txt
-2024-08-30 17:13:33 Loaded config file
-2024-08-30 17:13:33 Error closing eventfile.
-2024-08-30 17:13:33 Opened new eventfile data/current_2024-08-30_21-13-33.txt
-2024-08-30 17:14:03 Loaded config file
-2024-08-30 17:14:03 Error closing eventfile.
-2024-08-30 17:14:03 Opened new eventfile data/current_2024-08-30_21-14-03.txt
-2024-08-30 17:15:16 Loaded config file
-2024-08-30 17:15:16 Error closing eventfile.
-2024-08-30 17:15:16 Opened new eventfile data/current_2024-08-30_21-15-16.txt
+2024-09-03 09:32:00 Loaded config file
+2024-09-03 09:32:00 Error closing eventfile.
+2024-09-03 09:32:00 Opened new eventfile data/current_2024-09-03_13-32-00.txt
+2024-09-03 09:34:09 Loaded config file
+2024-09-03 09:34:09 Error closing eventfile.
+2024-09-03 09:34:09 Opened new eventfile data/current_2024-09-03_13-34-09.txt
+2024-09-03 09:40:50 Loaded config file
+2024-09-03 09:40:50 Error closing eventfile.
+2024-09-03 09:40:50 Opened new eventfile data/current_2024-09-03_13-40-50.txt
+2024-09-03 09:41:22 Loaded config file
+2024-09-03 09:41:22 Error closing eventfile.
+2024-09-03 09:41:22 Opened new eventfile data/current_2024-09-03_13-41-22.txt
+2024-09-03 09:43:04 Loaded config file
+2024-09-03 09:43:04 Error closing eventfile.
+2024-09-03 09:43:04 Opened new eventfile data/current_2024-09-03_13-43-04.txt
+2024-09-03 09:45:35 Loaded config file
+2024-09-03 09:45:35 Error closing eventfile.
+2024-09-03 09:45:35 Opened new eventfile data/current_2024-09-03_13-45-35.txt
+2024-09-03 09:46:57 Loaded config file
+2024-09-03 09:46:57 Error closing eventfile.
+2024-09-03 09:46:57 Opened new eventfile data/current_2024-09-03_13-46-57.txt
+2024-09-03 09:48:47 Loaded config file
+2024-09-03 09:48:47 Error closing eventfile.
+2024-09-03 09:48:47 Opened new eventfile data/current_2024-09-03_13-48-47.txt
+2024-09-03 09:58:22 Loaded config file
+2024-09-03 09:58:22 Error closing eventfile.
+2024-09-03 09:58:22 Opened new eventfile data/current_2024-09-03_13-58-22.txt
+2024-09-03 10:00:34 Loaded config file
+2024-09-03 10:00:34 Error closing eventfile.
+2024-09-03 10:00:34 Opened new eventfile data/current_2024-09-03_14-00-34.txt
+2024-09-03 10:01:22 Loaded config file
+2024-09-03 10:01:22 Error closing eventfile.
+2024-09-03 10:01:22 Opened new eventfile data/current_2024-09-03_14-01-22.txt
+2024-09-03 10:05:39 Loaded config file
+2024-09-03 10:05:39 Error closing eventfile.
+2024-09-03 10:05:39 Opened new eventfile data/current_2024-09-03_14-05-39.txt
+2024-09-03 10:09:36 Loaded config file
+2024-09-03 10:09:36 Error closing eventfile.
+2024-09-03 10:09:36 Opened new eventfile data/current_2024-09-03_14-09-36.txt
+2024-09-03 10:14:07 Loaded config file
+2024-09-03 10:14:07 Error closing eventfile.
+2024-09-03 10:14:07 Opened new eventfile data/current_2024-09-03_14-14-07.txt
+2024-09-03 10:15:38 Loaded config file
+2024-09-03 10:15:38 Error closing eventfile.
+2024-09-03 10:15:38 Opened new eventfile data/current_2024-09-03_14-15-38.txt
+2024-09-03 10:17:36 Loaded config file
+2024-09-03 10:17:36 Error closing eventfile.
+2024-09-03 10:17:36 Opened new eventfile data/current_2024-09-03_14-17-36.txt
+2024-09-03 10:19:05 Loaded config file
+2024-09-03 10:19:05 Error closing eventfile.
+2024-09-03 10:19:05 Opened new eventfile data/current_2024-09-03_14-19-05.txt
+2024-09-03 10:21:13 Loaded config file
+2024-09-03 10:21:13 Error closing eventfile.
+2024-09-03 10:21:13 Opened new eventfile data/current_2024-09-03_14-21-13.txt
+2024-09-03 10:23:12 Loaded config file
+2024-09-03 10:23:12 Error closing eventfile.
+2024-09-03 10:23:12 Opened new eventfile data/current_2024-09-03_14-23-12.txt
+2024-09-03 10:23:33 Loaded config file
+2024-09-03 10:23:33 Error closing eventfile.
+2024-09-03 10:23:33 Opened new eventfile data/current_2024-09-03_14-23-33.txt
+2024-09-03 10:24:36 Loaded config file
+2024-09-03 10:24:36 Error closing eventfile.
+2024-09-03 10:24:36 Opened new eventfile data/current_2024-09-03_14-24-36.txt
+2024-09-03 10:26:14 Loaded config file
+2024-09-03 10:26:14 Error closing eventfile.
+2024-09-03 10:26:14 Opened new eventfile data/current_2024-09-03_14-26-14.txt
+2024-09-03 10:28:11 Loaded config file
+2024-09-03 10:28:11 Error closing eventfile.
+2024-09-03 10:28:11 Opened new eventfile data/current_2024-09-03_14-28-11.txt
+2024-09-03 10:30:54 Loaded config file
+2024-09-03 10:30:54 Error closing eventfile.
+2024-09-03 10:30:54 Opened new eventfile data/current_2024-09-03_14-30-54.txt
+2024-09-03 10:32:01 Loaded config file
+2024-09-03 10:32:01 Error closing eventfile.
+2024-09-03 10:32:01 Opened new eventfile data/current_2024-09-03_14-32-01.txt
+2024-09-03 10:33:12 Loaded config file
+2024-09-03 10:33:13 Error closing eventfile.
+2024-09-03 10:33:13 Opened new eventfile data/current_2024-09-03_14-33-13.txt

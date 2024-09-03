@@ -54,7 +54,7 @@ class MainWindow(QMainWindow):
         # Make tabs
         self.run_tab = RunTab(self)
         self.tab_widget.addTab(self.run_tab, "Run")
-        self.find_tab = FindTab(self)
+        self.find_tab = FindTab(self, self.status_bar)
         self.tab_widget.addTab(self.find_tab, "Find Peaks")
 
         self.restore_session()
