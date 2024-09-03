@@ -5,24 +5,81 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt
 import telnetlib
 import re
 from srsinst.sr860 import SR860
-            
-class ProbeLaser():      
+from toptica.lasersdk.dlcpro.v1_6_3 import DLCpro, NetworkConnection
+
+class ProbeLaser():
     '''Access Probe laser over telnet
     '''
-    
-    
+
     def __init__(self, settings):
         '''Open connection to Toptica DLC controller
-        '''  
+        '''
         self.ip = settings['probe_ip']
         self.port = 1998
-        
+        self.con = DLCpro(NetworkConnection('probe_ip'))
+
+    def read_current(self):
+        return self.con.laser1.dl.cc.current_set.get()
+
+    def set_current(self, current):
+        return self.con.laser1.dl.cc.current_set.set(current)
+
+    def read_temp(self):
+        return self.con.laser1.dl.tc.temp_set.get()
+
+    def set_temp(self, temp):
+        return self.con.laser1.dl.tc.temp_set.set(temp)
+
+    def check_ready(self):
+        out = self.con.laser1.dl.tc.ready.get()
+        return True if '#t' in out else False
+
+    def wide_scan_state(self):
+        out = self.con.laser1.wide_scan.state.get()
+        return int(out)
+
+    def config_scan(self, type, begin, end, mode, shape, speed):
+        """ Configure parameters for a wide-scan
+        Arguments:
+            type: STR: current or temp (mA or C)
+            begin: start value (mA or C)
+            end: stop value
+            mode: BOOL: true (#t) for continuous, false (#f) for one-shot
+            shape: INT: 0 for sawtooth, 1 for triangle
+            speed: rate in mA/s or K/s
+        """
+
+        type_code = 56 if 'temp' in type else 63  # 56 is temp, 63 start(0,0)or current
+        self.con.laser1.wide_scan.output_channel.set(type_code)
+        self.con.laser1.wide_scan.scan_begin.set(begin)
+        self.con.laser1.wide_scan.scan_end.set(end)
+        mode_str = "#t" if mode else "#f"
+        self.con.laser1.wide_scan.continuous_mode.set(mode_str)
+        self.con.laser1.wide_scan.shape.set(shape)
+        self.con.laser1.wide_scan.speed.set(speed)
+
+    def start_scan(self):
+        self.con.laser1.wide_scan.start()
+
+    def stop_scan(self):
+        self.con.laser1.wide_scan.stop()
+
+class ProbeLaserOld():
+    '''Access Probe laser over telnet
+    '''
+
+    def __init__(self, settings):
+        '''Open connection to Toptica DLC controller
+        '''
+        self.ip = settings['probe_ip']
+        self.port = 1998
+
         try:
             self.tn = telnetlib.Telnet(self.ip, port=self.port, timeout=2)
             
             outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
             self.tn.write(bytes("(param-disp 'laser1:dl:cc:current-set)\n", 'ascii'))
-            outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+            outp = self.tn.read_until(bytes(">", 'ascii'),5).decode('ascii')
             
          
             
