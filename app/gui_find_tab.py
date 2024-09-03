@@ -54,8 +54,8 @@ class FindTab(QWidget):
         self.scan_wide_box.layout().addWidget(self.temp_edit2, 0, 2)
         self.temp_step_label = QLabel('Scan Steps:')
         self.scan_wide_box.layout().addWidget(self.temp_step_label, 1, 0)
-        self.wide_time_edit =  QLineEdit()
-        self.scan_wide_box.layout().addWidget(self.wide_time_edit, 1, 1)
+        self.wide_step_edit =  QLineEdit()
+        self.scan_wide_box.layout().addWidget(self.wide_step_edit, 1, 1)
         self.stat_curr_label = QLabel('Static Current (mA):')
         self.scan_wide_box.layout().addWidget(self.stat_curr_label, 2, 0)
         self.stat_wide_edit =  QLineEdit()
@@ -129,8 +129,8 @@ class FindTab(QWidget):
         pass
 
     def scan_temp_pushed(self):
-        self.start_curr_button.setEnabled(False)
-        self.start_temp_button.setEnabled(False)
+        self.start_wide_button.setEnabled(False)
+        self.start_fine_button.setEnabled(False)
 
         self.scan_temps = []
         self.scan_waves = []
@@ -138,12 +138,12 @@ class FindTab(QWidget):
 
         start = float(self.temp_edit1.text())
         stop = float(self.temp_edit2.text())
-        curr = float(self.stat_curr_edit.text())
-        step_size = (stop - start) / float(self.step_temp_edit.text())
+        curr = float(self.stat_wide_edit.text())
+        step_size = (stop - start) / float(self.wide_step_edit.text())
         temp_list = np.arange(start, stop, step_size)
 
         try:
-            self.scan_thread = ScanThread(self, 'temp', temp_list, curr)
+            self.scan_thread = ScanThread(self, 'temp', temp_list, curr, self.wave_check.isChecked())
             self.scan_thread.finished.connect(self.done_temp_scan)
             self.scan_thread.reply.connect(self.build_temp_scan)
             self.scan_thread.start()
@@ -154,7 +154,7 @@ class FindTab(QWidget):
         '''Take emit from thread and add point to data        
         '''
         temp, wave, r = tup
-        self.scan_wide_values.append(float(temp))
+        self.scan_temps.append(float(temp))
         self.scan_waves.append(float(wave))
         self.scan_rs.append(float(r))
         self.update_temp_plot()
@@ -163,8 +163,10 @@ class FindTab(QWidget):
         '''Update plots with new data
         '''
         #print(, self.scan_rs)
-        #self.temp_plot.setData(self.scan_temps, self.scan_rs)
-        self.temp_plot.setData(self.scan_waves, self.scan_rs)
+        if self.wave_check.isChecked():
+            self.temp_plot.setData(self.scan_waves, self.scan_rs)
+        else:
+            self.temp_plot.setData(self.scan_temps, self.scan_rs)
         
     def done_temp_scan(self):
         self.start_fine_button.setEnabled(True)
@@ -182,15 +184,15 @@ class FindTab(QWidget):
         static = float(self.stat_temp_edit.text())
         scantime = float(self.step_fine_edit.text())
         
-        try:
-            self.quick_thread = QuickScanThread(self, self.parent.probe, self.parent.lockin,
-                                                self.type_combo.currentIndex(), start, stop,
-                                                static, scantime)
-            self.quick_thread.finished.connect(self.done_curr_scan)
-            #self.quick_thread.reply.connect(self.build_curr_scan)
-            self.quick_thread.start()
-        except Exception as e: 
-            print('Exception starting run thread, lost connection: '+str(e))
+       # try:
+        self.quick_thread = QuickScanThread(self.parent.probe, self.parent.lockin,
+                                            self.type_combo.currentIndex(), start, stop,
+                                            static, scantime)
+        self.quick_thread.finished.connect(self.done_curr_scan)
+        #self.quick_thread.reply.connect(self.build_curr_scan)
+        self.quick_thread.start()
+        #except Exception as e:
+        #    print('Exception starting quick run thread, lost connection: '+str(e))
         
     def build_curr_scan(self, tup):
         '''Take emit from thread and add point to data        
@@ -211,7 +213,8 @@ class FindTab(QWidget):
     def done_curr_scan(self, data):
         self.start_fine_button.setEnabled(True)
         self.start_wide_button.setEnabled(True)
-        self.curr_plot.setData(data)
+        x, y, r, theta = data
+        self.curr_plot.setData(r)
        
     
 class ScanThread(QThread):
@@ -222,12 +225,13 @@ class ScanThread(QThread):
     '''
     reply = pyqtSignal(tuple)     # reply signal
     finished = pyqtSignal()       # finished signal
-    def __init__(self, parent, type, list, static):
+    def __init__(self, parent, type, list, static, waves_inc):
         QThread.__init__(self)
         self.parent = parent
         self.list = list
         self.static = static  
         self.type = type # 'temp' or 'curr'
+        self.wave_inc = waves_inc
                 
     def __del__(self):
         self.wait()
@@ -236,24 +240,30 @@ class ScanThread(QThread):
         '''Main scan loop
         '''         
         first_time = True
-        self.parent.parent.meter.start_cont()
+        if self.wave_inc:
+            self.parent.parent.meter.start_cont()
         for v in self.list:
             if 'temp' in self.type:
                 self.parent.parent.probe.set_current(self.static)
                 self.parent.parent.probe.set_temp(v)
+
                 if first_time:
                     time.sleep(2)
                     first_time = False
-                    for i in range(10):
-                        wave = self.parent.parent.meter.read_wavelength(1)
-                        time.sleep(0.2)                 
-                    
-                else:    
+                    if self.wave_inc:
+                        for i in range(10):
+                            wave = self.parent.parent.meter.read_wavelength(1)
+                            time.sleep(0.2)
+
+                else:
                     time.sleep(self.parent.settings['temp_scan_wait'])
-                wave = self.parent.parent.meter.read_wavelength(1)
-                #wave = 0
+
                 x, y, r = self.parent.parent.lockin.read_all()
-                self.reply.emit((v, wave, r))
+                if self.wave_inc:
+                    wave = self.parent.parent.meter.read_wavelength(1)
+                    self.reply.emit((v, wave, r))
+                else:
+                    self.reply.emit((v, 0, r))
             if 'curr' in self.type:
                 self.parent.parent.probe.set_temp(self.static)
                 self.parent.parent.probe.set_current(v)
@@ -263,12 +273,14 @@ class ScanThread(QThread):
                     first_time = False
                 else:    
                     time.sleep(self.parent.settings['curr_scan_wait'])
-                wave = self.parent.parent.meter.read_wavelength(1)
-                #wave = 0
                 x, y, r = self.parent.parent.lockin.read_all()
-                self.reply.emit((v, wave, r))      
-  
-        self.parent.parent.meter.stop_cont()
+                if self.wave_inc:
+                    wave = self.parent.parent.meter.read_wavelength(1)
+                    self.reply.emit((v, wave, r))
+                else:
+                    self.reply.emit((v, wave, r))
+        if self.wave_inc:
+            self.parent.parent.meter.stop_cont()
         self.finished.emit()
 
 
@@ -276,9 +288,9 @@ class QuickScanThread(QThread):
     '''Thread class for fast temperature or current scan
     '''
     reply = pyqtSignal(tuple)  # reply signal
-    finished = pyqtSignal()  # finished signal
+    finished = pyqtSignal(np.ndarray)  # finished signal
 
-    def __init__(self,  probe, lockin, type, start, stop, static, scantime):
+    def __init__(self, probe, lockin, type, start, stop, static, scantime):
         QThread.__init__(self)
         self.list = list
         self.probe = probe # probe laser interface instance
@@ -286,7 +298,7 @@ class QuickScanThread(QThread):
         self.static = static
         self.type = type  # 'temp' or 'curr'
         self.stop = stop
-        self.start = start
+        self.begin = start
         self.time = scantime
 
     def __del__(self):
@@ -298,23 +310,40 @@ class QuickScanThread(QThread):
         '''
 
         if self.type == 1:  # current scan
-            self.probe.set_current(self.start)
+            self.probe.set_current(self.begin)
             self.probe.set_temp(self.static)
             type = 'curr'
         else: # current scan
-            self.probe.set_temp(self.start)
+            self.probe.set_temp(self.begin)
             self.probe.set_current(self.static)
             type = 'temp'
-        time.sleep(1)
-        rate = (self.stop - self.start)/self.time
-        self.probe.config_scan(type, self.start, self.stop, False, 0, rate)
+
+        #time.sleep(1)
+        #while not self.probe.check_ready():
+        #    time.sleep(0.5)
+        #    print('Waiting to settle, first time')
+
+        rate = (self.stop - self.begin)/self.time
+        self.probe.config_scan(type, self.begin, self.stop, False, 0, rate)
         # one shot, sawtooth scan
         self.probe.start_scan()
+
+        while True:
+            state = self.probe.wide_scan_state()
+            print("state on loop", state)
+            if state == 2:
+                break
+                print('Running')
+            elif state == 1:
+                print('Waiting for start condition')
+            else:
+                break
+            time.sleep(0.01)
         self.lockin.capture_start()
         time.sleep(self.time)
         print('Should be done with sweep. Stopping capture.')
         data = self.lockin.capture_stop()
         print('Capture returned.')
 
-        self.finished.emit(data[0])
+        self.finished.emit(data)
 

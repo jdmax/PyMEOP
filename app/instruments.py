@@ -3,7 +3,7 @@
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 # from labjack import ljm
 import telnetlib
-import time
+import re
 from srsinst.sr860 import SR860
             
 class ProbeLaser():      
@@ -28,7 +28,9 @@ class ProbeLaser():
             
         except Exception as e:
             print(f"Probe connection failed on {self.ip}: {e}")
-            
+
+        self.state_regex = re.compile(b':state = (\\d).*')
+
     # def __del__(self):
         # self.tn.close()
         
@@ -41,19 +43,33 @@ class ProbeLaser():
         
     def set_current(self, current):
         '''Arguments:
-                curent: float
+                current: float
         '''
         self.tn.write(bytes(f"(param-set! 'laser1:dl:cc:current-set {current})\n", 'ascii'))
         outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
         return outp
-        
-        
+
     def read_temp(self, temp):
-        '''
-        '''
         self.tn.write(bytes(f"(param-disp 'laser1:dl:tc:temp-set)\n", 'ascii'))
+        outp = self.tn.read_until(bytes(">", 'ascii'), 2).decode('ascii')
+        return outp
+
+    def set_temp(self, temp):
+        self.tn.write(bytes(f"(param-set! 'laser1:dl:tc:temp-set {temp})\n", 'ascii'))
         outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
         return outp
+
+    def check_ready(self):
+        self.tn.write(bytes(f"(param-disp 'laser1:dl:tc:ready)\n", 'ascii'))
+        outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
+        out = True if '#t' in outp else False
+        return out
+
+    def wide_scan_state(self):
+        self.tn.write(bytes(f"(param-disp 'laser1:wide-scan:state)\n", 'ascii'))
+        i, match, data = self.tn.expect([self.state_regex],timeout=2)
+        print("wide scan output", data)
+        return int(match.groups()[0])
         
     def config_scan(self, type, begin, end, mode, shape, speed):
         """ Configure parameters for a wide-scan
@@ -90,7 +106,8 @@ class ProbeLaser():
         """ Start wide scan
         """
         try:
-            self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:start)\n", 'ascii'))
+            self.tn.write(bytes(f"(exec 'laser1:wide-scan:start)\n", 'ascii'))
+            outp = self.tn.read_until(bytes(">", 'ascii'),5).decode('ascii')
         except Exception as e:
             print(f"Start scan failed: {e}")
             return False
@@ -99,7 +116,8 @@ class ProbeLaser():
         """ Start wide scan
         """
         try:
-            self.tn.write(bytes(f"(param-set! 'laser1:wide-scan:stop)\n", 'ascii'))
+            self.tn.write(bytes(f"(exec 'laser1:wide-scan:stop)\n", 'ascii'))
+            outp = self.tn.read_until(bytes(">", 'ascii'),5).decode('ascii')
         except Exception as e:
             print(f"Stop scan failed: {e}")
             return False
@@ -167,24 +185,23 @@ class LockIn():
     def capture_start(self):
         """Configure and start SRS 860 capture mode. Configures for max buffer size, assuming it will be stopped before full
         """
-        self.lockin.capture.buffer_size_in_kilobytes = 8
+        self.lockin.capture.buffer_size_in_kilobytes = 64
         self.lockin.capture.config = 'XYRT'
-        self.lockin.capture.rate_divisor_exponent = 10  # 1 ms time constant give 78 kHz, this is divisor exponent
+        self.lockin.capture.rate_divisor_exponent = 8  # 1 ms time constant give 78 kHz, this is divisor exponent
         self.lockin.capture.start(0,0)
         #time.sleep(0.5)
-        print(self.lockin.capture.data_size_in_bytes)
+        #print(self.lockin.capture.data_size_in_bytes)
 
     def capture_stop(self):
         """Configure and start SRS 860 capture mode. Configures for max buffer size, assuming it will be stopped before full
         """
         self.lockin.capture.stop()
-        print(self.lockin.capture.data_size_in_kilobytes)
-        print(self.lockin.capture.get_data(0))
-        print(self.lockin.capture.get_data(1))
-        print(self.lockin.capture.get_data(2))
+        #print(self.lockin.capture.data_size_in_kilobytes)
+        #print(self.lockin.capture.get_data(0))
+        #print(self.lockin.capture.get_data(1))
+        #print(self.lockin.capture.get_data(2))
         data = self.lockin.capture.get_all_data()
-        # print(data[0])
-        return data[2] # return all r
+        return data # return all
 
 
 

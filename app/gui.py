@@ -232,7 +232,7 @@ class Event():
 
         X = np.array(self.x_axis)
         Y = np.array(self.rs)
-        self.pf, self.pcov = optimize.curve_fit(self.peaks, X, Y, p0=pars)
+        self.pf, self.pcov = optimize.curve_fit(self.peaks, X, Y, p0=pars, maxfev = 10000) #changed max iteration to 10000
         self.pstd = np.sqrt(np.diag(self.pcov))
         self.fit = self.peaks(X, *self.pf)
         self.peak1 = self.pf[2]
