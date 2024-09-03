@@ -60,10 +60,6 @@ class ProbeLaser():
         outp = self.tn.read_until(bytes(">", 'ascii'),5).decode('ascii')
         return outp
 
-    def clear_buffer(self):
-        self.tn.read_eager()
-        return
-
     def check_ready(self):
         self.tn.write(bytes(f"(param-disp 'laser1:dl:tc:ready)\n", 'ascii'))
         outp = self.tn.read_until(bytes(">", 'ascii'),5).decode('ascii')

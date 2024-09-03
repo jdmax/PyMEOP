@@ -311,7 +311,6 @@ class QuickScanThread(QThread):
         Bring laser to correct temperature and voltage, then wait a sec, then start scan
         '''
 
-        #self.probe.clear_buffer()
 
         if self.type == 1:  # current scan
             self.probe.set_temp(self.static)
@@ -329,11 +328,11 @@ class QuickScanThread(QThread):
         #    print('Waiting to settle, first time')
 
         # one shot, sawtooth scan
+        print('starting')
         self.probe.start_scan()
 
         while True:
             state = self.probe.wide_scan_state()
-            print("state on loop", state)
             if state == 2:
                 print('Running')
                 self.parent.status_bar.showMessage(f"Running scan.")
