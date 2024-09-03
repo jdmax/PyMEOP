@@ -359,10 +359,10 @@ class RunTab(QWidget):
         self.pol_value.setText(f"{self.parent.previous_event.pol*100:.2f}%")
 
     def finish_scans(self):
-        if not self.relax_thread.isRunning():
-            self.scan_button.setText("Run Scan")
-            self.scan_button.setEnabled(True)
-            print("scan thread outside", self.scan_thread.isRunning())
+        #if not self.relax_thread.isRunning():
+        self.scan_button.setText("Run Scan")
+        self.scan_button.setEnabled(True)
+        print("scan thread outside", self.scan_thread.isRunning())
         
     def zero_pushed(self):
         '''Set current peak amplitudes as zero'''
