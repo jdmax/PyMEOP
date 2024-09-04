@@ -54,10 +54,10 @@ class RunTab(QWidget):
         self.curr_label = QLabel('Current Range (mA):')
         self.controls_box.layout().addWidget(self.curr_label, 0, 0)
         self.curr_lo_edit =  QLineEdit()
-        self.curr_lo_edit.setValidator(QDoubleValidator(3.0, 45.0, 3, notation=QDoubleValidator.StandardNotation))
+        self.curr_lo_edit.setValidator(QDoubleValidator(3.0, 149.0, 4, notation=QDoubleValidator.StandardNotation))
         self.controls_box.layout().addWidget(self.curr_lo_edit, 0, 1)        
         self.curr_up_edit =  QLineEdit()
-        self.curr_up_edit.setValidator(QDoubleValidator(3.0, 45.0, 3, notation=QDoubleValidator.StandardNotation))
+        self.curr_up_edit.setValidator(QDoubleValidator(3.0, 149.0, 4, notation=QDoubleValidator.StandardNotation))
         self.controls_box.layout().addWidget(self.curr_up_edit, 0, 2)
                 
         self.step_label = QLabel('Number of Steps:')
@@ -187,13 +187,13 @@ class RunTab(QWidget):
         self.dison_label = QLabel("Discharge On Time (s):")
         self.rel_layout.addWidget(self.dison_label, 0,0)
         self.dison_edit =  QLineEdit()
-        self.dison_edit.setValidator(QDoubleValidator(3.0, 45.0, 3, notation=QDoubleValidator.StandardNotation))
+        self.dison_edit.setValidator(QDoubleValidator(3.0, 1000000, 10, notation=QDoubleValidator.StandardNotation))
         self.rel_layout.addWidget(self.dison_edit, 0, 1)
 
         self.disoff_label = QLabel("Discharge Off Time (s):")
         self.rel_layout.addWidget(self.disoff_label, 0,2)
         self.disoff_edit =  QLineEdit()
-        self.disoff_edit.setValidator(QDoubleValidator(3.0, 45.0, 3, notation=QDoubleValidator.StandardNotation))
+        self.disoff_edit.setValidator(QDoubleValidator(3.0, 1000000, 10, notation=QDoubleValidator.StandardNotation))
         self.rel_layout.addWidget(self.disoff_edit, 0, 3)
 
         self.disoff_button = QPushButton("Start",checkable=True)

@@ -10,7 +10,7 @@ find_tab:
 run_tab:
   curr_lo_edit: '65'
   curr_up_edit: '99'
-  disoff_edit: '90'
+  disoff_edit: ''
   dison_edit: '6'
   g1_hei_edit: '-0.0248'
   g1_pos_edit: '78.0080'
