@@ -16,7 +16,7 @@ class ProbeLaser():
         '''
         self.ip = settings['probe_ip']
         self.port = 1998
-        self.connection = NetworkConnection('probe_ip')
+        self.connection = NetworkConnection(self.ip)
         self.dlc = DLCpro(self.connection)
         self.open()
 
@@ -39,8 +39,7 @@ class ProbeLaser():
         return self.dlc.laser1.dl.tc.temp_set.set(temp)
 
     def check_ready(self):
-        out = self.dlc.laser1.dl.tc.ready.get()
-        return True if '#t' in out else False
+        return self.dlc.laser1.dl.tc.ready.get()
 
     def wide_scan_state(self):
         out = self.dlc.laser1.wide_scan.state.get()
@@ -57,8 +56,8 @@ class ProbeLaser():
             speed: rate in mA/s or K/s
         """
 
-        type_code = 56 if 'temp' in typ else 63  # 56 is temp, 63 start(0,0)or current
-        self.dlc.laser1.wide_scan.output_channel.set(type_code)
+        #type_code = 56 if 'temp' in typ else 63  # 56 is temp, 63 start(0,0)or current
+        #self.dlc.laser1.wide_scan.output_channel.set(type_code)
         self.dlc.laser1.wide_scan.scan_begin.set(begin)
         self.dlc.laser1.wide_scan.scan_end.set(end)
         #mode_str = "#t" if mode else "#f"
@@ -256,7 +255,7 @@ class LockIn():
         """
         self.lockin.capture.buffer_size_in_kilobytes = 64
         self.lockin.capture.config = 'XYRT'
-        self.lockin.capture.rate_divisor_exponent = 8  # 1 ms time constant give 78 kHz, this is divisor exponent
+        self.lockin.capture.rate_divisor_exponent = 7  # 1 ms time constant give 78 kHz, this is divisor exponent
         self.lockin.capture.start(0,0)
         #time.sleep(0.5)
         #print(self.lockin.capture.data_size_in_bytes)

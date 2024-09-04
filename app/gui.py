@@ -65,8 +65,8 @@ class MainWindow(QMainWindow):
         try:
             self.probe = ProbeLaser(self.settings)
             self.status_bar.showMessage(f"Connected to probe laser at {self.settings['probe_ip']}")
-        except:
-            print(f"Unable to connect to probe laser at {self.settings['probe_ip']}")
+        except Exception as e:
+            print(f"Unable to connect to probe laser at {self.settings['probe_ip']}",e)
 
         try:
             self.meter = WavelengthMeter(self.settings)

@@ -71,13 +71,13 @@ class FindTab(QWidget):
         self.scan_fine_box.setLayout(QGridLayout())
         self.left.addWidget(self.scan_fine_box)
 
-        self.type_label = QLabel('Scan Type:')
-        self.scan_fine_box.layout().addWidget(self.type_label, 0, 0)
-        self.type_combo = QComboBox()
-        self.type_combo.addItems(['Temperature', 'Current'])
-        self.scan_fine_box.layout().addWidget(self.type_combo, 0, 1)
-        self.type_combo.currentIndexChanged.connect(self.type_combo_changed)
-        self.fine_scan_type = 'temp'
+        #self.type_label = QLabel('Scan Type:')
+        #self.scan_fine_box.layout().addWidget(self.type_label, 0, 0)
+        #self.type_combo = QComboBox()
+        #self.type_combo.addItems(['Temperature', 'Current'])
+        #self.scan_fine_box.layout().addWidget(self.type_combo, 0, 1)
+        #self.type_combo.currentIndexChanged.connect(self.type_combo_changed)
+        #self.fine_scan_type = 'temp'
         
         self.scan_label = QLabel('Temperature Range (' + u"\u00b0" + 'C):')
         self.scan_fine_box.layout().addWidget(self.scan_label, 1, 0)
@@ -186,8 +186,7 @@ class FindTab(QWidget):
         scantime = float(self.step_fine_edit.text())
         
        # try:
-        self.quick_thread = QuickScanThread(self, self.parent.probe, self.parent.lockin,
-                                            self.type_combo.currentIndex(), start, stop,
+        self.quick_thread = QuickScanThread(self, self.parent.probe, self.parent.lockin, start, stop,
                                             static, scantime)
         self.quick_thread.finished.connect(self.done_curr_scan)
         #self.quick_thread.reply.connect(self.build_curr_scan)
@@ -291,7 +290,7 @@ class QuickScanThread(QThread):
     reply = pyqtSignal(tuple)  # reply signal
     finished = pyqtSignal(np.ndarray)  # finished signal
 
-    def __init__(self, parent, probe, lockin, type, start, stop, static, scantime):
+    def __init__(self, parent, probe, lockin, start, stop, static, scantime):
         QThread.__init__(self)
         self.parent = parent
         self.list = list
@@ -314,15 +313,17 @@ class QuickScanThread(QThread):
 
         if self.type == 1:  # current scan
             self.probe.set_temp(self.static)
+            self.probe.set_current(self.begin)
             type = 'curr'
         else: # current scan
             self.probe.set_current(self.static)
+            self.probe.set_temp(self.begin)
             type = 'temp'
 
         rate = (self.stop - self.begin)/self.time
         self.probe.config_scan(type, self.begin, self.stop, False, 0, rate)
 
-        time.sleep(0.1)
+        time.sleep(2)
         #while not self.probe.check_ready():
         #    time.sleep(0.5)
         #    print('Waiting to settle, first time')
