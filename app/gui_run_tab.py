@@ -291,9 +291,14 @@ class RunTab(QWidget):
                 curr_min = min(self.currs)
                 p0 = curr_min + (curr_max - curr_min)*0.333
                 p4 = curr_min + (curr_max - curr_min)*0.666
+                mid = curr_min + (curr_max - curr_min)/2
                 params =  [p0, 2, 1, p4, 2, 1, 0.1, 0.1]
+                bounds = ((0, 0, 0, mid, 0, 0, -np.inf, -np.inf),
+                          (mid, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf))
             except ValueError:
                 params = [0, 0, 0, 0, 0, 0, 0, 0]
+                bounds = ((-np.inf, -np.inf, -np.inf, -np.inf, -np.inf,-np.inf, -np.inf, -np.inf),
+                          (np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf))
             # try:
             #     params =  [float(self.g1_pos_edit.text()),
             #         float(self.g1_sig_edit.text()),
@@ -305,7 +310,7 @@ class RunTab(QWidget):
             #         float(self.int_edit.text())]
             # except ValueError:
             #     params = [0, 0, 0, 0, 0, 0, 0, 0]
-            self.parent.end_event(self.scan_currs, self.scan_waves, self.scan_rs, self.scan_times, params)
+            self.parent.end_event(self.scan_currs, self.scan_waves, self.scan_rs, self.scan_times, params, bounds)
             self.scan_currs = []
             self.scan_waves = []
             self.scan_rs = []

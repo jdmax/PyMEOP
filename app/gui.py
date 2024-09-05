@@ -133,7 +133,7 @@ class MainWindow(QMainWindow):
         '''Create new event instance'''
         self.event = Event(self)
 
-    def end_event(self, currs, waves, rs, times, params):
+    def end_event(self, currs, waves, rs, times, params, bounds):
 
         self.event.currs = currs
         self.event.waves = waves
@@ -146,7 +146,7 @@ class MainWindow(QMainWindow):
         self.new_event()  # start new event to accept next scan
 
         try:
-            self.anal_thread = AnalThread(self, self.previous_event, params)
+            self.anal_thread = AnalThread(self, self.previous_event, params, bounds)
             self.anal_thread.finished.connect(self.finished_anal)
             self.anal_thread.start()
         except Exception as e:
@@ -232,7 +232,7 @@ class Event():
             self.p1_zero = 0
             self.p2_zero = 0
 
-    def fit_scan(self, pars):
+    def fit_scan(self, pars, bounds):
         '''Fit Scan data with linear and two gaussians, using starting params passed'''
 
         if 'wave' in self.parent.settings['scan_x_axis']:
@@ -242,7 +242,7 @@ class Event():
 
         X = np.array(self.x_axis)
         Y = np.array(self.rs)
-        self.pf, self.pcov = optimize.curve_fit(self.peaks, X, Y, p0=pars)
+        self.pf, self.pcov = optimize.curve_fit(self.peaks, X, Y, p0=pars, bounds=bounds)
         self.pstd = np.sqrt(np.diag(self.pcov))
         self.fit = self.peaks(X, *self.pf)
         self.peak1 = self.pf[2]
@@ -286,11 +286,12 @@ class AnalThread(QThread):
     '''
     finished = pyqtSignal()  # finished signal
 
-    def __init__(self, parent, event, params):
+    def __init__(self, parent, event, params, bounds):
         QThread.__init__(self)
         self.parent = parent
         self.event = event
         self.params = params
+        self.bounds = bounds
 
     def __del__(self):
         self.wait()
@@ -298,5 +299,5 @@ class AnalThread(QThread):
     def run(self):
         '''Main scan loop
         '''
-        self.event.fit_scan(self.params)
+        self.event.fit_scan(self.params, self.bounds)
         self.finished.emit()
