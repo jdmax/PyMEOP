@@ -6,7 +6,7 @@ settings:
     siggen_ip: 129.57.37.95    #91
     lockin_ip: 129.57.37.101
     labjack_ip: 129.57.37.97
-    scan_wait: 0.05              # seconds between running scan current change and read
+    scan_wait: 0.01              # seconds between running scan current change and read
     temp_scan_wait: 0.2         # seconds between temp change and read
     curr_scan_wait: 0.1         # seconds between curr change and read
     event_dir: 'data'
