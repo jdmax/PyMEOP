@@ -1,9 +1,9 @@
 find_tab:
-  scan_edit1: '44.05'
-  scan_edit2: '44.55'
+  scan_edit1: '37.85'
+  scan_edit2: '38.45'
   stat_temp_edit: '90'
   stat_wide_edit: '90'
-  step_fine_edit: '10'
+  step_fine_edit: '3'
   temp_edit1: '35'
   temp_edit2: '45'
   wide_step_edit: '400'

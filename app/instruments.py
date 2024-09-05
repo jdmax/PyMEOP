@@ -259,7 +259,7 @@ class LockIn():
         """
         self.lockin.capture.buffer_size_in_kilobytes = 64
         self.lockin.capture.config = 'XYRT'
-        self.lockin.capture.rate_divisor_exponent = 7  # 1 ms time constant give 78 kHz, this is divisor exponent
+        self.lockin.capture.rate_divisor_exponent = 6  # 1 ms time constant give 78 kHz, this is divisor exponent
         self.lockin.capture.start(0,0)
         #time.sleep(0.5)
         #print(self.lockin.capture.data_size_in_bytes)

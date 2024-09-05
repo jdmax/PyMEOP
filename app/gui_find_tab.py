@@ -214,7 +214,10 @@ class FindTab(QWidget):
         self.start_fine_button.setEnabled(True)
         self.start_wide_button.setEnabled(True)
         x, y, r, theta = data
-        self.curr_plot.setData(r)
+        if isinstance(r, float):
+            pass
+        else:
+            self.curr_plot.setData(r)
        
     
 class ScanThread(QThread):
@@ -333,7 +336,7 @@ class QuickScanThread(QThread):
         success = self.probe.start_scan()
         if not success:
             self.parent.status_bar.showMessage(f"Scan failed.")
-            self.finished.emit([0,0,0,0])
+            self.finished.emit(np.zeros(4))
 
 
 
