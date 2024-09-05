@@ -330,7 +330,12 @@ class QuickScanThread(QThread):
 
         # one shot, sawtooth scan
         print('starting')
-        self.probe.start_scan()
+        success = self.probe.start_scan()
+        if not success:
+            self.parent.status_bar.showMessage(f"Scan failed.")
+            self.finished.emit([0,0,0,0])
+
+
 
         while True:
             state = self.probe.wide_scan_state()
