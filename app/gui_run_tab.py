@@ -450,7 +450,7 @@ class RunThread(QThread):
         '''         
         self.parent.parent.probe.set_temp(self.temp)
         if self.parent.parent.settings['scan_wave']: self.parent.parent.meter.start_cont()
-        start_time = datetime.datetime.now()
+        #start_time = datetime.datetime.now()
         while self.parent.scan_button.isChecked():
             list = self.list if (self.scans % 2 == 0) else self.reverse_list  # use reverse list on odd iterations
             for i, curr in enumerate(list):

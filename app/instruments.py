@@ -66,8 +66,12 @@ class ProbeLaser():
         self.dlc.laser1.wide_scan.speed.set(speed)
 
     def start_scan(self):
-        self.dlc.laser1.wide_scan.start()
-
+        try:
+            self.dlc.laser1.wide_scan.start()
+            return True
+        except Exception as e:
+            print("Laser timed out, try again.", e)
+            return False
     def stop_scan(self):
         self.dlc.laser1.wide_scan.stop()
 

@@ -3,7 +3,7 @@ find_tab:
   scan_edit2: '44.55'
   stat_temp_edit: '90'
   stat_wide_edit: '90'
-  step_fine_edit: '2'
+  step_fine_edit: '10'
   temp_edit1: '35'
   temp_edit2: '45'
   wide_step_edit: '400'
