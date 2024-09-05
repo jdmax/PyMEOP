@@ -229,8 +229,8 @@ class Event():
             self.p2_zero = float(parent.run_tab.zero2_edit.text())
         except Exception as e:
             print(e)
-            self.p1_zero = 0
-            self.p2_zero = 0
+            self.p1_zero = 0.1
+            self.p2_zero = 0.1
 
     def fit_scan(self, pars, bounds):
         '''Fit Scan data with linear and two gaussians, using starting params passed'''
