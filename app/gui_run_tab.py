@@ -293,8 +293,8 @@ class RunTab(QWidget):
                 p4 = curr_min + (curr_max - curr_min)*0.666
                 mid = curr_min + (curr_max - curr_min)/2
                 params =  [p0, 2, 1, p4, 2, 1, 0.1, 0.1]
-                bounds = ((0, 0, 0, mid, 0, 0, -np.inf, -np.inf),
-                          (mid, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf))
+                bounds = ((0, 0, 0, mid-1, 0, 0, -np.inf, -np.inf),
+                          (mid+1, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf))
             except ValueError:
                 params = [0, 0, 0, 0, 0, 0, 0, 0]
                 bounds = ((-np.inf, -np.inf, -np.inf, -np.inf, -np.inf,-np.inf, -np.inf, -np.inf),
@@ -466,7 +466,11 @@ class RunThread(QThread):
                     wave = 0
                 #print("wave read time", datetime.datetime.now() - time1)
                 #time2 = datetime.datetime.now()
-                x, y, r = self.parent.parent.lockin.read_all() 
+                try:
+                    x, y, r = self.parent.parent.lockin.read_all()
+                except Exception as e:
+                    print("error in lock in: ", e)
+                    x,y,r = (0,0,0)
                 #print("lock read time", datetime.datetime.now() - time2)
                 #print("after lock", datetime.datetime.now() - time1)
                 #if i%20 == 0:    

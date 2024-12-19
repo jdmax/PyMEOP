@@ -177,7 +177,10 @@ class LockIn():
         '''Returns both all four lock-in parameters as x,y,r,theta
         '''
         self.tn.write(bytes(f"SNAPD?\r", 'ascii'))
-        x, y, r, th = self.tn.read_until(bytes("\r", 'ascii'),2).decode('ascii').split(',')
+        try:
+            x, y, r, th = self.tn.read_until(bytes("\r", 'ascii'),2).decode('ascii').split(',')
+        except Exception as e:
+            print(f"Lock read failed: {e}")
         return x, y, r   
         
 class SigGen():
