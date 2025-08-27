@@ -228,7 +228,8 @@ class ScanThread(QThread):
                 wave = self.parent.parent.meter.read_wavelength(1)
                 #wave = 0
                 x, y, r = self.parent.parent.lockin.read_all()
-                self.reply.emit((v, wave, r))
+                self.reply.emit((v, wave, x))
+                #self.reply.emit((v, wave, r))
             if 'curr' in self.type:
                 self.parent.parent.probe.set_temp(self.static)
                 self.parent.parent.probe.set_current(v)
@@ -241,7 +242,8 @@ class ScanThread(QThread):
                 wave = self.parent.parent.meter.read_wavelength(1)
                 #wave = 0
                 x, y, r = self.parent.parent.lockin.read_all()
-                self.reply.emit((v, wave, r))      
+                #self.reply.emit((v, wave, x))
+                self.reply.emit((v, wave, x))
   
         self.parent.parent.meter.stop_cont()
         self.finished.emit()

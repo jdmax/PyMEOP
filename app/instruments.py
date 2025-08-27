@@ -4,8 +4,10 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt
 # from labjack import ljm
 import telnetlib
 import time
+import serial
+import pandas as pd
+import numpy as np
 
-            
 class ProbeLaser():      
     '''Access Probe laser over telnet
     '''
@@ -246,8 +248,90 @@ class Keopsys():
         except Exception as e:
             print(f"Keopsys laser connection failed on {self.ip}: {e}")
 
+class VNA():
 
-        
+    def __init__(self, settings):
+        '''Start Serial Communication'''
+        self.port = settings['VNA_COM']
+        self.baudrate = 115200
+        self.timeout = 1
+
+        self.ser = serial.Serial(
+            port=self.port,
+            baudrate=self.baudrate,
+            timeout=self.timeout
+        )
+
+        try:
+            if self.ser.is_open:
+                print('connected to ', self.ser.name)
+        except Exception as e:
+            print(f"VNA could not connect: {e}")
+
+    def perform_scan(self, start, stop, steps, mode):
+        self.ser.reset_input_buffer()
+        self.ser.reset_output_buffer()
+        clear_response = self.ser.read_all().decode('utf-8').strip().split('\n')
+        message = f'scan {start} {stop} {steps} {mode} \r'
+        message_encoded = message.encode('utf-8')
+        self.ser.write(message_encoded)
+
+        time.sleep(4*steps/100)
+
+        response = self.ser.read_all().decode('utf-8').strip().split('\n')
+        print(response)
+        rows = [line.split() for line in response[1:-1]]
+
+        df = pd.DataFrame(rows, columns=['Frequency', 'S11_real', 'S11_imag', 'S21_real', 'S21_imag'])
+        df = df.apply(pd.to_numeric)
+
+        values = np.sqrt(df['S11_real'].values ** 2 + df['S11_imag'].values ** 2)
+
+        values_dB = 20*np.log10(values)
+        return df['Frequency'].values, values_dB, df['S11_real'].values, df['S11_imag'].values, df['S21_real'].values, df['S21_imag'].values
+
+    def perform_cw_scan(self, freq):
+        self.ser.reset_input_buffer()
+        self.ser.reset_output_buffer()
+        clear_response = self.ser.read_all().decode('utf-8').strip().split('\n')
+
+        #sets to cw (continuous wave mode aka fixed frequency mode)
+        message = f'cwfreq {freq}\r'
+        message_encoded = message.encode('utf-8')
+        self.ser.write(message_encoded)
+
+        #wait for mode to be set
+        time.sleep(1)
+
+        #read data.  Can't read both ports at the same time so we read each individually
+        message = f'data 0\r' #read s11
+        message_encoded = message.encode('utf-8')
+        ser.write(message_encoded)
+
+        time.sleep(2)
+
+        response = self.ser.read_all().decode('utf-8').strip().split('\n')
+        print(response)
+        rows = [line.split() for line in response[1:-1]]
+
+        df1 = pd.DataFrame(rows, columns=['S11_real', 'S11_imag'])
+        df1 = df1.apply(pd.to_numeric)
+
+        message = f'data 1\r'  # read s21
+        message_encoded = message.encode('utf-8')
+        ser.write(message_encoded)
+
+        time.sleep(2)
+
+        response = self.ser.read_all().decode('utf-8').strip().split('\n')
+        print(response)
+        rows = [line.split() for line in response[1:-1]]
+
+        df2 = pd.DataFrame(rows, columns=['S11_real', 'S11_imag'])
+        df2 = df1.apply(pd.to_numeric)
+
+        return df1['S11_real'].values, df1['S11_imag'].values, df2['S21_real'].values, df2['S21_imag'].values
+
 # class LabJack():
 #     '''Access LabJack device
 #     '''

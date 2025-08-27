@@ -19,8 +19,9 @@ from scipy import optimize
 
 from app.gui_run_tab import RunTab
 from app.gui_find_tab import FindTab
+from app.gui_vna_tab import VNA_Tab
 from app.classes import Event
-from app.instruments import ProbeLaser, WavelengthMeter, LockIn, SigGen
+from app.instruments import ProbeLaser, WavelengthMeter, LockIn, SigGen, VNA
 
 
 class MainWindow(QMainWindow):
@@ -56,6 +57,9 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.run_tab, "Run")
         self.find_tab = FindTab(self)
         self.tab_widget.addTab(self.find_tab, "Find Peaks")
+        self.vna_tab = VNA_Tab(self)
+        self.tab_widget.addTab(self.vna_tab, "VNA")
+
 
         self.restore_session()
 
@@ -85,6 +89,12 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(f"Connected to signal generator at {self.settings['siggen_ip']}")
         except Exception as e:
             print(f"Unable to connect to Signal Generator at {self.settings['siggen_ip']}, {e}")
+
+        try:
+            self.vna = VNA(self.settings)
+            self.status_bar.showMessage(f"Connected to sVNA at {self.settings['VNA_COM']}")
+        except Exception as e:
+            print(f"Unable to connect to VNA at {self.settings['VNA_COM']}, {e}")
 
         # try: 
         # self.labjack = LabJack(self.settings)
@@ -242,7 +252,7 @@ class Event():
 
         X = np.array(self.x_axis)
         Y = np.array(self.rs)
-        self.pf, self.pcov = optimize.curve_fit(self.peaks, X, Y, p0=pars, bounds=bounds)
+        self.pf, self.pcov = optimize.curve_fit(self.peaks, X, Y, p0=pars, bounds=bounds, maxfev=10000)
         self.pstd = np.sqrt(np.diag(self.pcov))
         self.fit = self.peaks(X, *self.pf)
         self.peak1 = self.pf[2]
@@ -255,8 +265,8 @@ class Event():
     def peaks(self, x, *p):
         g1 = p[2] * np.exp(-np.power((x - p[0]), 2) / (2 * np.power(p[1], 2)))
         g2 = p[5] * np.exp(-np.power((x - p[3]), 2) / (2 * np.power(p[4], 2)))
-        lin = p[6] * x + p[7]
-        return g1 + g2 + lin
+        poly = p[6] * x * x + p[7] * x + p[8]
+        return g1 + g2 + poly
 
     def print_event(self, eventfile):
         '''Print out all event attributes to eventfile, formatting to dict to write to json line.

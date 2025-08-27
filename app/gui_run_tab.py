@@ -119,16 +119,20 @@ class RunTab(QWidget):
         self.g2_hei_edit.setPlaceholderText("Height")
         self.anal_box.layout().addWidget(self.g2_hei_edit, 2, 3)        
         
-        self.slope_label = QLabel("Linear:")
-        self.anal_box.layout().addWidget(self.slope_label, 3, 0)
+        self.poly_label = QLabel("Polynomial:")
+        self.anal_box.layout().addWidget(self.poly_label, 3, 0)
+        self.quad_edit =  QLineEdit()
+        self.quad_edit.setEnabled(False)
+        self.quad_edit.setPlaceholderText("Quadratic")
+        self.anal_box.layout().addWidget(self.quad_edit, 3, 1)
         self.slope_edit =  QLineEdit()
         self.slope_edit.setEnabled(False)
         self.slope_edit.setPlaceholderText("Slope")
-        self.anal_box.layout().addWidget(self.slope_edit, 3, 1)
+        self.anal_box.layout().addWidget(self.slope_edit, 3, 2)
         self.int_edit =  QLineEdit()
         self.int_edit.setEnabled(False)
         self.int_edit.setPlaceholderText("Intercept")
-        self.anal_box.layout().addWidget(self.int_edit, 3, 2)       
+        self.anal_box.layout().addWidget(self.int_edit, 3, 3)
 
 
         # Populate Results box
@@ -292,13 +296,13 @@ class RunTab(QWidget):
                 p0 = curr_min + (curr_max - curr_min)*0.333
                 p4 = curr_min + (curr_max - curr_min)*0.666
                 mid = curr_min + (curr_max - curr_min)/2
-                params =  [p0, 2, 1, p4, 2, 1, 0.1, 0.1]
-                bounds = ((0, 0, 0, mid-1, 0, 0, -np.inf, -np.inf),
-                          (mid+1, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf))
+                params =  [p0, 2, 1, p4, 2, 1, 0.1, 0.1, 0.1]
+                bounds = ((0, 0, 0, mid-1, 0, 0, -np.inf, -np.inf, -np.inf),
+                          (mid+1, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf))
             except ValueError:
-                params = [0, 0, 0, 0, 0, 0, 0, 0]
-                bounds = ((-np.inf, -np.inf, -np.inf, -np.inf, -np.inf,-np.inf, -np.inf, -np.inf),
-                          (np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf))
+                params = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+                bounds = ((-np.inf, -np.inf, -np.inf, -np.inf, -np.inf,-np.inf, -np.inf, -np.inf, -np.inf),
+                          (np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf))
             # try:
             #     params =  [float(self.g1_pos_edit.text()),
             #         float(self.g1_sig_edit.text()),
@@ -355,8 +359,9 @@ class RunTab(QWidget):
             self.g2_pos_edit.setText(f"{self.parent.previous_event.pf[3]:.4f}")
             self.g2_sig_edit.setText(f"{self.parent.previous_event.pf[4]:.4f}")
             self.g2_hei_edit.setText(f"{self.parent.previous_event.pf[5]:.4f}")
-            self.slope_edit.setText(f"{self.parent.previous_event.pf[6]:.4f}")
-            self.int_edit.setText(f"{self.parent.previous_event.pf[7]:.4f}")
+            self.quad_edit.setText(f"{self.parent.previous_event.pf[6]:.4f}")
+            self.slope_edit.setText(f"{self.parent.previous_event.pf[7]:.4f}")
+            self.int_edit.setText(f"{self.parent.previous_event.pf[8]:.4f}")
         
         self.peak1_edit.setText(f"{self.parent.previous_event.pf[2]:.4f}")
         self.peak2_edit.setText(f"{self.parent.previous_event.pf[5]:.4f}")
@@ -468,6 +473,10 @@ class RunThread(QThread):
                 #time2 = datetime.datetime.now()
                 try:
                     x, y, r = self.parent.parent.lockin.read_all()
+                    x = float(x)*1000# turning lock-in V to mV
+                    y = float(y)*1000
+                    r = float(r)*1000
+
                 except Exception as e:
                     print("error in lock in: ", e)
                     x,y,r = (0,0,0)
@@ -475,7 +484,7 @@ class RunThread(QThread):
                 #print("after lock", datetime.datetime.now() - time1)
                 #if i%20 == 0:    
                 #    print(f"point {i}:", curr, wave)
-                self.reply.emit((curr, wave, float(x)*1000, datetime.datetime.now(), 'running'))    # turning lock-in V to mV
+                self.reply.emit((curr, wave, x, datetime.datetime.now(), 'running'))
                 
             self.scans += 1   
             self.reply.emit((0, 0, 0, datetime.datetime.now(), 'done'))    
