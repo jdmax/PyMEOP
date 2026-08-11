@@ -2,7 +2,7 @@
 '''
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 # from labjack import ljm
-import telnetlib
+from telnetlib3 import Telnet    # stdlib telnetlib removed in Python 3.13
 import time
 
             
@@ -18,7 +18,7 @@ class ProbeLaser():
         self.port = 1998
         
         try:
-            self.tn = telnetlib.Telnet(self.ip, port=self.port, timeout=2)
+            self.tn = Telnet(self.ip, port=self.port, timeout=2)
             
             outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
             self.tn.write(bytes("(param-disp 'laser1:dl:cc:current-set)\n", 'ascii'))
@@ -122,7 +122,7 @@ class WavelengthMeter():
         self.port = 5025
  
         try:
-            self.tn = telnetlib.Telnet(self.ip, port=self.port, timeout=4)
+            self.tn = Telnet(self.ip, port=self.port, timeout=4)
             self.tn.write(bytes(f"MEAS:POW:WAV?\n", 'ascii'))
             outp = self.tn.read_some().decode('ascii')
             
@@ -163,7 +163,7 @@ class LockIn():
         self.port = 23
  
         try:
-            self.tn = telnetlib.Telnet(self.ip, port=self.port, timeout=5)
+            self.tn = Telnet(self.ip, port=self.port, timeout=5)
             outp = self.tn.read_until(bytes("\r", 'ascii'),2).decode('ascii')
                         
         except Exception as e:
@@ -193,7 +193,7 @@ class SigGen():
         self.port = 5025
  
         try:
-            self.tn = telnetlib.Telnet(self.ip, port=self.port, timeout=2)
+            self.tn = Telnet(self.ip, port=self.port, timeout=2)
             outp = self.tn.read_until(bytes("\r", 'ascii'),2).decode('ascii')
                         
         except Exception as e:
@@ -240,7 +240,7 @@ class Keopsys():
         self.port = 5025
 
         try:
-            self.tn = telnetlib.Telnet(self.ip, port=self.port, timeout=2)
+            self.tn = Telnet(self.ip, port=self.port, timeout=2)
             outp = self.tn.read_until(bytes("\r", 'ascii'), 2).decode('ascii')
 
         except Exception as e:
