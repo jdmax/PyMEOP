@@ -38,6 +38,7 @@ class RunTab(QWidget):
         self.times = []
         
         self.pol_hist = {}    # polarization history keyed on stop timestamp
+        self.last_good_pf = None    # parameters of last good fit, seeds the next scan's fit
         
         
         # Populate Run Tab
@@ -81,6 +82,9 @@ class RunTab(QWidget):
         self.anal_box.setLayout(QGridLayout())
         self.left.addWidget(self.anal_box)
         
+        self.fit_status = QLabel('')
+        self.anal_box.layout().addWidget(self.fit_status, 0, 0, 1, 4)
+        
         # self.pos_label = QLabel("Position:")
         # self.anal_box.layout().addWidget(self.pos_label, 4, 1)
         # self.sig_label = QLabel("Sigma:")
@@ -119,16 +123,20 @@ class RunTab(QWidget):
         self.g2_hei_edit.setPlaceholderText("Height")
         self.anal_box.layout().addWidget(self.g2_hei_edit, 2, 3)        
         
-        self.slope_label = QLabel("Linear:")
+        self.slope_label = QLabel("Baseline:")
         self.anal_box.layout().addWidget(self.slope_label, 3, 0)
+        self.quad_edit =  QLineEdit()
+        self.quad_edit.setEnabled(False)
+        self.quad_edit.setPlaceholderText("Curvature")
+        self.anal_box.layout().addWidget(self.quad_edit, 3, 1)
         self.slope_edit =  QLineEdit()
         self.slope_edit.setEnabled(False)
         self.slope_edit.setPlaceholderText("Slope")
-        self.anal_box.layout().addWidget(self.slope_edit, 3, 1)
+        self.anal_box.layout().addWidget(self.slope_edit, 3, 2)
         self.int_edit =  QLineEdit()
         self.int_edit.setEnabled(False)
-        self.int_edit.setPlaceholderText("Intercept")
-        self.anal_box.layout().addWidget(self.int_edit, 3, 2)       
+        self.int_edit.setPlaceholderText("Offset")
+        self.anal_box.layout().addWidget(self.int_edit, 3, 3)
 
 
         # Populate Results box
@@ -286,31 +294,10 @@ class RunTab(QWidget):
         '''
         curr, wave, r, time, status = tup     
         if 'done' in status:     # got last part of scan, reset and send to event
-            try:
-                curr_max = max(self.currs)
-                curr_min = min(self.currs)
-                p0 = curr_min + (curr_max - curr_min)*0.333
-                p4 = curr_min + (curr_max - curr_min)*0.666
-                mid = curr_min + (curr_max - curr_min)/2
-                params =  [p0, 2, 1, p4, 2, 1, 0.1, 0.1]
-                bounds = ((0, 0, 0, mid-1, 0, 0, -np.inf, -np.inf),
-                          (mid+1, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf))
-            except ValueError:
-                params = [0, 0, 0, 0, 0, 0, 0, 0]
-                bounds = ((-np.inf, -np.inf, -np.inf, -np.inf, -np.inf,-np.inf, -np.inf, -np.inf),
-                          (np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf))
-            # try:
-            #     params =  [float(self.g1_pos_edit.text()),
-            #         float(self.g1_sig_edit.text()),
-            #         float(self.g1_hei_edit.text()),
-            #         float(self.g2_pos_edit.text()),
-            #         float(self.g2_sig_edit.text()),
-            #         float(self.g2_hei_edit.text()),
-            #         float(self.slope_edit.text()),
-            #         float(self.int_edit.text())]
-            # except ValueError:
-            #     params = [0, 0, 0, 0, 0, 0, 0, 0]
-            self.parent.end_event(self.scan_currs, self.scan_waves, self.scan_rs, self.scan_times, params, bounds)
+            # starting parameters are estimated from the scan data by the event itself,
+            # seeded with the last good fit since the peaks drift slowly during a run
+            self.parent.end_event(self.scan_currs, self.scan_waves, self.scan_rs, self.scan_times,
+                                  self.last_good_pf)
             self.scan_currs = []
             self.scan_waves = []
             self.scan_rs = []
@@ -340,28 +327,42 @@ class RunTab(QWidget):
     def update_scan_plot(self):
         '''Update tab with new data
         '''
-        self.pol_hist[self.parent.previous_event.stop_stamp] = self.parent.previous_event.pol*100
+        event = self.parent.previous_event
+
+        if len(event.x_axis) == len(event.rs):
+            self.peak_plot.setData(event.x_axis, event.rs)
+        if len(event.fit) == len(event.x_axis):
+            self.fit_plot.setData(event.x_axis, event.fit)
+        else:
+            self.fit_plot.setData([], [])    # no fit curve to show
+
+        if not event.fit_good:    # show the scan, but don't seed from a bad fit or record its polarization
+            self.fit_status.setText(event.fit_message)
+            self.fit_status.setStyleSheet("color: #aa0000")
+            return
+
+        self.fit_status.setText(f"Fit good, R2 = {event.rsq:.4f}")
+        self.fit_status.setStyleSheet("color: #007700")
+        self.last_good_pf = list(event.pf)    # starting point for the next scan's fit
+
+        self.g1_pos_edit.setText(f"{event.pf[0]:.4f}")
+        self.g1_sig_edit.setText(f"{event.pf[1]:.4f}")
+        self.g1_hei_edit.setText(f"{event.pf[2]:.4f}")
+        self.g2_pos_edit.setText(f"{event.pf[3]:.4f}")
+        self.g2_sig_edit.setText(f"{event.pf[4]:.4f}")
+        self.g2_hei_edit.setText(f"{event.pf[5]:.4f}")
+        self.quad_edit.setText(f"{event.pf[6]:.3e}")    # baseline is referenced to mid-scan
+        self.slope_edit.setText(f"{event.pf[7]:.4f}")
+        self.int_edit.setText(f"{event.pf[8]:.4f}")
+
+        self.peak1_edit.setText(f"{event.pf[2]:.4f}")
+        self.peak2_edit.setText(f"{event.pf[5]:.4f}")
+
+        self.pol_hist[event.stop_stamp] = event.pol*100
         time_list = list(self.pol_hist.keys())
         pol_list = [self.pol_hist[k] for k in self.pol_hist.keys()]
-        
-        self.peak_plot.setData(self.parent.previous_event.x_axis, self.parent.previous_event.rs)
-        self.fit_plot.setData(self.parent.previous_event.x_axis, self.parent.previous_event.fit)
         self.pol_plot.setData(time_list, pol_list)
-
-        if float(self.curr_lo_edit.text()) < self.parent.previous_event.pf[0] < float(self.curr_up_edit.text()):
-            self.g1_pos_edit.setText(f"{self.parent.previous_event.pf[0]:.4f}")
-            self.g1_sig_edit.setText(f"{self.parent.previous_event.pf[1]:.4f}")
-            self.g1_hei_edit.setText(f"{self.parent.previous_event.pf[2]:.4f}")
-            self.g2_pos_edit.setText(f"{self.parent.previous_event.pf[3]:.4f}")
-            self.g2_sig_edit.setText(f"{self.parent.previous_event.pf[4]:.4f}")
-            self.g2_hei_edit.setText(f"{self.parent.previous_event.pf[5]:.4f}")
-            self.slope_edit.setText(f"{self.parent.previous_event.pf[6]:.4f}")
-            self.int_edit.setText(f"{self.parent.previous_event.pf[7]:.4f}")
-        
-        self.peak1_edit.setText(f"{self.parent.previous_event.pf[2]:.4f}")
-        self.peak2_edit.setText(f"{self.parent.previous_event.pf[5]:.4f}")
-        
-        self.pol_value.setText(f"{self.parent.previous_event.pol*100:.2f}%")
+        self.pol_value.setText(f"{event.pol*100:.2f}%")
 
     def finish_scans(self):
         #if not self.relax_thread.isRunning():
