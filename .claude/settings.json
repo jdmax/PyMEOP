@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(python --version)",
+      "PowerShell(python -c \"import telnetlib; print\\(telnetlib.__file__\\)\")",
+      "PowerShell(py -0p)",
+      "PowerShell(& \"c:\\\\Users\\\\jmaxwell\\\\VSCode_Projects\\\\PyMEOP\\\\.venv\\\\Scripts\\\\python.exe\" --version)",
+      "PowerShell(& \"c:\\\\Users\\\\jmaxwell\\\\VSCode_Projects\\\\PyMEOP\\\\.venv\\\\Scripts\\\\python.exe\" -c \"import telnetlib, sys; print\\('telnetlib OK', telnetlib.__file__\\)\")",
+      "PowerShell(& \"c:\\\\Users\\\\jmaxwell\\\\VSCode_Projects\\\\PyMEOP\\\\.venv\\\\Scripts\\\\python.exe\" -m pip install --dry-run --no-deps \"telnetlib-313-and-up\")",
+      "Read(//c/Users/jmaxwell/AppData/Local/Programs/Python/Python312/Lib/**)",
+      "PowerShell(& \"c:\\\\Users\\\\jmaxwell\\\\VSCode_Projects\\\\PyMEOP\\\\.venv\\\\Scripts\\\\python.exe\" -m pip download telnetlib3 --no-deps -d \"C:\\\\Users\\\\jmaxwell\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-jmaxwell-VSCode-Projects-PyMEOP\\\\b625147d-99a5-4a03-adb5-199add83ab26\\\\scratchpad\\\\tl3\" -q)",
+      "PowerShell($s='C:\\\\Users\\\\jmaxwell\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-jmaxwell-VSCode-Projects-PyMEOP\\\\b625147d-99a5-4a03-adb5-199add83ab26\\\\scratchpad\\\\tl3'; Expand-Archive -Path \"$s\\\\telnetlib3-5.0.0-py3-none-any.whl\" -DestinationPath \"$s\\\\x\" -Force; Get-ChildItem \"$s\\\\x\\\\telnetlib3\" | Select-Object -ExpandProperty Name)",
+      "PowerShell($s='C:\\\\Users\\\\jmaxwell\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-jmaxwell-VSCode-Projects-PyMEOP\\\\b625147d-99a5-4a03-adb5-199add83ab26\\\\scratchpad\\\\tl3'; Copy-Item \"$s\\\\telnetlib3-5.0.0-py3-none-any.whl\" \"$s\\\\t.zip\"; Expand-Archive -Path \"$s\\\\t.zip\" -DestinationPath \"$s\\\\x\" -Force; Get-ChildItem \"$s\\\\x\\\\telnetlib3\" | Select-Object -ExpandProperty Name)",
+      "PowerShell($s='C:\\\\Users\\\\jmaxwell\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-jmaxwell-VSCode-Projects-PyMEOP\\\\b625147d-99a5-4a03-adb5-199add83ab26\\\\scratchpad\\\\tl3'; Get-Content \"$s\\\\x\\\\telnetlib3\\\\telnetlib.py\" -TotalCount 60; \"----- SYNC -----\"; Get-Content \"$s\\\\x\\\\telnetlib3\\\\sync.py\" -TotalCount 50)",
+      "PowerShell(& \"c:\\\\Users\\\\jmaxwell\\\\VSCode_Projects\\\\PyMEOP\\\\.venv\\\\Scripts\\\\python.exe\" -m pip install telnetlib3)",
+      "PowerShell(& \"c:\\\\Users\\\\jmaxwell\\\\VSCode_Projects\\\\PyMEOP\\\\.venv\\\\Scripts\\\\python.exe\" -c \"from telnetlib3 import Telnet; print\\(Telnet\\); print\\([m for m in \\('write','read_until','read_some','read_all','close','open'\\) if hasattr\\(Telnet, m\\)]\\)\")",
+      "PowerShell(& \"c:\\\\Users\\\\jmaxwell\\\\VSCode_Projects\\\\PyMEOP\\\\.venv\\\\Scripts\\\\python.exe\" -c \"import inspect; from telnetlib3 import Telnet; print\\(inspect.signature\\(Telnet.__init__\\)\\)\")",
+      "PowerShell(& \"c:\\\\Users\\\\jmaxwell\\\\VSCode_Projects\\\\PyMEOP\\\\.venv\\\\Scripts\\\\python.exe\" -c \"import ast,sys; ast.parse\\(open\\(r'c:\\\\Users\\\\jmaxwell\\\\VSCode_Projects\\\\PyMEOP\\\\app\\\\instruments.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")"
+    ]
+  }
+}
