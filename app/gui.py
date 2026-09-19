@@ -2,17 +2,12 @@
 '''
 
 import datetime
-import time
-import socket
-import sys
 import os
 import yaml
-import pytz
 import logging
 import json
-from PyQt5.QtWidgets import QMainWindow, QErrorMessage, QTabWidget, QLabel, QWidget, QLineEdit
-from PyQt5.QtGui import QIntValidator, QDoubleValidator, QValidator
-from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtWidgets import QMainWindow, QErrorMessage, QTabWidget, QLabel, QLineEdit
+from PyQt5.QtCore import QThread, pyqtSignal
 from logging.handlers import TimedRotatingFileHandler
 import numpy as np
 from scipy import optimize
@@ -20,7 +15,6 @@ from scipy.signal import find_peaks, peak_widths
 
 from app.gui_run_tab import RunTab
 from app.gui_find_tab import FindTab
-from app.classes import Event
 from app.instruments import ProbeLaser, WavelengthMeter, LockIn, SigGen
 
 N_PARS = 9  # two gaussians (position, sigma, height each) on a quadratic baseline
@@ -92,11 +86,6 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(f"Connected to signal generator at {self.settings['siggen_ip']}")
         except Exception as e:
             print(f"Unable to connect to Signal Generator at {self.settings['siggen_ip']}, {e}")
-
-        # try: 
-        # self.labjack = LabJack(self.settings)
-        # except Exception as e:
-        # print(f"Unable to connect to LabJack at {self.settings['labjack_ip']}, {e}")
 
     def load_settings(self):
         '''Load settings from YAML config file'''

@@ -1,9 +1,6 @@
 '''PyMEOP J.Maxwell 2021
 '''
-from PyQt5.QtCore import QThread, pyqtSignal, Qt
-# from labjack import ljm
 from telnetlib3 import Telnet    # stdlib telnetlib removed in Python 3.13
-import time
 
             
 class ProbeLaser():      
@@ -230,46 +227,3 @@ class SigGen():
         """Turn on or off type N output"""
         b = 1 if on else 0
         self.tn.write(bytes(f"ENBR {b}\r", 'ascii'))
-
-class Keopsys():
-    '''Controls for Keopsys pump laser'''
-
-    def __init__(self, settings):
-        '''Start connection over telnet'''
-        self.ip = settings['siggen_ip']
-        self.port = 5025
-
-        try:
-            self.tn = Telnet(self.ip, port=self.port, timeout=2)
-            outp = self.tn.read_until(bytes("\r", 'ascii'), 2).decode('ascii')
-
-        except Exception as e:
-            print(f"Keopsys laser connection failed on {self.ip}: {e}")
-
-
-        
-# class LabJack():
-#     '''Access LabJack device
-#     '''
-#
-#     def __init__(self, settings):
-#         '''Open connection to LabJack
-#         '''
-#         ip = settings['labjack_ip']
-#         try:
-#             self.lj = ljm.openS("T4", "TCP", ip)
-#         except Exception as e:
-#             print(f"Connection to LabJack failed on {ip}: {e}")
-#
-#
-#
-#     def read_back(self):
-#         '''Read voltage in
-#         '''
-#         aNames = ["AIN0","AIN1"]
-#         return ljm.eReadNames(self.lj, len(aNames), aNames)
-#
-#     def __del__(self):
-#         '''Close on delete'''
-#         ljm.close(self.lj)
-            

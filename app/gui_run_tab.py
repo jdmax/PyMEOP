@@ -2,10 +2,9 @@
 '''
 import datetime
 import time
-import math
-from PyQt5.QtWidgets import QWidget, QLabel, QGroupBox, QHBoxLayout, QVBoxLayout, QGridLayout, QLineEdit, QSpacerItem, QSizePolicy, QComboBox, QPushButton, QProgressBar
-from PyQt5.QtGui import QIntValidator, QDoubleValidator, QValidator
-from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtWidgets import QWidget, QLabel, QGroupBox, QHBoxLayout, QVBoxLayout, QGridLayout, QLineEdit, QPushButton
+from PyQt5.QtGui import QDoubleValidator
+from PyQt5.QtCore import QThread, pyqtSignal
 import pyqtgraph as pg
 import numpy as np
  
