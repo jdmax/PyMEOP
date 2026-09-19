@@ -57,7 +57,7 @@ tests/
 
 ## Phase 1: Pure core with tests (no Qt, no hardware)
 
-- [ ] **1.1 Extract fitting into `app/core/fitting.py`**
+- [x] **1.1 Extract fitting into `app/core/fitting.py`**
   Move `fit_scan`, `try_fit`, `estimate_peaks`, `fit_bounds`, `check_fit`, `baseline_guess`, `peaks`,
   `r_squared`, and the constants from `app/gui.py` into plain functions returning a `FitResult` dataclass
   (`pf`, `pstd`, `pcov`, `ok`, `message`, `rsq`, `x_ref`, `fit_curve`). Add `tests/test_fitting.py`
