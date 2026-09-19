@@ -217,7 +217,7 @@ class ScanThread(QThread):
                         time.sleep(0.2)                 
                     
                 else:    
-                    time.sleep(self.parent.settings['temp_scan_wait'])
+                    time.sleep(self.parent.settings.temp_scan_wait)
                 wave = self.parent.parent.meter.read_wavelength(1)
                 #wave = 0
                 x, y, r = self.parent.parent.lockin.read_all()
@@ -230,7 +230,7 @@ class ScanThread(QThread):
                     time.sleep(4)
                     first_time = False
                 else:    
-                    time.sleep(self.parent.settings['curr_scan_wait'])
+                    time.sleep(self.parent.settings.curr_scan_wait)
                 wave = self.parent.parent.meter.read_wavelength(1)
                 #wave = 0
                 x, y, r = self.parent.parent.lockin.read_all()

@@ -449,7 +449,7 @@ class RunThread(QThread):
         '''Main scan loop
         '''         
         self.parent.parent.probe.set_temp(self.temp)
-        if self.parent.parent.settings['scan_wave']: self.parent.parent.meter.start_cont()
+        if self.parent.parent.settings.scan_wave: self.parent.parent.meter.start_cont()
         start_time = datetime.datetime.now()
         while self.parent.scan_button.isChecked():
             list = self.list if (self.scans % 2 == 0) else self.reverse_list  # use reverse list on odd iterations
@@ -458,9 +458,9 @@ class RunThread(QThread):
                 if i == 0 and self.scans == 0:
                     time.sleep(0.5)
                 else:                 
-                    time.sleep(self.parent.settings['scan_wait'])
+                    time.sleep(self.parent.settings.scan_wait)
                 #time1 = datetime.datetime.now()
-                if self.parent.parent.settings['scan_wave']:
+                if self.parent.parent.settings.scan_wave:
                     wave = self.parent.parent.meter.read_wavelength(1)
                 else:
                     wave = 0
@@ -480,7 +480,7 @@ class RunThread(QThread):
             self.scans += 1   
             self.reply.emit((0, 0, 0, datetime.datetime.now(), 'done'))    
                 
-        if self.parent.parent.settings['scan_wave']: self.parent.parent.meter.stop_cont()
+        if self.parent.parent.settings.scan_wave: self.parent.parent.meter.stop_cont()
         self.parent.parent.probe.set_current(self.list[0])
         self.finished.emit()
 

@@ -1,9 +1,9 @@
 '''PyMEOP J.Maxwell 2021
 '''
 
+import dataclasses
 import datetime
 import os
-import yaml
 import logging
 import json
 from PyQt5.QtWidgets import QMainWindow, QErrorMessage, QTabWidget, QLabel, QLineEdit
@@ -15,23 +15,25 @@ from app.gui_run_tab import RunTab
 from app.gui_find_tab import FindTab
 from app.instruments import ProbeLaser, WavelengthMeter, LockIn, SigGen
 from app.core import fitting
+from app.core.config import load_session, save_session
+
+SESSION_FILE = 'app/saved_session.yaml'
 
 
 class MainWindow(QMainWindow):
     '''Main window of application
 
-    Attributes:
-
+    Args:
+        settings: Validated Settings from app.core.config
     '''
 
-    def __init__(self, parent=None):
+    def __init__(self, settings, parent=None):
         super().__init__(parent)
         self.error_dialog = QErrorMessage(self)
         self.status_bar = self.statusBar()
         self.status_bar.showMessage('Ready.')
 
-        self.config_filename = 'config.yaml'
-        self.load_settings()
+        self.settings = settings
         self.start_logger()
 
         self.left = 100
@@ -58,36 +60,27 @@ class MainWindow(QMainWindow):
 
         try:
             self.probe = ProbeLaser(self.settings)
-            self.status_bar.showMessage(f"Connected to probe laser at {self.settings['probe_ip']}")
+            self.status_bar.showMessage(f"Connected to probe laser at {self.settings.probe_ip}")
         except:
-            print(f"Unable to connect to probe laser at {self.settings['probe_ip']}")
+            print(f"Unable to connect to probe laser at {self.settings.probe_ip}")
 
         try:
             self.meter = WavelengthMeter(self.settings)
-            self.status_bar.showMessage(f"Connected to wavelength meter at {self.settings['meter_ip']}")
+            self.status_bar.showMessage(f"Connected to wavelength meter at {self.settings.meter_ip}")
         except Exception as e:
-            print(f"Unable to connect to wavelngh meter at {self.settings['meter_ip']}, {e}")
+            print(f"Unable to connect to wavelngh meter at {self.settings.meter_ip}, {e}")
 
         try:
             self.lockin = LockIn(self.settings)
-            self.status_bar.showMessage(f"Connected to lock-in at {self.settings['lockin_ip']}")
+            self.status_bar.showMessage(f"Connected to lock-in at {self.settings.lockin_ip}")
         except Exception as e:
-            print(f"Unable to connect to Lock In at {self.settings['lockin_ip']}, {e}")
+            print(f"Unable to connect to Lock In at {self.settings.lockin_ip}, {e}")
 
         try:
             self.siggen = SigGen(self.settings)
-            self.status_bar.showMessage(f"Connected to signal generator at {self.settings['siggen_ip']}")
+            self.status_bar.showMessage(f"Connected to signal generator at {self.settings.siggen_ip}")
         except Exception as e:
-            print(f"Unable to connect to Signal Generator at {self.settings['siggen_ip']}, {e}")
-
-    def load_settings(self):
-        '''Load settings from YAML config file'''
-
-        with open(self.config_filename) as f:  # Load settings from YAML file
-            self.config_dict = yaml.load(f, Loader=yaml.FullLoader)
-        self.settings = self.config_dict['settings']  # dict of settings
-
-        self.status_bar.showMessage(f"Loaded settings from {self.config_filename}.")
+            print(f"Unable to connect to Signal Generator at {self.settings.siggen_ip}, {e}")
 
     def save_session(self):
         '''Print session settings before app exit to a file for recall on restart'''
@@ -99,24 +92,18 @@ class MainWindow(QMainWindow):
                 for key, entry in e.__dict__.items():
                     if isinstance(entry, QLineEdit):
                         saved_dict[k].update({key: entry.text()})
-        with open('app/saved_session.yaml', 'w') as file:
-            documents = yaml.dump(saved_dict, file)
+        save_session(SESSION_FILE, saved_dict)
 
     def restore_session(self):
-        '''Restore settings from previous session'''
-        with open('app/saved_session.yaml') as f:  # Load settings from YAML files
-            restore_dict = yaml.load(f, Loader=yaml.FullLoader)
-
-        try:
-            for k, e in restore_dict.items():
-                for key, entry in e.items():
-                    try:
-                        self.__dict__[k].__dict__[key].setText(entry)  # set line edit text for each
-                    except Exception as ex:
-                        self.__dict__[k].__dict__[key].setText('')
-                        print('Failed to import previous session.', ex)
-        except Exception as ex:
-            print('Failed to import previous session.', ex)
+        '''Restore line edit text from previous session, skipping fields that no longer exist'''
+        for tab_name, edits in load_session(SESSION_FILE).items():
+            tab = getattr(self, tab_name, None)
+            for key, text in edits.items():
+                edit = getattr(tab, key, None)
+                if isinstance(edit, QLineEdit):
+                    edit.setText('' if text is None else str(text))
+                else:
+                    logging.info(f'Session field {tab_name}.{key} no longer exists, skipped.')
 
     def new_event(self):
         '''Create new event instance'''
@@ -154,7 +141,7 @@ class MainWindow(QMainWindow):
         self.close_eventfile()  # try to close previous eventfile
         now = datetime.datetime.now(tz=datetime.timezone.utc)
         self.eventfile_start = now.strftime("%Y-%m-%d_%H-%M-%S")
-        self.eventfile_name = os.path.join(self.settings["event_dir"], f'current_{self.eventfile_start}.txt')
+        self.eventfile_name = os.path.join(self.settings.event_dir, f'current_{self.eventfile_start}.txt')
         self.eventfile = open(self.eventfile_name, "w")
         self.eventfile_lines = 0
         logging.info(f"Opened new eventfile {self.eventfile_name}")
@@ -165,7 +152,7 @@ class MainWindow(QMainWindow):
             self.eventfile.close()
             now = datetime.datetime.now(tz=datetime.timezone.utc)
             new = f'{self.eventfile_start}__{now.strftime("%Y-%m-%d_%H-%M-%S")}.txt'
-            os.rename(self.eventfile_name, os.path.join(self.config.settings["event_dir"], new))
+            os.rename(self.eventfile_name, os.path.join(self.settings.event_dir, new))
             logging.info(f"Closed eventfile and moved to {new}.")
         except AttributeError:
             logging.info(f"Error closing eventfile.")
@@ -173,7 +160,7 @@ class MainWindow(QMainWindow):
     def start_logger(self):
         '''Start logger
         '''
-        logHandler = TimedRotatingFileHandler(os.path.join(self.settings['log_dir'], "log"),
+        logHandler = TimedRotatingFileHandler(os.path.join(self.settings.log_dir, "log"),
                                               when="midnight")  # setup logfiles
         logHandler.suffix = "%Y-%m-%d.txt"
         logFormatter = logging.Formatter('%(asctime)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
@@ -181,7 +168,7 @@ class MainWindow(QMainWindow):
         logger = logging.getLogger()
         logger.addHandler(logHandler)
         logger.setLevel(logging.INFO)
-        logging.info("Loaded config file")
+        logging.info(f"Started with settings {self.settings}")
 
     def divider(self):
         div = QLabel('')
@@ -225,7 +212,7 @@ class Event():
     def x_data(self):
         '''Return the x axis to fit and plot against, per the scan_x_axis setting'''
 
-        if 'wave' in self.parent.settings['scan_x_axis']:
+        if self.settings.scan_x_axis == 'wavelength':
             return np.array(self.waves, dtype=float)
         return np.array(self.currs, dtype=float)
 
@@ -280,6 +267,8 @@ class Event():
         for key, entry in self.__dict__.items():  # filter event attributes for json dict
             if isinstance(entry, datetime.datetime):
                 json_dict.update({key: entry.__str__()})  # datetime to string
+            elif dataclasses.is_dataclass(entry):
+                json_dict.update({key: dataclasses.asdict(entry)})
             elif key in exclude_list:
                 pass
             else:

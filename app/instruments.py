@@ -11,7 +11,7 @@ class ProbeLaser():
     def __init__(self, settings):
         '''Open connection to Toptica DLC controller
         '''  
-        self.ip = settings['probe_ip']
+        self.ip = settings.probe_ip
         self.port = 1998
         
         try:
@@ -115,7 +115,7 @@ class WavelengthMeter():
 
     def __init__(self, settings):
         '''Start connection over telnet'''        
-        self.ip = settings['meter_ip']
+        self.ip = settings.meter_ip
         self.port = 5025
  
         try:
@@ -156,7 +156,7 @@ class LockIn():
 
     def __init__(self, settings):
         '''Start connection over telnet'''        
-        self.ip = settings['lockin_ip']
+        self.ip = settings.lockin_ip
         self.port = 23
  
         try:
@@ -186,7 +186,7 @@ class SigGen():
 
     def __init__(self, settings):
         '''Start connection over telnet'''        
-        self.ip = settings['siggen_ip']
+        self.ip = settings.siggen_ip
         self.port = 5025
  
         try:

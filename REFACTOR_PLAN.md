@@ -75,7 +75,7 @@ tests/
     - stops copying the whole `settings` dict and `pcov` into every line; it writes a run-header line instead.
   *Done when:* `gui.py` has no `Event` class and has `tests/test_storage.py` covering rotation, rename, and close.
 
-- [ ] **1.3 ‖ `app/core/config.py`**
+- [x] **1.3 ‖ `app/core/config.py`**
   Load `config.yaml` into a validated settings object: required keys, types, directories created if missing,
   `scan_x_axis == 'wavelength'` rejected unless `scan_wave` is true. Session save/restore also lives here,
   with a missing or empty `saved_session.yaml` handled gracefully.
