@@ -42,14 +42,14 @@ tests/
 
 ## Phase 0: Cleanup (no behaviour change)
 
-- [ ] **0.1 ‖ Untrack generated and personal files**
+- [x] **0.1 ‖ Untrack generated and personal files**
   `git rm --cached` for `app/__pycache__/`, `data/current_*`, `log/*`, `app/saved_session.yaml`,
   `3_9_2022_16_20.csv`, `.claude/settings.json` (move its contents to untracked `settings.local.json`).
   Add `data/.gitkeep`, `log/.gitkeep`, and ignore rules for `__pycache__/` everywhere.
   *Done when:* `git ls-files` shows only source, config, and requirements.
   **Keep a copy of a few `data/current_*.txt` files locally. Task 1.1 uses them as test fixtures.**
 
-- [ ] **0.2 ‖ Delete dead code**
+- [x] **0.2 ‖ Delete dead code**
   Remove `app/classes.py`, `app/gui_main_tab.py`, `app/magnet_control.py`, `discharge_script.py`,
   the `Keopsys` class, the commented-out LabJack code, `FindTab.dis_pushed`, `labjack_ip` in config, and unused
   imports. Remove `pytz` and `pyserial` from `requirements.txt`; add `pytest`.
