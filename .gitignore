@@ -5,4 +5,9 @@ log/*
 screenshots/*
 !screenshots/.gitkeep
 docs/
-app/__pycache__/*
+__pycache__/
+*.pyc
+.venv/
+app/saved_session.yaml
+.claude/settings.local.json
+*.csv
