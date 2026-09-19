@@ -38,6 +38,7 @@ class RunTab(QWidget):
         
         self.pol_hist = {}    # polarization history keyed on stop timestamp
         self.last_good_pf = None    # parameters of last good fit, seeds the next scan's fit
+        self.zeros = None    # zero-polarization peak amplitudes set this session
         
         
         # Populate Run Tab
@@ -323,41 +324,42 @@ class RunTab(QWidget):
         #print(self.scan_waves, self.scan_rs)
         self.run_plot.setData(self.times, self.rs)
         
-    def update_scan_plot(self):
-        '''Update tab with new data
+    def update_scan_plot(self, event):
+        '''Show an analyzed event's scan, fit and polarization
         '''
-        event = self.parent.previous_event
+        x_axis = event.x_data()
+        fit = event.fit
 
-        if len(event.x_axis) == len(event.rs):
-            self.peak_plot.setData(event.x_axis, event.rs)
-        if len(event.fit) == len(event.x_axis):
-            self.fit_plot.setData(event.x_axis, event.fit)
+        if len(x_axis) == len(event.rs):
+            self.peak_plot.setData(x_axis, event.rs)
+        if len(fit.fit_curve) == len(x_axis):
+            self.fit_plot.setData(x_axis, fit.fit_curve)
         else:
             self.fit_plot.setData([], [])    # no fit curve to show
 
-        if not event.fit_good:    # show the scan, but don't seed from a bad fit or record its polarization
-            self.fit_status.setText(event.fit_message)
+        if not fit.ok:    # show the scan, but don't seed from a bad fit or record its polarization
+            self.fit_status.setText(fit.message)
             self.fit_status.setStyleSheet("color: #aa0000")
             return
 
-        self.fit_status.setText(f"Fit good, R2 = {event.rsq:.4f}")
+        self.fit_status.setText(f"Fit good, R2 = {fit.rsq:.4f}")
         self.fit_status.setStyleSheet("color: #007700")
-        self.last_good_pf = list(event.pf)    # starting point for the next scan's fit
+        self.last_good_pf = list(fit.pf)    # starting point for the next scan's fit
 
-        self.g1_pos_edit.setText(f"{event.pf[0]:.4f}")
-        self.g1_sig_edit.setText(f"{event.pf[1]:.4f}")
-        self.g1_hei_edit.setText(f"{event.pf[2]:.4f}")
-        self.g2_pos_edit.setText(f"{event.pf[3]:.4f}")
-        self.g2_sig_edit.setText(f"{event.pf[4]:.4f}")
-        self.g2_hei_edit.setText(f"{event.pf[5]:.4f}")
-        self.quad_edit.setText(f"{event.pf[6]:.3e}")    # baseline is referenced to mid-scan
-        self.slope_edit.setText(f"{event.pf[7]:.4f}")
-        self.int_edit.setText(f"{event.pf[8]:.4f}")
+        self.g1_pos_edit.setText(f"{fit.pf[0]:.4f}")
+        self.g1_sig_edit.setText(f"{fit.pf[1]:.4f}")
+        self.g1_hei_edit.setText(f"{fit.pf[2]:.4f}")
+        self.g2_pos_edit.setText(f"{fit.pf[3]:.4f}")
+        self.g2_sig_edit.setText(f"{fit.pf[4]:.4f}")
+        self.g2_hei_edit.setText(f"{fit.pf[5]:.4f}")
+        self.quad_edit.setText(f"{fit.pf[6]:.3e}")    # baseline is referenced to mid-scan
+        self.slope_edit.setText(f"{fit.pf[7]:.4f}")
+        self.int_edit.setText(f"{fit.pf[8]:.4f}")
 
-        self.peak1_edit.setText(f"{event.pf[2]:.4f}")
-        self.peak2_edit.setText(f"{event.pf[5]:.4f}")
+        self.peak1_edit.setText(f"{fit.pf[2]:.4f}")
+        self.peak2_edit.setText(f"{fit.pf[5]:.4f}")
 
-        self.pol_hist[event.stop_stamp] = event.pol*100
+        self.pol_hist[event.stop_time.timestamp()] = event.pol*100
         time_list = list(self.pol_hist.keys())
         pol_list = [self.pol_hist[k] for k in self.pol_hist.keys()]
         self.pol_plot.setData(time_list, pol_list)
@@ -370,11 +372,23 @@ class RunTab(QWidget):
         print("scan thread outside", self.scan_thread.isRunning())
         
     def zero_pushed(self):
-        '''Set current peak amplitudes as zero'''
-        self.parent.event.p1_zero = float(self.peak1_edit.text())
-        self.parent.event.p2_zero = float(self.peak2_edit.text())   
-        self.zero1_edit.setText(self.peak1_edit.text())
-        self.zero2_edit.setText(self.peak2_edit.text())
+        '''Take the last good fit's peak amplitudes as the zero-polarization amplitudes'''
+        if self.last_good_pf is None:
+            self.fit_status.setText("No good fit yet to take zero amplitudes from.")
+            self.fit_status.setStyleSheet("color: #aa0000")
+            return
+        self.zeros = (float(self.last_good_pf[2]), float(self.last_good_pf[5]))
+        self.zero1_edit.setText(f"{self.zeros[0]:.6g}")    # saved in the session at this precision
+        self.zero2_edit.setText(f"{self.zeros[1]:.6g}")
+
+    def zero_amplitudes(self):
+        '''Zero-polarization peak amplitudes, as set this session or restored from the last'''
+        if self.zeros is not None:
+            return self.zeros
+        try:
+            return float(self.zero1_edit.text()), float(self.zero2_edit.text())
+        except ValueError:
+            return 0.1, 0.1    # no zero set yet, r0 of 1
 
     def start_discharge_off_pushed(self):
         '''Start discharge off button pushed'''

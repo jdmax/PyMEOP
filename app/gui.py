@@ -5,17 +5,16 @@ import dataclasses
 import datetime
 import os
 import logging
-import json
 from PyQt5.QtWidgets import QMainWindow, QErrorMessage, QTabWidget, QLabel, QLineEdit
 from PyQt5.QtCore import QThread, pyqtSignal
 from logging.handlers import TimedRotatingFileHandler
-import numpy as np
 
 from app.gui_run_tab import RunTab
 from app.gui_find_tab import FindTab
 from app.instruments import ProbeLaser, WavelengthMeter, LockIn, SigGen
-from app.core import fitting
 from app.core.config import load_session, save_session
+from app.core.event import Event
+from app.core.storage import EventWriter
 
 SESSION_FILE = 'app/saved_session.yaml'
 
@@ -55,8 +54,9 @@ class MainWindow(QMainWindow):
 
         self.restore_session()
 
+        self.writer = EventWriter(self.settings.event_dir,
+                                  header={'settings': dataclasses.asdict(self.settings)})
         self.new_event()
-        self.new_eventfile()
 
         try:
             self.probe = ProbeLaser(self.settings)
@@ -107,7 +107,7 @@ class MainWindow(QMainWindow):
 
     def new_event(self):
         '''Create new event instance'''
-        self.event = Event(self)
+        self.event = Event(x_axis_name=self.settings.scan_x_axis)
 
     def end_event(self, currs, waves, rs, times, seed=None):
 
@@ -115,9 +115,9 @@ class MainWindow(QMainWindow):
         self.event.waves = waves
         self.event.rs = rs
         self.event.times = times
+        self.event.p1_zero, self.event.p2_zero = self.run_tab.zero_amplitudes()
 
         self.event.stop_time = datetime.datetime.now(tz=datetime.timezone.utc)
-        self.event.stop_stamp = self.event.stop_time.timestamp()
         self.previous_event = self.event  # set this as previous event
         self.new_event()  # start new event to accept next scan
 
@@ -130,32 +130,8 @@ class MainWindow(QMainWindow):
 
     def finished_anal(self):
 
-        self.eventfile_lines += 1
-        if self.eventfile_lines > 200:  # open new eventfile once the current one has a number of entries
-            self.new_eventfile()
-        self.run_tab.update_scan_plot()
-        self.previous_event.print_event(self.eventfile)
-
-    def new_eventfile(self):
-        '''Open new eventfile'''
-        self.close_eventfile()  # try to close previous eventfile
-        now = datetime.datetime.now(tz=datetime.timezone.utc)
-        self.eventfile_start = now.strftime("%Y-%m-%d_%H-%M-%S")
-        self.eventfile_name = os.path.join(self.settings.event_dir, f'current_{self.eventfile_start}.txt')
-        self.eventfile = open(self.eventfile_name, "w")
-        self.eventfile_lines = 0
-        logging.info(f"Opened new eventfile {self.eventfile_name}")
-
-    def close_eventfile(self):
-        '''Try to close and rename eventfile'''
-        try:
-            self.eventfile.close()
-            now = datetime.datetime.now(tz=datetime.timezone.utc)
-            new = f'{self.eventfile_start}__{now.strftime("%Y-%m-%d_%H-%M-%S")}.txt'
-            os.rename(self.eventfile_name, os.path.join(self.settings.event_dir, new))
-            logging.info(f"Closed eventfile and moved to {new}.")
-        except AttributeError:
-            logging.info(f"Error closing eventfile.")
+        self.run_tab.update_scan_plot(self.previous_event)
+        self.writer.write(self.previous_event.to_record())
 
     def start_logger(self):
         '''Start logger
@@ -181,103 +157,8 @@ class MainWindow(QMainWindow):
         '''Things to do on close of window ("events" here are not related to nmr data events)
         '''
         self.save_session()
+        self.writer.close()
         event.accept()
-
-
-class Event():
-    '''Data and method object for single event point. Takes config instance on init.
-    '''
-
-    def __init__(self, parent):
-        self.parent = parent
-        self.settings = parent.settings
-
-        self.start_time = datetime.datetime.now(tz=datetime.timezone.utc)
-        self.start_stamp = self.start_time.timestamp()
-
-        self.currs = []
-        self.waves = []
-        self.rs = []
-        self.times = []
-        self.x_ref = 0.0  # baseline reference, set to mid-scan once there is data to fit
-
-        try:
-            self.p1_zero = float(parent.run_tab.zero1_edit.text())
-            self.p2_zero = float(parent.run_tab.zero2_edit.text())
-        except Exception as e:
-            print(e)
-            self.p1_zero = 0.1
-            self.p2_zero = 0.1
-
-    def x_data(self):
-        '''Return the x axis to fit and plot against, per the scan_x_axis setting'''
-
-        if self.settings.scan_x_axis == 'wavelength':
-            return np.array(self.waves, dtype=float)
-        return np.array(self.currs, dtype=float)
-
-    def fit_scan(self, seed=None):
-        '''Fit the scan and work out polarization from the peak heights.
-
-        Args:
-            seed: Parameter list from the last good fit, or None to only estimate
-        '''
-
-        X = self.x_data()
-        self.x_axis = X.tolist()
-        self.set_fit(fitting.fit_scan(X, self.rs, seed))
-
-        self.r = self.peak1 / self.peak2 if self.peak2 else np.nan
-        self.r0 = self.p1_zero / self.p2_zero if self.p2_zero else np.nan
-        ratio = self.r / self.r0 if self.r0 else np.nan
-        self.pol = (ratio - 1) / (ratio + 1) if np.isfinite(ratio) and ratio != -1 else np.nan
-
-    def no_fit(self, message):
-        '''Fill in placeholder results so a failed fit still plots and writes an event'''
-
-        self.x_axis = self.x_data().tolist()
-        self.set_fit(fitting.no_fit(message))
-        self.r = self.r0 = self.pol = np.nan
-
-    def set_fit(self, result):
-        '''Copy a FitResult onto the event attributes the GUI and eventfile use'''
-
-        self.x_ref = result.x_ref
-        if result.converged:
-            self.p0 = result.p0
-        self.pf = result.pf
-        self.pcov = result.pcov
-        self.pstd = result.pstd
-        self.fit_good = result.ok
-        self.fit_message = result.message
-        self.fit = result.fit_curve
-        self.rsq = result.rsq
-        self.peak1 = result.peak1
-        self.peak2 = result.peak2
-
-    def print_event(self, eventfile):
-        '''Print out all event attributes to eventfile, formatting to dict to write to json line.
-        
-        Args:
-            eventfile: File object to write event to
-        '''
-
-        exclude_list = ['parent']
-        json_dict = {}
-        for key, entry in self.__dict__.items():  # filter event attributes for json dict
-            if isinstance(entry, datetime.datetime):
-                json_dict.update({key: entry.__str__()})  # datetime to string
-            elif dataclasses.is_dataclass(entry):
-                json_dict.update({key: dataclasses.asdict(entry)})
-            elif key in exclude_list:
-                pass
-            else:
-                json_dict.update({key: entry})
-        for key, entry in json_dict.items():
-            if isinstance(entry, np.ndarray):
-                json_dict[key] = entry.tolist()
-        json_record = json.dumps(json_dict)
-        eventfile.write(json_record + '\n')  # write to file as json line
 
 
 class AnalThread(QThread):
@@ -298,12 +179,8 @@ class AnalThread(QThread):
         '''Main scan loop
         '''
         try:
-            self.event.fit_scan(self.seed)
+            self.event.analyze(self.seed)
         except Exception as e:  # never leave the run tab waiting on a signal that won't come
             logging.exception('Exception fitting scan')
-            try:
-                self.event.no_fit(f'Fit failed: {e}')
-            except Exception:
-                self.event.fit_message = f'Fit failed: {e}'
-                self.event.fit_good = False
+            self.event.fail(f'Fit failed: {e}')
         self.finished.emit()

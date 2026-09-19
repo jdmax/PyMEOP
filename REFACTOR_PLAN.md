@@ -65,7 +65,7 @@ tests/
   Write the tests against the current code *first* so they check that the move keeps results identical.
   *Done when:* `gui.py` calls `fitting.fit_scan(x, y, seed)` and the tests pass.
 
-- [ ] **1.2 ‖ `app/core/event.py`, `polarization.py`, `storage.py`** (after 1.1, parallel with 1.3)
+- [x] **1.2 ‖ `app/core/event.py`, `polarization.py`, `storage.py`** (after 1.1, parallel with 1.3)
   - `Event` dataclass: raw scan arrays, timestamps, scan direction, zero amplitudes, `FitResult`, polarization.
   - `polarization.py`: `ratio_to_pol(r, r0)`. The zero amplitudes are stored as floats, not parsed from GUI text.
   - `EventWriter`:
