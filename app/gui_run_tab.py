@@ -23,6 +23,10 @@ class RunTab(QWidget):
         self.run_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
         self.peak_pen = pg.mkPen(color=(0, 250, 0), width=3)
         self.fit_pen = pg.mkPen(color=(0, 0, 250), width=1.5)
+        # fit components, drawn part transparent so they read as underneath the fit
+        self.g1_pen = pg.mkPen(color=(250, 140, 0, 120), width=1.5)
+        self.g2_pen = pg.mkPen(color=(190, 0, 250, 120), width=1.5)
+        self.base_pen = pg.mkPen(color=(130, 130, 130, 120), width=1.5)
         self.pol_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
         pg.setConfigOption('background', 'w')
         pg.setConfigOption('foreground', 'k')
@@ -244,8 +248,12 @@ class RunTab(QWidget):
         self.peak_wid = pg.PlotWidget(title='Probe Peaks')
         self.peak_wid.showGrid(True,True)
         self.peak_wid.addLegend(offset=(0.5, 0))
-        self.peak_plot = self.peak_wid.plot([], [], pen=self.peak_pen)   
-        self.fit_plot = self.peak_wid.plot([], [], pen=self.fit_pen)   
+        # components first, so the scan and the total fit draw on top of them
+        self.base_plot = self.peak_wid.plot([], [], pen=self.base_pen, name='Background')
+        self.g1_plot = self.peak_wid.plot([], [], pen=self.g1_pen, name='Peak 1')
+        self.g2_plot = self.peak_wid.plot([], [], pen=self.g2_pen, name='Peak 2')
+        self.peak_plot = self.peak_wid.plot([], [], pen=self.peak_pen, name='Scan')
+        self.fit_plot = self.peak_wid.plot([], [], pen=self.fit_pen, name='Fit')
         self.right.addWidget(self.peak_wid) 
         
         self.pol_wid = pg.PlotWidget()
@@ -331,10 +339,12 @@ class RunTab(QWidget):
 
         if len(event.x_axis) == len(event.rs):
             self.peak_plot.setData(event.x_axis, event.rs)
-        if len(event.fit) == len(event.x_axis):
-            self.fit_plot.setData(event.x_axis, event.fit)
-        else:
-            self.fit_plot.setData([], [])    # no fit curve to show
+        for curve, ys in ((self.fit_plot, event.fit), (self.g1_plot, event.fit_g1),
+                          (self.g2_plot, event.fit_g2), (self.base_plot, event.fit_base)):
+            if len(ys) == len(event.x_axis):
+                curve.setData(event.x_axis, ys)
+            else:
+                curve.setData([], [])    # no fit curve to show
 
         if not event.fit_good:    # show the scan, but don't seed from a bad fit or record its polarization
             self.fit_status.setText(event.fit_message)

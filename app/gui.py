@@ -302,6 +302,10 @@ class Event():
         self.pstd = best['pstd']
         self.fit_good, self.fit_message = best['ok'], best['message']
         self.fit = self.peaks(X, *self.pf)
+        g1, g2, base = self.parts(X, *self.pf)
+        # the gaussians are drawn sitting on the baseline rather than about zero, so the
+        # components stay in the range of the data instead of at the bottom of the plot
+        self.fit_g1, self.fit_g2, self.fit_base = g1 + base, g2 + base, base
         self.rsq = self.r_squared(y, self.peaks(x, *self.pf))
         self.peak1 = self.pf[2]
         self.peak2 = self.pf[5]
@@ -358,6 +362,7 @@ class Event():
         self.pstd = []
         self.pcov = []
         self.fit = []  # nothing to draw, rather than a fit curve that doesn't exist
+        self.fit_g1, self.fit_g2, self.fit_base = [], [], []
         self.rsq = np.nan
         self.peak1 = np.nan
         self.peak2 = np.nan
@@ -507,8 +512,8 @@ class Event():
             return np.nan
         return float(1 - np.sum((y - fit) ** 2) / ss_tot)
 
-    def peaks(self, x, *p):
-        '''Two gaussians on a quadratic baseline.
+    def parts(self, x, *p):
+        '''The two gaussians and the quadratic baseline separately, each about zero.
 
         The baseline is referenced to x_ref, the middle of the scan, so its three
         coefficients stay nearly independent of each other. Against raw current the
@@ -519,6 +524,12 @@ class Event():
         g1 = p[2] * np.exp(-np.power((x - p[0]), 2) / (2 * np.power(p[1], 2)))
         g2 = p[5] * np.exp(-np.power((x - p[3]), 2) / (2 * np.power(p[4], 2)))
         base = p[6] * np.power(xr, 2) + p[7] * xr + p[8]
+        return g1, g2, base
+
+    def peaks(self, x, *p):
+        '''Two gaussians on a quadratic baseline: the model that gets fit'''
+
+        g1, g2, base = self.parts(x, *p)
         return g1 + g2 + base
 
     def baseline_guess(self, x, y, deg, within=None):
