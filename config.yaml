@@ -6,6 +6,9 @@ settings:
     siggen_ip: 129.57.37.95    #91
     lockin_ip: 129.57.37.101
     labjack_ip: 129.57.37.97
+    lockin_port: 23             # SR860 socket port. Must be a RAW socket port for binary
+                                # capture transfers. If capture data comes back corrupted,
+                                # check the manual for the raw socket port and set it here.
     scan_wait: 0.01              # seconds between running scan current change and read
     temp_scan_wait: 0.2         # seconds between temp change and read
     curr_scan_wait: 0.1         # seconds between curr change and read
@@ -13,3 +16,30 @@ settings:
     log_dir: 'log'
     scan_x_axis: 'current'      # X-axis to use for scans, either "current" or "wavelength"
     scan_wave: False              # Do wavelengh reads for running scan?
+
+    # ---- Lock-in amplifier (SR860) ----------------------------------------
+    # These are applied at startup and recorded into every event file. The
+    # short time constant is only correct in swept mode, where averaging is
+    # done in software after acquisition; in stepped mode there is no
+    # post-averaging, so a short TC just makes the data noisy.
+    lockin_tc: 0.003            # time constant in seconds (snapped to nearest SR860 value)
+    lockin_slope: 12            # filter slope, dB/oct: 6, 12, 18 or 24
+    lockin_sync: False          # synchronous filter (only useful below ~200 Hz reference)
+    lockin_tc_stepped: 0.1      # TC used when sweep_mode is 'step' (legacy behaviour)
+
+    # ---- Sweep acquisition -------------------------------------------------
+    sweep_mode: 'wide'          # 'wide'  = DLC pro hardware ramp + SR860 capture
+                                # 'step'  = legacy point-by-point (unchanged old path)
+    sweep_time: 2.0             # seconds for one Run-tab ramp
+    sweep_alternate: True       # flip ramp direction each sweep (no flyback discontinuity)
+    sweep_settle_frac: 0.02     # discard this fraction at the start of each ramp
+    sweep_bins: 100             # number of binned points handed to the fit
+    sweep_smooth: 0.02          # zero-phase smoothing window, seconds (0 disables)
+    sweep_sync: 'software'      # 'software' = start capture then start ramp
+                                # 'trigger'  = arm capture on SR860 trigger input,
+                                #              driven by the DLC pro wide-scan trigger out
+    capture_rate: 1220          # target capture rate in Hz (snapped to a native SR860 rate)
+
+    # ---- Find tab ----------------------------------------------------------
+    find_sweep_time: 30.0       # seconds for the wide Find-tab current ramp
+    wave_poll: 0.2              # wavemeter polling interval during a wide sweep, seconds

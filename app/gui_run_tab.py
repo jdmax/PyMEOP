@@ -8,8 +8,10 @@ from PyQt5.QtGui import QIntValidator, QDoubleValidator, QValidator
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 import pyqtgraph as pg
 import numpy as np
- 
-   
+
+from app.sweep import SweepThread
+
+
 class RunTab(QWidget):
     '''Creates run tab. Starts threads for run and to update plots'''
     def __init__(self, parent):
@@ -274,31 +276,99 @@ class RunTab(QWidget):
         
         try:
             self.turn_on_discharge()
-            self.scan_thread = RunThread(self, curr_list, float(self.temp_edit.text()))
+            if 'wide' in self.parent.settings.get('sweep_mode', 'wide'):
+                # Hardware ramp on the DLC pro, hardware-clocked capture on the
+                # SR860. Number of Steps is ignored here -- resolution comes
+                # from sweep_bins in the config instead.
+                self.scan_thread = SweepThread(
+                    self, start, stop, float(self.temp_edit.text()),
+                    self.scan_button.isChecked, self.parent.settings)
+                self.scan_thread.sweep.connect(self.build_sweep)
+                self.scan_thread.trace.connect(self.live_trace)
+                self.scan_thread.error.connect(self.sweep_error)
+            else:
+                self.scan_thread = RunThread(self, curr_list, float(self.temp_edit.text()))
+                self.scan_thread.reply.connect(self.build_scan)
             self.scan_thread.finished.connect(self.finish_scans)
-            self.scan_thread.reply.connect(self.build_scan)
             self.scan_thread.start()
-        except Exception as e: 
+        except Exception as e:
             print('Exception starting run thread, lost connection: '+str(e))
+
+    def fit_seed(self, currs):
+        '''Starting parameters and bounds for the two-Gaussian fit.
+
+        Seeded from the scan's own current range rather than the rolling
+        display buffer, which can span more than one scan.
+        '''
+        try:
+            curr_max = max(currs)
+            curr_min = min(currs)
+            p0 = curr_min + (curr_max - curr_min)*0.333
+            p4 = curr_min + (curr_max - curr_min)*0.666
+            mid = curr_min + (curr_max - curr_min)/2
+            params =  [p0, 2, 1, p4, 2, 1, 0.1, 0.1]
+            bounds = ((0, 0, 0, mid-1, 0, 0, -np.inf, -np.inf),
+                      (mid+1, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf))
+        except ValueError:
+            params = [0, 0, 0, 0, 0, 0, 0, 0]
+            bounds = ((-np.inf, -np.inf, -np.inf, -np.inf, -np.inf,-np.inf, -np.inf, -np.inf),
+                      (np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf))
+        return params, bounds
+
+    def build_sweep(self, result):
+        '''Take one completed hardware sweep and turn it into an event.'''
+        currs = np.asarray(result['currs'], dtype=float)
+        rs = np.asarray(result['rs'], dtype=float)
+        waves = np.asarray(result.get('waves', np.zeros(len(currs))), dtype=float)
+
+        # Spread timestamps across the ramp so the running time-series plot
+        # still shows the sweep as it happened.
+        stop_stamp = result['stamp'].timestamp()
+        times = stop_stamp - result['duration'] + np.linspace(
+            0, result['duration'], len(currs))
+
+        self.currs.extend(currs.tolist())
+        self.waves.extend(waves.tolist())
+        self.rs.extend(rs.tolist())
+        self.times.extend(times.tolist())
+        while len(self.currs) > 600:
+            self.currs.pop(0)
+            self.waves.pop(0)
+            self.rs.pop(0)
+            self.times.pop(0)
+        self.update_run_plot()
+
+        params, bounds = self.fit_seed(currs)
+        self.parent.end_event(currs.tolist(), waves.tolist(), rs.tolist(),
+                              times.tolist(), params, bounds,
+                              extras={'errs': np.asarray(result['errs']).tolist(),
+                                      'counts': np.asarray(result['counts']).tolist(),
+                                      'direction': result['direction'],
+                                      'sweep_rate': result['rate'],
+                                      'sweep_speed': result['speed'],
+                                      'sweep_duration': result['duration'],
+                                      'n_raw': result['n_raw'],
+                                      'lockin': result.get('lockin', {})})
+
+    def live_trace(self, partial):
+        '''Show the sweep forming; replaced by the fit when the sweep lands.'''
+        try:
+            self.peak_plot.setData(partial['currs'], partial['rs'])
+        except Exception:
+            pass
+
+    def sweep_error(self, message):
+        '''A sweep failed hard -- stop the run and say why.'''
+        print(f"Sweep error: {message}")
+        self.parent.status_bar.showMessage(f"Sweep error: {message}")
+        self.scan_button.setChecked(False)
         
     def build_scan(self, tup):
         '''Take emit from thread and add point to data        
         '''
         curr, wave, r, time, status = tup     
         if 'done' in status:     # got last part of scan, reset and send to event
-            try:
-                curr_max = max(self.currs)
-                curr_min = min(self.currs)
-                p0 = curr_min + (curr_max - curr_min)*0.333
-                p4 = curr_min + (curr_max - curr_min)*0.666
-                mid = curr_min + (curr_max - curr_min)/2
-                params =  [p0, 2, 1, p4, 2, 1, 0.1, 0.1]
-                bounds = ((0, 0, 0, mid-1, 0, 0, -np.inf, -np.inf),
-                          (mid+1, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf))
-            except ValueError:
-                params = [0, 0, 0, 0, 0, 0, 0, 0]
-                bounds = ((-np.inf, -np.inf, -np.inf, -np.inf, -np.inf,-np.inf, -np.inf, -np.inf),
-                          (np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf))
+            params, bounds = self.fit_seed(self.scan_currs)
             # try:
             #     params =  [float(self.g1_pos_edit.text()),
             #         float(self.g1_sig_edit.text()),

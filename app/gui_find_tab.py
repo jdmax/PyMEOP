@@ -8,8 +8,10 @@ from PyQt5.QtGui import QIntValidator, QDoubleValidator, QValidator
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 import pyqtgraph as pg
 import numpy as np
- 
-   
+
+from app.sweep import SweepThread, WavemeterThread
+
+
 class FindTab(QWidget):
     '''Creates main tab. Starts threads for run and to update plots'''
     def __init__(self, parent):
@@ -161,12 +163,70 @@ class FindTab(QWidget):
         temp = float(self.stat_temp_edit.text())
         
         try:
-            self.scan_thread = ScanThread(self, 'curr', curr_list, temp)
-            self.scan_thread.finished.connect(self.done_curr_scan)
-            self.scan_thread.reply.connect(self.build_curr_scan)
+            if 'wide' in self.parent.settings.get('sweep_mode', 'wide'):
+                # The wavemeter updates at a few Hz, far slower than the
+                # capture buffer, so it is polled on its own thread and
+                # interpolated onto the current axis afterwards instead of
+                # pacing every point of the sweep.
+                self.sweeping = True
+                self.wave_thread = WavemeterThread(
+                    self.parent.meter, lambda: self.sweeping,
+                    self.parent.settings.get('wave_poll', 0.2))
+                self.wave_thread.start()
+
+                self.scan_thread = SweepThread(
+                    self, start, stop, temp, lambda: self.sweeping,
+                    self.parent.settings,
+                    duration=self.parent.settings.get('find_sweep_time', 30.0),
+                    once=True)
+                self.scan_thread.sweep.connect(self.build_curr_sweep)
+                self.scan_thread.trace.connect(self.live_curr_trace)
+                self.scan_thread.error.connect(self.curr_sweep_error)
+                self.scan_thread.finished.connect(self.done_curr_sweep)
+            else:
+                self.scan_thread = ScanThread(self, 'curr', curr_list, temp)
+                self.scan_thread.finished.connect(self.done_curr_scan)
+                self.scan_thread.reply.connect(self.build_curr_scan)
             self.scan_thread.start()
-        except Exception as e: 
+        except Exception as e:
             print('Exception starting run thread, lost connection: '+str(e))
+
+    def build_curr_sweep(self, result):
+        '''Take one wide hardware sweep and attach interpolated wavelengths.'''
+        currs = np.asarray(result['currs'], dtype=float)
+        waves = self.wave_thread.interpolate(
+            result['t_start'], result['duration'], currs,
+            np.array([result['begin'], result['end']]))
+
+        if not np.any(waves):
+            print(f"Only {len(self.wave_thread.waves)} wavelength readings over "
+                  f"{result['duration']:.0f} s -- increase find_sweep_time to "
+                  f"resolve mode hops.")
+
+        self.scan_currs = currs.tolist()
+        self.scan_rs = np.asarray(result['r_mag'], dtype=float).tolist()
+        self.scan_waves = waves.tolist()
+        self.update_curr_plot()
+
+    def live_curr_trace(self, partial):
+        '''Show the wide sweep forming against current while it runs.'''
+        try:
+            self.curr_plot.setData(partial['currs'], partial['rs'])
+        except Exception:
+            pass
+
+    def curr_sweep_error(self, message):
+        print(f"Find sweep error: {message}")
+        self.sweeping = False
+
+    def done_curr_sweep(self):
+        '''Stop the wavemeter thread and re-enable the controls.'''
+        self.sweeping = False
+        try:
+            self.wave_thread.wait(3000)
+        except Exception:
+            pass
+        self.done_curr_scan()
         
     def build_curr_scan(self, tup):
         '''Take emit from thread and add point to data        
@@ -179,10 +239,14 @@ class FindTab(QWidget):
         
     def update_curr_plot(self):
         '''Update plots with new data
+
+        Plots against wavelength when the meter produced readings, otherwise
+        against current so a failed meter does not blank the plot.
         '''
-        #print(self.scan_waves, self.scan_rs)
-        #self.curr_plot.setData(self.scan_currs, self.scan_rs)
-        self.curr_plot.setData(self.scan_waves, self.scan_rs)
+        if np.any(self.scan_waves):
+            self.curr_plot.setData(self.scan_waves, self.scan_rs)
+        else:
+            self.curr_plot.setData(self.scan_currs, self.scan_rs)
 
     def done_curr_scan(self):
         self.start_curr_button.setEnabled(True)

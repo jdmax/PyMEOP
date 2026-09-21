@@ -15,7 +15,12 @@
       "PowerShell(& \"c:\\\\Users\\\\jmaxwell\\\\VSCode_Projects\\\\PyMEOP\\\\.venv\\\\Scripts\\\\python.exe\" -m pip install telnetlib3)",
       "PowerShell(& \"c:\\\\Users\\\\jmaxwell\\\\VSCode_Projects\\\\PyMEOP\\\\.venv\\\\Scripts\\\\python.exe\" -c \"from telnetlib3 import Telnet; print\\(Telnet\\); print\\([m for m in \\('write','read_until','read_some','read_all','close','open'\\) if hasattr\\(Telnet, m\\)]\\)\")",
       "PowerShell(& \"c:\\\\Users\\\\jmaxwell\\\\VSCode_Projects\\\\PyMEOP\\\\.venv\\\\Scripts\\\\python.exe\" -c \"import inspect; from telnetlib3 import Telnet; print\\(inspect.signature\\(Telnet.__init__\\)\\)\")",
-      "PowerShell(& \"c:\\\\Users\\\\jmaxwell\\\\VSCode_Projects\\\\PyMEOP\\\\.venv\\\\Scripts\\\\python.exe\" -c \"import ast,sys; ast.parse\\(open\\(r'c:\\\\Users\\\\jmaxwell\\\\VSCode_Projects\\\\PyMEOP\\\\app\\\\instruments.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")"
+      "PowerShell(& \"c:\\\\Users\\\\jmaxwell\\\\VSCode_Projects\\\\PyMEOP\\\\.venv\\\\Scripts\\\\python.exe\" -c \"import ast,sys; ast.parse\\(open\\(r'c:\\\\Users\\\\jmaxwell\\\\VSCode_Projects\\\\PyMEOP\\\\app\\\\instruments.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(.venv/Scripts/python.exe tools/test_sweep_offline.py)",
+      "Bash(.venv/Scripts/python.exe -m py_compile main.py app/gui.py app/gui_run_tab.py app/gui_find_tab.py app/instruments.py app/sweep.py)",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(.venv/Scripts/python.exe -m py_compile app/sweep.py)",
+      "Bash(.venv/Scripts/python.exe tools/check_sweep_direction.py)"
     ]
   }
 }

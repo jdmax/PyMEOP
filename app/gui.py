@@ -59,6 +59,8 @@ class MainWindow(QMainWindow):
 
         self.restore_session()
 
+        self.lockin_config = {}     # filled in once the lock-in connects
+
         self.new_event()
         self.new_eventfile()
 
@@ -76,6 +78,17 @@ class MainWindow(QMainWindow):
 
         try:
             self.lockin = LockIn(self.settings)
+            # The time constant that is correct depends on the acquisition mode:
+            # swept mode averages in software afterwards and wants a short TC,
+            # stepped mode has no post-averaging and needs the long one.
+            mode = self.settings.get('sweep_mode', 'wide')
+            tc = (self.settings.get('lockin_tc', 0.003) if 'wide' in mode
+                  else self.settings.get('lockin_tc_stepped', 0.1))
+            self.lockin_config = self.lockin.configure(
+                tc=tc,
+                slope=self.settings.get('lockin_slope', 12),
+                sync=self.settings.get('lockin_sync', False))
+            logging.info(f"Lock-in configured ({mode} mode): {self.lockin_config}")
             self.status_bar.showMessage(f"Connected to lock-in at {self.settings['lockin_ip']}")
         except Exception as e:
             print(f"Unable to connect to Lock In at {self.settings['lockin_ip']}, {e}")
@@ -133,12 +146,17 @@ class MainWindow(QMainWindow):
         '''Create new event instance'''
         self.event = Event(self)
 
-    def end_event(self, currs, waves, rs, times, params, bounds):
+    def end_event(self, currs, waves, rs, times, params, bounds, extras=None):
 
         self.event.currs = currs
         self.event.waves = waves
         self.event.rs = rs
         self.event.times = times
+
+        # Acquisition metadata (error bars, sweep direction, lock-in settings)
+        # so a scan can still be interpreted after the settings have moved on.
+        for key, value in (extras or {}).items():
+            setattr(self.event, key, value)
 
         self.event.stop_time = datetime.datetime.now(tz=datetime.timezone.utc)
         self.event.stop_stamp = self.event.stop_time.timestamp()
@@ -224,6 +242,11 @@ class Event():
         self.rs = []
         self.times = []
 
+        # Lock-in settings in force for this event. The peak shape depends on
+        # the time constant and filter slope, so a scan is not interpretable
+        # without them.
+        self.lockin_config = getattr(parent, 'lockin_config', {})
+
         try:
             self.p1_zero = float(parent.run_tab.zero1_edit.text())
             self.p2_zero = float(parent.run_tab.zero2_edit.text())
@@ -235,9 +258,15 @@ class Event():
     def fit_scan(self, pars, bounds):
         '''Fit Scan data with linear and two gaussians, using starting params passed'''
 
-        if 'wave' in self.parent.settings['scan_x_axis']:
+        if 'wave' in self.parent.settings['scan_x_axis'] and np.any(self.waves):
             self.x_axis = self.waves
         else:
+            if 'wave' in self.parent.settings['scan_x_axis']:
+                # scan_x_axis asks for wavelength but no wavelengths were
+                # recorded -- fitting a constant axis would silently produce
+                # nonsense, so fall back to current instead.
+                logging.warning("scan_x_axis is 'wavelength' but no wavelengths "
+                                "were recorded; fitting against current")
             self.x_axis = self.currs
 
         X = np.array(self.x_axis)
