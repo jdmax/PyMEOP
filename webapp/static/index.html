@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PyMEOP Data Browser</title>
+<link rel="stylesheet" href="vendor/uPlot.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"></span>
+    <h1>PyMEOP Data</h1>
+  </div>
+  <div class="dir" id="dataDir" title="Event directory"></div>
+  <div class="grow"></div>
+  <label class="field" title="Ratio of the two peak heights at zero polarization, used to scale P">
+    <span>r<sub>0</sub></span>
+    <input id="r0" type="number" step="0.001" value="1" inputmode="decimal">
+  </label>
+  <button id="themeBtn" class="ghost" type="button" title="Switch light and dark">Theme</button>
+</header>
+
+<div class="layout">
+
+  <aside class="sidebar">
+    <div class="side-head">
+      <input id="fileSearch" type="search" placeholder="Filter runs by date or name" autocomplete="off">
+      <label class="check"><input id="hideEmpty" type="checkbox" checked> Hide empty files</label>
+      <p class="side-count" id="fileCount"></p>
+    </div>
+    <ul class="filelist" id="fileList"></ul>
+  </aside>
+
+  <main id="main">
+
+    <div class="empty" id="welcome">
+      <h2>Choose a run</h2>
+      <p>Each event file is one run, and each line in it is one current scan with the
+         two-gaussian fit that was stored alongside it. Pick a run on the left to
+         plot its scans.</p>
+    </div>
+
+    <div id="workspace" hidden>
+
+      <section class="runbar">
+        <div class="runtitle">
+          <h2 id="runName">&nbsp;</h2>
+          <p id="runWhen" class="muted"></p>
+        </div>
+        <div class="tiles" id="runTiles"></div>
+        <div class="runactions">
+          <a id="rawLink" class="ghost" href="#" download>Raw file</a>
+          <button id="csvRun" class="ghost" type="button">Run CSV</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h3>Across the run</h3>
+          <div class="controls">
+            <label class="field">
+              <span>Show</span>
+              <select id="metric">
+                <option value="polarization" selected>Polarization</option>
+                <option value="peaks">Peak heights</option>
+                <option value="positions">Peak positions</option>
+                <option value="widths">Peak widths</option>
+                <option value="ratio">Peak height ratio</option>
+                <option value="rsq">Fit R&sup2;</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Against</span>
+              <select id="runX">
+                <option value="time">Elapsed time</option>
+                <option value="index">Scan number</option>
+              </select>
+            </label>
+            <label class="check" title="Draw the one sigma fit uncertainty as whiskers">
+              <input id="showErr" type="checkbox" checked> Error bars
+            </label>
+          </div>
+        </div>
+        <p class="hint">Click a point to open that scan below; the dashed rule marks
+           the one currently open. <span id="runNote" class="offscale"></span></p>
+        <div class="chart chart-run" id="runChart"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h3 id="scanTitle">Scan</h3>
+          <div class="controls">
+            <button id="prevScan" class="ghost" type="button" title="Left arrow">&larr;</button>
+            <input id="scanSlider" type="range" min="0" max="0" value="0" title="Scan through the run">
+            <button id="nextScan" class="ghost" type="button" title="Right arrow">&rarr;</button>
+            <button id="csvScan" class="ghost" type="button">Scan CSV</button>
+          </div>
+        </div>
+        <p class="hint">Drag across a plot to zoom and double-click to reset; click a
+           name in the legend to hide that trace.</p>
+        <div class="scanwrap">
+          <div class="scancharts">
+            <div class="chart chart-scan" id="scanChart"></div>
+            <div class="chart chart-resid" id="residChart"></div>
+          </div>
+          <div class="fitpanel">
+            <h4>Fit</h4>
+            <div class="tiles tiles-col" id="fitTiles"></div>
+            <table class="params" id="paramTable">
+              <caption class="sr-only">Fitted parameters with one sigma uncertainties</caption>
+              <thead><tr><th scope="col">Parameter</th><th scope="col">Value</th><th scope="col">&plusmn;1&sigma;</th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <p class="note" id="fitNote"></p>
+          </div>
+        </div>
+      </section>
+
+      <details class="card datatable">
+        <summary><h3>Scan points</h3></summary>
+        <div class="tablewrap">
+          <table class="points" id="pointTable">
+            <thead><tr>
+              <th scope="col">#</th><th scope="col" id="thX">Current</th><th scope="col">Signal</th>
+              <th scope="col">Fit</th><th scope="col">Peak 1</th><th scope="col">Peak 2</th>
+              <th scope="col">Baseline</th><th scope="col">Residual</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
+
+    </div>
+  </main>
+</div>
+
+<script src="vendor/uPlot.iife.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

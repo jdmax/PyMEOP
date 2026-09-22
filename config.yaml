@@ -13,3 +13,4 @@ settings:
     log_dir: 'log'
     scan_x_axis: 'current'      # X-axis to use for scans, either "current" or "wavelength"
     scan_wave: False              # Do wavelengh reads for running scan?
+    baseline_degree: 2          # Baseline under the peaks: 1 straight, 2 quadratic
