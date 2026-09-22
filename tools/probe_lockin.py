@@ -67,6 +67,24 @@ class Wire():
     def send(self, cmd, term=b'\r'):
         self.sock.sendall(cmd.encode('ascii') + term)
 
+    def read_raw(self, wait=3.0):
+        '''Collect everything that arrives in the window, no terminator logic.
+
+        Binary block data contains 0x0A and 0x0D bytes, so the line-oriented
+        reader would truncate it at the first one.
+        '''
+        self.sock.settimeout(wait)
+        got = bytearray()
+        try:
+            while True:
+                chunk = self.sock.recv(8192)
+                if not chunk:
+                    break
+                got.extend(chunk)
+        except socket.timeout:
+            pass
+        return bytes(got)
+
     def read(self, wait=2.0):
         '''Read whatever arrives within the window. Returns raw bytes.'''
         self.sock.settimeout(wait)
@@ -142,6 +160,93 @@ def probe_command(ip, port, term, cmd, wait=1.5):
         return None, f"{type(e).__name__}: {e}"
     finally:
         w.close()
+
+
+def describe(raw):
+    '''Say what came back, in the terms that matter for a block transfer.'''
+    if not raw:
+        return "nothing"
+    head = raw[:24]
+    note = f"{len(raw)} bytes, starts {head!r}"
+    if raw[:1] == b'#':
+        try:
+            ndigits = int(raw[1:2])
+            declared = int(raw[2:2 + ndigits])
+            payload = len(raw) - (2 + ndigits)
+            note += f"  -> IEEE block, declares {declared} B, got {payload} B"
+            if payload < declared:
+                note += " (SHORT)"
+        except ValueError:
+            note += "  -> starts with # but the header will not parse"
+    elif b'\xff' in raw:
+        note += "  -> contains 0xFF; telnet IAC escaping may be corrupting it"
+    return note
+
+
+def probe_capture_transfer(ip, port, term):
+    '''Find out how CAPTUREGET? wants to be asked, and whether it works at all.
+
+    This is the one command the command-name probe cannot cover: it takes
+    arguments and answers with binary, so it needs its own capture running and
+    a reader that does not stop at the first newline.
+    '''
+    results = {}
+    w = Wire(ip, port, timeout=5.0, verbose=False)
+    try:
+        w.send('*IDN?', term)
+        if not w.read(2.0):
+            print("    could not reach the instrument")
+            return results
+        w.drain(0.2)
+
+        print("    arming a 1 s capture")
+        for cmd in ('CAPTURECFG 1', 'CAPTURERATE 5', 'CAPTURELEN 16'):
+            w.send(cmd, term)
+            time.sleep(0.1)
+        w.drain(0.2)
+
+        w.send('CAPTURESTART 0,0', term)
+        time.sleep(1.2)
+
+        w.send('CAPTUREBYTES?', term)
+        during = w.read(2.0)
+        print(f"    CAPTUREBYTES? while running -> {during!r}")
+        w.drain(0.2)
+
+        # Does a transfer work at all while the capture is still going? The
+        # live plot during a sweep depends on this being allowed.
+        forms = ['CAPTUREGET? 0,1', 'CAPTUREGET?0,1', 'CAPTUREGET? 0, 1']
+        print("    transfers WHILE running:")
+        for form in forms:
+            w.send(form, term)
+            raw = w.read_raw(3.0)
+            print(f"      {form:<22} {describe(raw)}")
+            if raw:
+                results['during'] = form
+                break
+            w.drain(0.2)
+
+        w.send('CAPTURESTOP', term)
+        time.sleep(0.2)
+        w.drain(0.2)
+
+        w.send('CAPTUREBYTES?', term)
+        after = w.read(2.0)
+        print(f"    CAPTUREBYTES? after stop -> {after!r}")
+        w.drain(0.2)
+
+        print("    transfers AFTER stop:")
+        for form in forms:
+            w.send(form, term)
+            raw = w.read_raw(3.0)
+            print(f"      {form:<22} {describe(raw)}")
+            if raw:
+                results['after'] = form
+                break
+            w.drain(0.2)
+    finally:
+        w.close()
+    return results
 
 
 def stage(title):
@@ -248,6 +353,11 @@ def main():
             print(f"      none of the candidates answered")
     findings['capture'] = capture
 
+    # 7: the binary transfer itself
+    stage("7. CAPTUREGET? binary transfer")
+    transfer = probe_capture_transfer(ip, port, term)
+    findings['transfer'] = transfer
+
     # verdict
     stage("Verdict")
     print(f"  terminator to use:        {name}")
@@ -273,6 +383,19 @@ def main():
         print( "  which are in the Data Capture section of the SR860 manual.")
     elif capture:
         print("\n  all capture roles resolved")
+
+    transfer = findings.get('transfer', {})
+    if transfer.get('during'):
+        print(f"\n  CAPTUREGET? works while capturing, as {transfer['during']!r}")
+    elif transfer.get('after'):
+        print(f"\n  CAPTUREGET? only works AFTER CAPTURESTOP, as "
+              f"{transfer['after']!r}")
+        print( "  -> the sweep must read its buffer at the end rather than")
+        print( "     streaming it, so there is no live trace during a ramp")
+    else:
+        print("\n  CAPTUREGET? returned nothing in any form, running or stopped.")
+        print( "  Check the Data Capture section of the manual for the argument")
+        print( "  units, and whether binary transfers need a different port.")
 
     escape = {'CR': r'\r', 'LF': r'\n', 'CRLF': r'\r\n'}[name]
     print(f"\n  Add to config.yaml (single quotes -- the escape is resolved")

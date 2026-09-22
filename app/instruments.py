@@ -255,6 +255,7 @@ class LockIn():
 
     term = '\r'                     # command terminator, overridden per instance
     cmd_delay = 0.05                # seconds between writes
+    settle = 0.3                    # pause after changing the filter config
 
     # Data capture vocabulary. The spelling has moved between SR860 firmware
     # revisions, so these are overridable from config (lockin_capture_cmds)
@@ -287,6 +288,7 @@ class LockIn():
         self.term = settings.get('lockin_term', '\r').encode().decode(
             'unicode_escape')
         self.cmd_delay = float(settings.get('lockin_cmd_delay', 0.05))
+        self.settle = float(settings.get('lockin_settle', 0.3))
         self.capture_cmds = dict(self.CAPTURE_CMDS)
         self.capture_cmds.update(settings.get('lockin_capture_cmds') or {})
 
@@ -363,10 +365,23 @@ class LockIn():
         if self.cmd_delay:
             time.sleep(self.cmd_delay)
 
-    def query(self, cmd):
-        '''Send a query and return the reply as a string'''
-        self._write(cmd)
-        return self._read_line()
+    def query(self, cmd, retries=1):
+        '''Send a query and return the reply as a string.
+
+        Retries once on a timeout. The first query after a burst of set
+        commands is intermittently dropped by this unit -- changing the time
+        constant reconfigures the filter chain, and a query landing in that
+        window sometimes goes unanswered. Draining first discards a late
+        reply so it cannot be mistaken for the answer to the retry.
+        '''
+        for attempt in range(retries + 1):
+            try:
+                self._write(cmd)
+                return self._read_line()
+            except (socket.timeout, TimeoutError):
+                if attempt >= retries:
+                    raise
+                self._drain()
 
     def query_float(self, cmd):
         return float(self.query(cmd))
@@ -417,6 +432,11 @@ class LockIn():
                 print(f"Lock-in slope {slope} dB/oct not available, using {actual} dB/oct")
         if sync is not None:
             self.command(f"SYNC {1 if sync else 0}")
+
+        # Changing the time constant reconfigures the output filter. Give it a
+        # moment before reading anything back, rather than relying on the
+        # retry in query() to paper over a query that lands mid-reconfigure.
+        time.sleep(self.settle)
         return self.get_config()
 
     def get_config(self):
