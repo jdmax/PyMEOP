@@ -258,6 +258,8 @@ class LockIn():
     settle = 0.3                    # pause after changing the filter config
     _get_fmt = None                 # CAPTUREGET? argument form that works
     _raw_transfer = False           # True once a headerless transfer is seen
+    _short_reported = False         # only mention a short transfer once
+    idle_timeout = 0.4              # quiet gap that marks the end of a transfer
 
     # Data capture vocabulary. The spelling has moved between SR860 firmware
     # revisions, so these are overridable from config (lockin_capture_cmds)
@@ -286,6 +288,7 @@ class LockIn():
         self._cap_cursor_kb = 0
         self._get_fmt = None
         self._raw_transfer = False
+        self._short_reported = False
         # Wire details that vary between firmware revisions. Defaults match
         # what the old telnet code used; tools/probe_lockin.py determines the
         # right values on the bench.
@@ -414,15 +417,53 @@ class LockIn():
         if not self._raw_transfer:
             self._raw_transfer = True
             print(f"Capture transfer carries no block header (first byte "
-                  f"{head!r}); reading {expected} raw bytes per chunk")
+                  f"{head!r}); reading up to {expected} raw bytes per chunk")
 
-        data = head + self._read_exact(expected - 1)
+        data = bytearray(head)
+        data.extend(self._read_payload(expected - 1))
 
         # A terminator sent after the payload would otherwise be picked up as
         # an empty reply to the next query.
+        while data[-1:] in (b'\r', b'\n'):
+            del data[-1:]
         while self._buf[:1] in (b'\r', b'\n'):
             del self._buf[:1]
-        return data
+
+        if len(data) != expected and not self._short_reported:
+            self._short_reported = True
+            print(f"Capture transfer returned {len(data)} bytes for a request "
+                  f"of {expected}. The length argument is evidently not in "
+                  f"kilobytes on this firmware; the reader is following what "
+                  f"actually arrives.")
+        return bytes(data)
+
+    def _read_payload(self, count):
+        '''Read up to `count` bytes, stopping early if the instrument goes quiet.
+
+        Insisting on an exact byte count assumes the meaning of CAPTUREGET?'s
+        length argument, which this firmware does not honour as kilobytes.
+        Reading until idle instead lets the caller discover the real transfer
+        size rather than blocking forever waiting for bytes that never come.
+        '''
+        data = bytearray()
+        take = min(count, len(self._buf))
+        data.extend(self._buf[:take])
+        del self._buf[:take]
+
+        previous = self.sock.gettimeout()
+        try:
+            while len(data) < count:
+                self.sock.settimeout(self.idle_timeout)
+                try:
+                    chunk = self.sock.recv(min(8192, count - len(data)))
+                except (socket.timeout, TimeoutError):
+                    break                  # transfer is over, just shorter
+                if not chunk:
+                    break
+                data.extend(chunk)
+        finally:
+            self.sock.settimeout(previous)
+        return bytes(data)
 
     # -- configuration -----------------------------------------------------
 
@@ -619,8 +660,19 @@ class LockIn():
         blocks = []
         while self._cap_cursor_kb < available_kb:
             n_kb = min(self.GET_CHUNK_KB, available_kb - self._cap_cursor_kb)
-            blocks.append(self._capture_get(self._cap_cursor_kb, n_kb))
-            self._cap_cursor_kb += n_kb
+            chunk = self._capture_get(self._cap_cursor_kb, n_kb)
+
+            # Advance by what actually arrived rather than what was asked for,
+            # so a transfer that returns less than requested simply takes more
+            # round trips instead of losing sync with the buffer.
+            kb_got = len(chunk) // 1024
+            if kb_got < 1:
+                raise IOError(
+                    f"Capture transfer returned only {len(chunk)} bytes for "
+                    f"{n_kb} kB at offset {self._cap_cursor_kb} kB; cannot "
+                    f"make progress")
+            blocks.append(chunk[:kb_got * 1024])
+            self._cap_cursor_kb += kb_got
 
         raw = b''.join(blocks)
         # SR860 capture data is little-endian float32, channels interleaved

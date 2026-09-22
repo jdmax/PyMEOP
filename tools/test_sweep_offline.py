@@ -14,6 +14,7 @@ Runs with no hardware attached. Two things are verified:
 Run:  python tools/test_sweep_offline.py
 '''
 import os
+import socket
 import sys
 
 import numpy as np
@@ -152,9 +153,10 @@ class FakeSock():
     which is what firmware V1.51 actually does.
     '''
 
-    def __init__(self, samples, framed=True):
+    def __init__(self, samples, framed=True, max_kb=None):
         self.payload = samples.astype('<f4').tobytes()
         self.framed = framed
+        self.max_kb = max_kb        # cap per transfer, as the real unit does
         self.out = bytearray()
 
     def sendall(self, data):
@@ -163,6 +165,8 @@ class FakeSock():
             self.out.extend(f"{len(self.payload)}\r".encode('ascii'))
         elif cmd.startswith('CAPTUREGET?'):
             offset_kb, n_kb = (int(v) for v in cmd.split('?')[1].split(','))
+            if self.max_kb:
+                n_kb = min(n_kb, self.max_kb)
             chunk = self.payload[offset_kb * 1024:(offset_kb + n_kb) * 1024]
             if self.framed:
                 self.out.extend(
@@ -171,9 +175,17 @@ class FakeSock():
         else:
             raise AssertionError(f"FakeSock got unexpected command {cmd!r}")
 
+    def settimeout(self, value):
+        self.timeout = value
+
+    def gettimeout(self):
+        return getattr(self, 'timeout', None)
+
     def recv(self, n):
         if not self.out:
-            raise IOError("FakeSock is empty")
+            # An idle socket, which is how the reader detects the end of a
+            # transfer that came back shorter than requested.
+            raise socket.timeout("FakeSock is empty")
         chunk = bytes(self.out[:n])
         del self.out[:n]
         return chunk
@@ -213,6 +225,39 @@ def test_capture_parsing():
         print(f"  capture parsing OK ({label}): {n_got} samples x 2 channels")
 
 
+def test_short_transfer():
+    '''A transfer that returns less than asked for must still assemble.
+
+    Firmware V1.51 does not honour the length argument as kilobytes, so the
+    reader advances by what actually arrived. Getting this wrong either loses
+    sync with the buffer or blocks forever waiting for bytes that never come.
+    '''
+    n = 1024
+    x = np.arange(n, dtype=np.float32)
+    y = -x
+    interleaved = np.empty(2 * n, dtype=np.float32)
+    interleaved[0::2] = x
+    interleaved[1::2] = y
+
+    lockin = object.__new__(LockIn)
+    lockin.sock = FakeSock(interleaved, framed=False, max_kb=1)
+    lockin._buf = bytearray()
+    lockin._cap_channels = 2
+    lockin._cap_cursor_kb = 0
+    lockin._get_fmt = None
+    lockin._raw_transfer = False
+    lockin._short_reported = False
+
+    data = lockin.capture_read_new()
+    n_got = data.shape[0]
+    expected_kb = (2 * n * 4) // 1024
+    assert n_got == expected_kb * 128, (
+        f"assembled {n_got} samples, expected {expected_kb * 128}")
+    assert np.allclose(data[:, 0], x[:n_got], atol=1e-3), "X lost sync"
+    assert np.allclose(data[:, 1], y[:n_got], atol=1e-3), "Y lost sync"
+    print(f"  short transfers OK: {expected_kb} kB reassembled 1 kB at a time")
+
+
 def test_zero_phase():
     '''A symmetric kernel must not move a peak; a causal one does.'''
     x = np.linspace(0, 100, 4000)
@@ -248,6 +293,7 @@ def main():
     print("Unit checks")
     print("=" * 72)
     test_capture_parsing()
+    test_short_transfer()
     test_zero_phase()
     test_binning()
 
