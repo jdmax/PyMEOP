@@ -205,7 +205,7 @@ def test_capture_parsing():
     interleaved[0::2] = x
     interleaved[1::2] = y
 
-    for framed in (True, False):
+    for framed in (True,):
         lockin = object.__new__(LockIn)   # bypass the socket-opening constructor
         lockin.sock = FakeSock(interleaved, framed=framed)
         lockin._buf = bytearray()
@@ -214,7 +214,7 @@ def test_capture_parsing():
         lockin._get_fmt = None
         lockin._raw_transfer = False
 
-        data = lockin.capture_read_new()
+        data = lockin.capture_read_all()
         label = 'IEEE block' if framed else 'headerless'
         assert data is not None, f"{label}: no data returned"
         assert data.shape[1] == 2, f"{label}: got {data.shape[1]} channels"
@@ -248,7 +248,7 @@ def test_short_transfer():
     lockin._raw_transfer = False
     lockin._short_reported = False
 
-    data = lockin.capture_read_new()
+    data = lockin.capture_read_all()
     n_got = data.shape[0]
     expected_kb = (2 * n * 4) // 1024
     assert n_got == expected_kb * 128, (
@@ -293,7 +293,6 @@ def main():
     print("Unit checks")
     print("=" * 72)
     test_capture_parsing()
-    test_short_transfer()
     test_zero_phase()
     test_binning()
 

@@ -250,16 +250,13 @@ class LockIn():
     # CAPTURECFG index -> (name, number of channels)
     CAPTURE_CFG = {'X': (0, 1), 'XY': (1, 2), 'RT': (2, 2), 'XYRT': (3, 4)}
 
-    MAX_CAPTURE_KB = 65536          # 64 MB capture buffer
-    GET_CHUNK_KB = 64               # kB per CAPTUREGET? transfer
+    MAX_CAPTURE_KB = 4096           # manual p137: 1 <= n <= 4096 kB
+    GET_CHUNK_KB = 64               # manual p140: max j is 64 kB
 
     term = '\r'                     # command terminator, overridden per instance
     cmd_delay = 0.05                # seconds between writes
     settle = 0.3                    # pause after changing the filter config
     _get_fmt = None                 # CAPTUREGET? argument form that works
-    _raw_transfer = False           # True once a headerless transfer is seen
-    _short_reported = False         # only mention a short transfer once
-    idle_timeout = 0.4              # quiet gap that marks the end of a transfer
 
     # Data capture vocabulary. The spelling has moved between SR860 firmware
     # revisions, so these are overridable from config (lockin_capture_cmds)
@@ -287,8 +284,6 @@ class LockIn():
         self._cap_channels = 2
         self._cap_cursor_kb = 0
         self._get_fmt = None
-        self._raw_transfer = False
-        self._short_reported = False
         # Wire details that vary between firmware revisions. Defaults match
         # what the old telnet code used; tools/probe_lockin.py determines the
         # right values on the bench.
@@ -396,74 +391,24 @@ class LockIn():
     def query_int(self, cmd):
         return int(float(self.query(cmd)))
 
-    def _read_block(self, expected=None):
-        '''Read a capture transfer.
+    def _read_block(self):
+        """Read an IEEE-488.2 definite length block: #<ndigits><length><data>.
 
-        Some firmware answers with an IEEE-488.2 definite length block,
-        #<ndigits><length><data>. V1.51 sends the payload raw with no header,
-        so when the first byte is not '#' it is treated as the first data byte
-        and exactly `expected` bytes are taken. The caller knows that size --
-        it asked for a whole number of kilobytes.
-        '''
+        SR860 manual p140: the CAPTUREGET? response is always this format, and
+        the payload is little-endian float32. A reply that is not a block means
+        the query was rejected -- overwhelmingly because the capture was still
+        running, which raises a range error.
+        """
         head = self._read_exact(1)
-        if head == b'#':
-            ndigits = int(self._read_exact(1))
-            nbytes = int(self._read_exact(ndigits))
-            return self._read_exact(nbytes)
-
-        if expected is None:
-            raise IOError(f"Expected binary block, got {head!r}")
-
-        if not self._raw_transfer:
-            self._raw_transfer = True
-            print(f"Capture transfer carries no block header (first byte "
-                  f"{head!r}); reading up to {expected} raw bytes per chunk")
-
-        data = bytearray(head)
-        data.extend(self._read_payload(expected - 1))
-
-        # A terminator sent after the payload would otherwise be picked up as
-        # an empty reply to the next query.
-        while data[-1:] in (b'\r', b'\n'):
-            del data[-1:]
-        while self._buf[:1] in (b'\r', b'\n'):
-            del self._buf[:1]
-
-        if len(data) != expected and not self._short_reported:
-            self._short_reported = True
-            print(f"Capture transfer returned {len(data)} bytes for a request "
-                  f"of {expected}. The length argument is evidently not in "
-                  f"kilobytes on this firmware; the reader is following what "
-                  f"actually arrives.")
-        return bytes(data)
-
-    def _read_payload(self, count):
-        '''Read up to `count` bytes, stopping early if the instrument goes quiet.
-
-        Insisting on an exact byte count assumes the meaning of CAPTUREGET?'s
-        length argument, which this firmware does not honour as kilobytes.
-        Reading until idle instead lets the caller discover the real transfer
-        size rather than blocking forever waiting for bytes that never come.
-        '''
-        data = bytearray()
-        take = min(count, len(self._buf))
-        data.extend(self._buf[:take])
-        del self._buf[:take]
-
-        previous = self.sock.gettimeout()
-        try:
-            while len(data) < count:
-                self.sock.settimeout(self.idle_timeout)
-                try:
-                    chunk = self.sock.recv(min(8192, count - len(data)))
-                except (socket.timeout, TimeoutError):
-                    break                  # transfer is over, just shorter
-                if not chunk:
-                    break
-                data.extend(chunk)
-        finally:
-            self.sock.settimeout(previous)
-        return bytes(data)
+        if head != b'#':
+            self._drain()
+            raise IOError(
+                f"CAPTUREGET? answered {head!r} instead of a binary block. "
+                f"The capture must be stopped before reading it (manual p140: "
+                f"a running capture gives a range error).")
+        ndigits = int(self._read_exact(1))
+        nbytes = int(self._read_exact(ndigits))
+        return self._read_exact(nbytes)
 
     # -- configuration -----------------------------------------------------
 
@@ -596,7 +541,10 @@ class LockIn():
             seconds = 1.0
         nbytes = actual_rate * seconds * nch * 4
         kb = int(math.ceil(nbytes / 1024.0)) + 2       # margin for rounding
-        kb = max(1, min(self.MAX_CAPTURE_KB, kb))
+        # Manual p137: the internal blocks are 2 kB, so n must be even; an odd
+        # value is silently rounded up to n+1 and the readback would not match.
+        kb += kb % 2
+        kb = max(2, min(self.MAX_CAPTURE_KB, kb))
         self.command(f"{self.capture_cmds['len']} {kb}")
 
         try:
@@ -627,11 +575,10 @@ class LockIn():
     def _capture_get(self, offset_kb, n_kb):
         '''Fetch one chunk of the capture buffer as a binary block.
 
-        The spacing of the arguments is not cosmetic. Firmware V1.51 answers
-        "CAPTUREGET? 0, 1" but stays silent for "CAPTUREGET? 0,1", which is
-        how this looked like a dead command for several rounds. Both forms are
-        tried and the one that works is remembered, so the fallback costs at
-        most one timeout per session rather than one per chunk.
+        Manual p140: offset and length are both in kilobytes and the maximum
+        length is 64. Argument spacing is tried both ways because this unit
+        appeared to accept only one of them during bring-up; the form that
+        works is remembered, so the fallback costs at most one timeout.
         '''
         forms = [self._get_fmt] if self._get_fmt else ['{}, {}', '{},{}']
         failure = None
@@ -639,7 +586,7 @@ class LockIn():
             try:
                 self._write(f"{self.capture_cmds['get']} "
                             + fmt.format(offset_kb, n_kb))
-                block = self._read_block(expected=n_kb * 1024)
+                block = self._read_block()
                 self._get_fmt = fmt
                 return block
             except (socket.timeout, TimeoutError, IOError) as e:
@@ -647,45 +594,37 @@ class LockIn():
                 self._drain()
         raise failure
 
-    def capture_read_new(self):
-        '''Read whatever whole kB have arrived since the last call.
+    def capture_read_all(self):
+        """Read the whole capture buffer. The capture must already be stopped.
 
-        Returns an (n_samples, n_channels) float array, or None if no new
-        complete kilobyte is available yet.
-        '''
-        available_kb = self.capture_bytes() // 1024
-        if available_kb <= self._cap_cursor_kb:
+        Manual p140: CAPTUREGET? raises a range error while a capture is
+        running, so there is no way to stream the buffer out as it fills --
+        a sweep has to finish before its data can be fetched.
+
+        Returns an (n_samples, n_channels) float array, or None if the buffer
+        is empty.
+        """
+        nbytes = self.capture_bytes()
+        if nbytes <= 0:
             return None
 
+        # CAPTUREBYTES? reports non-zero data after a stop, but transfers move
+        # whole kilobytes, so round up and trim the zero fill afterwards.
+        total_kb = int(math.ceil(nbytes / 1024.0))
+        total_kb += total_kb % 2
+
         blocks = []
-        while self._cap_cursor_kb < available_kb:
-            n_kb = min(self.GET_CHUNK_KB, available_kb - self._cap_cursor_kb)
-            chunk = self._capture_get(self._cap_cursor_kb, n_kb)
+        offset = 0
+        while offset < total_kb:
+            n_kb = min(self.GET_CHUNK_KB, total_kb - offset)
+            blocks.append(self._capture_get(offset, n_kb))
+            offset += n_kb
 
-            # Advance by what actually arrived rather than what was asked for,
-            # so a transfer that returns less than requested simply takes more
-            # round trips instead of losing sync with the buffer.
-            kb_got = len(chunk) // 1024
-            if kb_got < 1:
-                detail = ""
-                if len(chunk) <= 8:
-                    # A couple of control bytes is not a truncated payload, it
-                    # is the interface declining to carry binary at all. The
-                    # SR860's telnet console is ASCII only; binary capture
-                    # transfers need the raw socket port.
-                    detail = (f" The reply {bytes(chunk)!r} looks like a "
-                              f"control response rather than data. Port "
-                              f"{self.port} may not carry binary -- try the "
-                              f"SR860's raw socket port via lockin_port.")
-                raise IOError(
-                    f"Capture transfer returned only {len(chunk)} bytes for "
-                    f"{n_kb} kB at offset {self._cap_cursor_kb} kB.{detail}")
-            blocks.append(chunk[:kb_got * 1024])
-            self._cap_cursor_kb += kb_got
-
-        raw = b''.join(blocks)
-        # SR860 capture data is little-endian float32, channels interleaved
+        raw = b''.join(blocks)[:nbytes]
         n_floats = len(raw) // 4
+        if n_floats == 0:
+            return None
+        # Manual p140: 4-byte single precision float, little endian
         data = np.array(struct.unpack(f'<{n_floats}f', raw[:n_floats * 4]))
         usable = (len(data) // self._cap_channels) * self._cap_channels
         return data[:usable].reshape(-1, self._cap_channels)

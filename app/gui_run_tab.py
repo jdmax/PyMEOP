@@ -351,9 +351,15 @@ class RunTab(QWidget):
                                       'lockin': result.get('lockin', {})})
 
     def live_trace(self, partial):
-        '''Show the sweep forming; replaced by the fit when the sweep lands.'''
+        '''Show ramp progress.
+
+        The capture buffer cannot be read until the sweep ends, so there is no
+        partial spectrum to draw -- only how far through the ramp we are.
+        '''
         try:
-            self.peak_plot.setData(partial['currs'], partial['rs'])
+            pct = 100 * partial.get('progress', 0)
+            self.parent.status_bar.showMessage(
+                f"Sweep {self.scan_thread.sweeps + 1}: {pct:.0f}%")
         except Exception:
             pass
 

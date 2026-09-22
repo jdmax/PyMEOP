@@ -209,9 +209,14 @@ class FindTab(QWidget):
         self.update_curr_plot()
 
     def live_curr_trace(self, partial):
-        '''Show the wide sweep forming against current while it runs.'''
+        '''Show ramp progress.
+
+        A wide sweep takes tens of seconds and the buffer cannot be read until
+        it finishes, so progress is all there is to report meanwhile.
+        '''
         try:
-            self.curr_plot.setData(partial['currs'], partial['rs'])
+            pct = 100 * partial.get('progress', 0)
+            self.parent.status_bar.showMessage(f"Wide sweep: {pct:.0f}%")
         except Exception:
             pass
 

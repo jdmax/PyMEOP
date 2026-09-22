@@ -117,7 +117,7 @@ def process_sweep(samples, plan, nbins, smooth_seconds):
     '''Turn raw capture samples into a binned spectrum.
 
     Arguments:
-        samples: (n, nch) array from LockIn.capture_read_new, X in column 0
+        samples: (n, nch) array from LockIn.capture_read_all, X in column 0
         plan: SweepPlan used for the ramp
     Returns a dict ready to hand to the fitter.
     '''
@@ -170,7 +170,8 @@ class SweepThread(QThread):
     '''Repeatedly ramp the laser in hardware and read the capture buffer.
 
     Emits:
-        trace: partial dict during a sweep, for the live plot
+        trace: ramp progress while a sweep runs (no data -- the capture
+            buffer is unreadable until the sweep stops)
         sweep: completed binned sweep dict
         error: message string on a failure that stops the run
     '''
@@ -264,7 +265,7 @@ class SweepThread(QThread):
         # Capture geometry is the same for every sweep, so configure it once
         # rather than paying four round trips of dead time between ramps. The
         # buffer is sized past the end of the ramp; the overhang is discarded.
-        self.rate, _nch, _kb = self.lockin.capture_config(
+        self.rate, self.nch, _kb = self.lockin.capture_config(
             self.settings.get('capture_rate', 1220), 'XY',
             seconds=self.duration * 1.2)
 
@@ -284,30 +285,38 @@ class SweepThread(QThread):
         started = time.time()
 
         n_target = plan.n_expected()
+        target_bytes = n_target * self.nch * 4
         timeout = self.duration * 2.0 + 5.0
-        chunks = []
-        n_have = 0
 
-        while n_have < n_target:
+        # The buffer cannot be read while it is filling: CAPTUREGET? raises a
+        # range error until the capture is stopped (SR860 manual p140). So the
+        # ramp is watched through CAPTUREBYTES?, which is live, and the data is
+        # fetched once at the end. That is why the plot updates per sweep
+        # rather than continuously during one.
+        while True:
             if not self.is_running():
                 self.lockin.capture_stop()
                 return None
-            if time.time() - started > timeout:
-                raise TimeoutError(
-                    f"Captured {n_have}/{n_target} samples in {timeout:.1f} s. "
-                    f"Check that the wide-scan actually started"
-                    + (" and that the trigger is wired." if self.triggered else "."))
 
-            new = self.lockin.capture_read_new()
-            if new is not None and len(new):
-                chunks.append(new)
-                n_have += len(new)
-                self._emit_trace(chunks, plan)
-            else:
-                time.sleep(0.02)
+            captured = self.lockin.capture_bytes()
+            if captured >= target_bytes:
+                break
+            if time.time() - started > timeout:
+                self.lockin.capture_stop()
+                raise TimeoutError(
+                    f"Captured {captured}/{target_bytes} bytes in "
+                    f"{timeout:.1f} s. Check that the wide-scan actually "
+                    f"started" + (" and that the trigger is wired."
+                                  if self.triggered else "."))
+            self.emit_progress(captured, target_bytes)
+            time.sleep(0.05)
 
         self.lockin.capture_stop()
-        samples = np.concatenate(chunks)[:n_target]
+        samples = self.lockin.capture_read_all()
+        if samples is None or len(samples) < 10:
+            raise IOError(f"Capture buffer came back empty after a "
+                          f"{self.duration:.1f} s ramp")
+        samples = samples[:n_target]
 
         result = process_sweep(samples, plan,
                                self.settings.get('sweep_bins', 100),
@@ -319,19 +328,17 @@ class SweepThread(QThread):
         result['end'] = end
         return result
 
-    def _emit_trace(self, chunks, plan):
-        '''Push a decimated live view without paying for a full reprocess.'''
+    def emit_progress(self, captured, target):
+        '''Report how far through the ramp we are.
+
+        The capture buffer is unreadable until the sweep ends, so this carries
+        a fraction rather than data. The trace signal still fires once per
+        completed sweep.
+        '''
         try:
-            samples = np.concatenate(chunks)
-            current, frac = plan.currents(len(samples))
-            inside = frac <= 1.0
-            step = max(1, int(inside.sum()) // 400)
-            self.trace.emit({
-                'currs': current[inside][::step],
-                'rs': samples[inside, 0][::step] * SIGNAL_SCALE,
-            })
+            self.trace.emit({'progress': min(1.0, captured / float(target))})
         except Exception:
-            pass        # a dropped live frame must never kill the acquisition
+            pass        # a dropped progress frame must never kill acquisition
 
 
 class WavemeterThread(QThread):
