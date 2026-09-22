@@ -253,6 +253,9 @@ class LockIn():
     MAX_CAPTURE_KB = 65536          # 64 MB capture buffer
     GET_CHUNK_KB = 64               # kB per CAPTUREGET? transfer
 
+    term = '\r'                     # command terminator, overridden per instance
+    cmd_delay = 0.05                # seconds between writes
+
     def __init__(self, settings):
         '''Open socket to the lock-in'''
         self.ip = settings['lockin_ip']
@@ -261,6 +264,12 @@ class LockIn():
         self._buf = bytearray()
         self._cap_channels = 2
         self._cap_cursor_kb = 0
+        # Wire details that vary between firmware revisions. Defaults match
+        # what the old telnet code used; tools/probe_lockin.py determines the
+        # right values on the bench.
+        self.term = settings.get('lockin_term', '\r').encode().decode(
+            'unicode_escape')
+        self.cmd_delay = float(settings.get('lockin_cmd_delay', 0.05))
 
         try:
             self.sock = socket.create_connection((self.ip, self.port), timeout=5)
@@ -293,7 +302,7 @@ class LockIn():
         self._buf.clear()
 
     def _write(self, cmd):
-        self.sock.sendall(bytes(f"{cmd}\r", 'ascii'))
+        self.sock.sendall(bytes(f"{cmd}{self.term}", 'ascii'))
 
     def _read_exact(self, n):
         '''Read exactly n bytes'''
@@ -313,6 +322,10 @@ class LockIn():
                 if b in (0x0A, 0x0D):
                     line = bytes(self._buf[:i])
                     del self._buf[:i + 1]
+                    # A CRLF pair must be consumed whole, or the stray LF is
+                    # read as an empty reply to the next query.
+                    if self._buf[:1] in (b'\n', b'\r') and self._buf[:1] != bytes([b]):
+                        del self._buf[:1]
                     return line.decode('ascii', 'replace').strip()
             chunk = self.sock.recv(4096)
             if not chunk:
@@ -320,8 +333,16 @@ class LockIn():
             self._buf.extend(chunk)
 
     def command(self, cmd):
-        '''Send a command that returns nothing'''
+        '''Send a command that returns nothing.
+
+        Consecutive sets can arrive coalesced in a single TCP segment, which
+        some firmware parses badly. Queries need no such gap -- the blocking
+        read that follows paces them, and a delay there would only slow the
+        capture polling loop.
+        '''
         self._write(cmd)
+        if self.cmd_delay:
+            time.sleep(self.cmd_delay)
 
     def query(self, cmd):
         '''Send a query and return the reply as a string'''
@@ -385,18 +406,24 @@ class LockIn():
         This goes into every event file so a scan can be interpreted later.
         '''
         config = {}
-        try:
-            config['tc'] = self.TC_TABLE[self.query_int("OFLT?")]
-            config['slope_db'] = self.SLOPE_TABLE[self.query_int("OFSL?")]
-            config['sync'] = bool(self.query_int("SYNC?"))
-            config['sensitivity'] = self.query_float("SCAL?")
-            config['ref_freq'] = self.query_float("FREQ?")
+        # Queried one at a time so a single unsupported or slow command names
+        # itself instead of taking the whole readback down with it.
+        for key, cmd, convert in (
+                ('tc', "OFLT?", lambda v: self.TC_TABLE[int(float(v))]),
+                ('slope_db', "OFSL?", lambda v: self.SLOPE_TABLE[int(float(v))]),
+                ('sync', "SYNC?", lambda v: bool(int(float(v)))),
+                ('sensitivity', "SCAL?", float),
+                ('ref_freq', "FREQ?", float)):
+            try:
+                config[key] = convert(self.query(cmd))
+            except Exception as e:
+                print(f"Lock-in {cmd} failed ({type(e).__name__}: {e})")
+
+        if 'slope_db' in config and 'tc' in config:
             # group delay of an n-pole filter is n * tau
             poles = config['slope_db'] // 6
             config['poles'] = int(poles)
             config['group_delay'] = poles * config['tc']
-        except Exception as e:
-            print(f"Could not read lock-in config: {e}")
         return config
 
     def read_all(self):

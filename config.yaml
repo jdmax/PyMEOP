@@ -43,3 +43,10 @@ settings:
     # ---- Find tab ----------------------------------------------------------
     find_sweep_time: 30.0       # seconds for the wide Find-tab current ramp
     wave_poll: 0.2              # wavemeter polling interval during a wide sweep, seconds
+
+    # ---- Lock-in wire protocol --------------------------------------------
+    # Determined on the bench with tools/probe_lockin.py. Terminator is a
+    # Python escape: '\r', '\n' or '\r\n'. cmd_delay is the gap after a set
+    # command; set it to 0 if the probe shows pacing is not needed.
+    lockin_term: "\r"
+    lockin_cmd_delay: 0.05
