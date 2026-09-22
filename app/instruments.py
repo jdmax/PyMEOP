@@ -667,10 +667,19 @@ class LockIn():
             # round trips instead of losing sync with the buffer.
             kb_got = len(chunk) // 1024
             if kb_got < 1:
+                detail = ""
+                if len(chunk) <= 8:
+                    # A couple of control bytes is not a truncated payload, it
+                    # is the interface declining to carry binary at all. The
+                    # SR860's telnet console is ASCII only; binary capture
+                    # transfers need the raw socket port.
+                    detail = (f" The reply {bytes(chunk)!r} looks like a "
+                              f"control response rather than data. Port "
+                              f"{self.port} may not carry binary -- try the "
+                              f"SR860's raw socket port via lockin_port.")
                 raise IOError(
                     f"Capture transfer returned only {len(chunk)} bytes for "
-                    f"{n_kb} kB at offset {self._cap_cursor_kb} kB; cannot "
-                    f"make progress")
+                    f"{n_kb} kB at offset {self._cap_cursor_kb} kB.{detail}")
             blocks.append(chunk[:kb_got * 1024])
             self._cap_cursor_kb += kb_got
 

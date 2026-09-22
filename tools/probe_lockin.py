@@ -249,6 +249,55 @@ def probe_capture_transfer(ip, port, term):
     return results
 
 
+def probe_port_for_binary(ip, port, term):
+    '''Can this port actually carry a binary capture transfer?
+
+    Port 23 on the SR860 is an ASCII console. It answers every text command
+    happily and then returns a lone control byte for CAPTUREGET?, which is not
+    a truncated payload -- it is the interface refusing to carry binary. The
+    raw socket port is the one that can.
+    '''
+    out = {'port': port}
+    try:
+        w = Wire(ip, port, timeout=3.0, verbose=False)
+    except Exception as e:
+        out['error'] = f"cannot connect ({type(e).__name__})"
+        return out
+    try:
+        w.send('*IDN?', term)
+        idn = w.read(2.0)
+        if not idn:
+            out['error'] = "no answer to *IDN?"
+            return out
+        out['idn'] = idn.decode('ascii', 'replace').strip()
+        w.drain(0.2)
+
+        for cmd in ('CAPTURECFG 1', 'CAPTURERATE 5', 'CAPTURELEN 16'):
+            w.send(cmd, term)
+            time.sleep(0.1)
+        w.drain(0.2)
+        w.send('CAPTURESTART 0,0', term)
+        time.sleep(0.8)
+
+        w.send('CAPTUREBYTES?', term)
+        nbytes = w.read(2.0)
+        out['bytes'] = nbytes.decode('ascii', 'replace').strip()
+        w.drain(0.2)
+
+        w.send('CAPTUREGET? 0, 1', term)
+        raw = w.read_raw(3.0)
+        out['got'] = len(raw)
+        out['head'] = raw[:16]
+        out['usable'] = len(raw) >= 1024
+
+        w.send('CAPTURESTOP', term)
+    except Exception as e:
+        out['error'] = f"{type(e).__name__}: {e}"
+    finally:
+        w.close()
+    return out
+
+
 def stage(title):
     print(f"\n{title}")
     print("  " + "-" * 66)
@@ -259,6 +308,8 @@ def main():
     ap.add_argument('--ip')
     ap.add_argument('--port', type=int)
     ap.add_argument('--config', default='config.yaml')
+    ap.add_argument('--ports', action='store_true',
+                    help='only test which port can carry a binary transfer')
     args = ap.parse_args()
 
     ip, port = load_ip(args.config)
@@ -270,6 +321,30 @@ def main():
 
     print(f"Probing SR860 at {ip}:{port}")
     findings = {}
+
+    if args.ports:
+        stage("Which port can carry a binary capture transfer?")
+        best = None
+        for candidate in (23, 50000, 5025, 1861):
+            r = probe_port_for_binary(ip, candidate, b'\r')
+            if r.get('error'):
+                print(f"    port {candidate:<6} {r['error']}")
+                continue
+            verdict = 'USABLE' if r.get('usable') else 'text only'
+            print(f"    port {candidate:<6} {verdict:<10} "
+                  f"CAPTUREBYTES?={r.get('bytes'):<8} "
+                  f"CAPTUREGET? -> {r.get('got')} bytes {r.get('head')!r}")
+            if r.get('usable') and best is None:
+                best = candidate
+        print()
+        if best:
+            print(f"  Use port {best}. Set in config.yaml:")
+            print(f"    lockin_port: {best}")
+        else:
+            print("  No port returned a real payload. The capture buffer may")
+            print("  need to be read over VXI-11/USB/GPIB on this unit, or the")
+            print("  transfer needs a command this probe has not tried.")
+        return 0
 
     # 1: which terminator gets an answer at all, on a fresh connection each time
     stage("1. Command terminator")
