@@ -274,10 +274,12 @@ def main():
     elif capture:
         print("\n  all capture roles resolved")
 
-    print(f"\n  Add to config.yaml:")
-    print(f"    lockin_term: '{'CRLF' if name == 'CRLF' else name}'"
-          f"   # as an escape: "
-          f"{repr(term.decode('ascii'))}")
+    escape = {'CR': r'\r', 'LF': r'\n', 'CRLF': r'\r\n'}[name]
+    print(f"\n  Add to config.yaml (single quotes -- the escape is resolved")
+    print(f"  by the loader, not by YAML):")
+    print(f"    lockin_term: '{escape}'")
+    if findings.get('set_then_query'):
+        print(f"    lockin_cmd_delay: 0      # sets do not stall queries here")
     return 0
 
 

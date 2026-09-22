@@ -268,6 +268,8 @@ class LockIn():
         'stop': 'CAPTURESTOP',
         'bytes': 'CAPTUREBYTES?',
         'get': 'CAPTUREGET?',
+        'rate_read': 'CAPTURERATE?',
+        'len_read': 'CAPTURELEN?',
     }
     capture_cmds = CAPTURE_CMDS     # instance copy is made in __init__
 
@@ -482,7 +484,26 @@ class LockIn():
         n = int(round(math.log2(rate_max / float(target_rate))))
         n = max(0, min(20, n))
         self.command(f"{self.capture_cmds['rate']} {n}")
-        actual_rate = rate_max / (2 ** n)
+
+        # CAPTURERATE? answers in Hz while CAPTURERATE is set with a divider
+        # index, so the rate is read back rather than assumed. Every sample's
+        # position on the current axis is derived from this number -- if it is
+        # wrong the spectrum is stretched and the peak positions are nonsense.
+        expected = rate_max / (2 ** n)
+        actual_rate = expected
+        try:
+            reading = self.query_float(self.capture_cmds['rate_read'])
+            if reading > 0:
+                actual_rate = reading
+                if abs(reading - expected) / expected > 0.01:
+                    print(f"Capture rate set as index {n} (expected "
+                          f"{expected:.1f} Hz) but reads back {reading:.1f} Hz. "
+                          f"Using the readback. If this looks like the index "
+                          f"was taken as a frequency, CAPTURERATE wants Hz on "
+                          f"this firmware.")
+        except Exception as e:
+            print(f"Could not read capture rate back ({e}); "
+                  f"assuming {expected:.1f} Hz")
 
         if seconds is None:
             seconds = 1.0
@@ -490,6 +511,16 @@ class LockIn():
         kb = int(math.ceil(nbytes / 1024.0)) + 2       # margin for rounding
         kb = max(1, min(self.MAX_CAPTURE_KB, kb))
         self.command(f"{self.capture_cmds['len']} {kb}")
+
+        try:
+            got_kb = self.query_float(self.capture_cmds['len_read'])
+            if got_kb and abs(got_kb - kb) > max(1, 0.1 * kb):
+                print(f"Capture length asked for {kb} kB but reads back "
+                      f"{got_kb:g}. CAPTURELEN may not be in kilobytes on this "
+                      f"firmware; a short buffer truncates every sweep.")
+                kb = got_kb
+        except Exception:
+            pass
 
         return actual_rate, nch, kb
 
