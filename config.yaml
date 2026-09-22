@@ -50,3 +50,8 @@ settings:
     # command; set it to 0 if the probe shows pacing is not needed.
     lockin_term: "\r"
     lockin_cmd_delay: 0.05
+
+    # Capture command spellings, if this unit's firmware differs from the
+    # defaults in LockIn.CAPTURE_CMDS. Only list the ones that need changing:
+    #   lockin_capture_cmds:
+    #     ratemax: 'CAPTUREMAXRATE?'

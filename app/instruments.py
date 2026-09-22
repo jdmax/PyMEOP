@@ -256,6 +256,21 @@ class LockIn():
     term = '\r'                     # command terminator, overridden per instance
     cmd_delay = 0.05                # seconds between writes
 
+    # Data capture vocabulary. The spelling has moved between SR860 firmware
+    # revisions, so these are overridable from config (lockin_capture_cmds)
+    # once tools/probe_lockin.py has established what this unit answers to.
+    CAPTURE_CMDS = {
+        'ratemax': 'CAPTURERATEMAX?',
+        'rate': 'CAPTURERATE',
+        'cfg': 'CAPTURECFG',
+        'len': 'CAPTURELEN',
+        'start': 'CAPTURESTART',
+        'stop': 'CAPTURESTOP',
+        'bytes': 'CAPTUREBYTES?',
+        'get': 'CAPTUREGET?',
+    }
+    capture_cmds = CAPTURE_CMDS     # instance copy is made in __init__
+
     def __init__(self, settings):
         '''Open socket to the lock-in'''
         self.ip = settings['lockin_ip']
@@ -270,6 +285,8 @@ class LockIn():
         self.term = settings.get('lockin_term', '\r').encode().decode(
             'unicode_escape')
         self.cmd_delay = float(settings.get('lockin_cmd_delay', 0.05))
+        self.capture_cmds = dict(self.CAPTURE_CMDS)
+        self.capture_cmds.update(settings.get('lockin_capture_cmds') or {})
 
         try:
             self.sock = socket.create_connection((self.ip, self.port), timeout=5)
@@ -444,7 +461,7 @@ class LockIn():
 
     def capture_rate_max(self):
         '''Maximum capture rate in Hz for the current time constant'''
-        return self.query_float("CAPTURERATEMAX?")
+        return self.query_float(self.capture_cmds['ratemax'])
 
     def capture_config(self, target_rate, channels='XY', seconds=None):
         '''Configure the capture buffer.
@@ -458,13 +475,13 @@ class LockIn():
             (actual_rate, n_channels, buffer_kb)
         '''
         cfg_idx, nch = self.CAPTURE_CFG[channels]
-        self.command(f"CAPTURECFG {cfg_idx}")
+        self.command(f"{self.capture_cmds['cfg']} {cfg_idx}")
         self._cap_channels = nch
 
         rate_max = self.capture_rate_max()
         n = int(round(math.log2(rate_max / float(target_rate))))
         n = max(0, min(20, n))
-        self.command(f"CAPTURERATE {n}")
+        self.command(f"{self.capture_cmds['rate']} {n}")
         actual_rate = rate_max / (2 ** n)
 
         if seconds is None:
@@ -472,21 +489,22 @@ class LockIn():
         nbytes = actual_rate * seconds * nch * 4
         kb = int(math.ceil(nbytes / 1024.0)) + 2       # margin for rounding
         kb = max(1, min(self.MAX_CAPTURE_KB, kb))
-        self.command(f"CAPTURELEN {kb}")
+        self.command(f"{self.capture_cmds['len']} {kb}")
 
         return actual_rate, nch, kb
 
     def capture_start(self, continuous=False, triggered=False):
         '''Start a capture. Resets the read cursor.'''
         self._cap_cursor_kb = 0
-        self.command(f"CAPTURESTART {1 if continuous else 0},{1 if triggered else 0}")
+        self.command(f"{self.capture_cmds['start']} "
+                     f"{1 if continuous else 0},{1 if triggered else 0}")
 
     def capture_stop(self):
-        self.command("CAPTURESTOP")
+        self.command(self.capture_cmds['stop'])
 
     def capture_bytes(self):
         '''Bytes captured so far'''
-        return self.query_int("CAPTUREBYTES?")
+        return self.query_int(self.capture_cmds['bytes'])
 
     def capture_read_new(self):
         '''Read whatever whole kB have arrived since the last call.
@@ -501,7 +519,8 @@ class LockIn():
         blocks = []
         while self._cap_cursor_kb < available_kb:
             n_kb = min(self.GET_CHUNK_KB, available_kb - self._cap_cursor_kb)
-            self._write(f"CAPTUREGET? {self._cap_cursor_kb},{n_kb}")
+            self._write(f"{self.capture_cmds['get']} "
+                        f"{self._cap_cursor_kb},{n_kb}")
             blocks.append(self._read_block())
             self._cap_cursor_kb += n_kb
 

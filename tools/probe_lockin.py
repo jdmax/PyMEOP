@@ -26,6 +26,18 @@ except ImportError:
 
 TERMINATORS = [('CR', b'\r'), ('LF', b'\n'), ('CRLF', b'\r\n')]
 
+# The data capture command set is the least certain part of the driver, and the
+# spelling has moved between SR860 firmware revisions. Each role lists the
+# candidates to try, best guess first.
+CAPTURE_CANDIDATES = {
+    'max rate':   ['CAPTURERATEMAX?', 'CAPTUREMAXRATE?', 'CAPTRATEMAX?'],
+    'rate index': ['CAPTURERATE?', 'CAPTRATE?'],
+    'config':     ['CAPTURECFG?', 'CAPTURECONFIG?', 'CAPTCFG?'],
+    'length':     ['CAPTURELEN?', 'CAPTURELENGTH?', 'CAPTLEN?'],
+    'status':     ['CAPTURESTAT?', 'CAPTURESTATUS?', 'CAPTSTAT?'],
+    'progress':   ['CAPTUREBYTES?', 'CAPTUREPROG?', 'CAPTBYTES?'],
+}
+
 
 class Wire():
     def __init__(self, ip, port, timeout=2.0, verbose=True):
@@ -95,6 +107,41 @@ def load_ip(path='config.yaml'):
         return s.get('lockin_ip'), int(s.get('lockin_port', 23))
     except Exception:
         return None, None
+
+
+def probe_command(ip, port, term, cmd, wait=1.5):
+    '''Try one command on its own fresh connection.
+
+    A command the firmware does not recognise can leave the parser unable to
+    answer anything further, so reusing one connection would make every later
+    candidate look broken too. Returns (reply, reason_it_failed).
+    '''
+    try:
+        w = Wire(ip, port, verbose=False)
+    except Exception as e:
+        return None, f"could not connect ({e})"
+    try:
+        w.send('*IDN?', term)
+        if not w.read(1.5):
+            return None, "connection did not answer *IDN?"
+        w.drain(0.1)
+
+        w.send(cmd, term)
+        reply = w.read(wait)
+        if reply:
+            return reply.decode('ascii', 'replace').strip(), None
+
+        # Silence alone does not say whether the command was rejected or just
+        # slow, so ask the instrument whether it logged an error.
+        w.drain(0.1)
+        w.send('ERRS?', term)
+        err = w.read(1.0)
+        detail = err.decode('ascii', 'replace').strip() if err else 'no answer'
+        return None, f"no reply (ERRS? -> {detail})"
+    except Exception as e:
+        return None, f"{type(e).__name__}: {e}"
+    finally:
+        w.close()
 
 
 def stage(title):
@@ -185,15 +232,21 @@ def main():
         findings[f'seq_{cmd}'] = bool(w.exchange(cmd, term))
     w.close()
 
-    # 6: capture commands, the least certain part of the driver
-    stage("6. Capture buffer commands")
-    w = Wire(ip, port)
-    w.exchange('*IDN?', term)
-    for cmd in ('CAPTURERATEMAX?', 'CAPTURECFG?', 'CAPTURELEN?',
-                'CAPTURERATE?', 'CAPTURESTAT?', 'CAPTUREBYTES?'):
-        findings[f'cap_{cmd}'] = bool(w.exchange(cmd, term))
-        w.drain(0.1)
-    w.close()
+    # 6: discover the capture command spellings
+    stage("6. Capture buffer commands (trying candidate spellings)")
+    capture = {}
+    for role, candidates in CAPTURE_CANDIDATES.items():
+        print(f"    {role}:")
+        for cmd in candidates:
+            reply, why = probe_command(ip, port, term, cmd)
+            if reply:
+                print(f"      ok   {cmd:<22} -> {reply!r}")
+                capture[role] = (cmd, reply)
+                break
+            print(f"      --   {cmd:<22} {why}")
+        if role not in capture:
+            print(f"      none of the candidates answered")
+    findings['capture'] = capture
 
     # verdict
     stage("Verdict")
@@ -208,14 +261,18 @@ def main():
     elif findings.get('set_then_query'):
         print("  pacing is not the problem; sets do not stall queries")
 
-    cap_dead = [c for c in findings if c.startswith('cap_') and not findings[c]]
-    if cap_dead:
-        print(f"  capture commands missing: "
-              f"{', '.join(c[4:] for c in cap_dead)}")
-        print( "                            check the SR860 manual for the")
-        print( "                            spelling on firmware V1.51")
-    else:
-        print("  all capture commands answered")
+    capture = findings.get('capture', {})
+    missing = [r for r in CAPTURE_CANDIDATES if r not in capture]
+    if capture:
+        print("\n  capture commands that answered:")
+        for role, (cmd, reply) in capture.items():
+            print(f"    {role:<12} {cmd:<22} -> {reply}")
+    if missing:
+        print(f"\n  no spelling found for: {', '.join(missing)}")
+        print( "  Send this output back -- the driver needs the real names,")
+        print( "  which are in the Data Capture section of the SR860 manual.")
+    elif capture:
+        print("\n  all capture roles resolved")
 
     print(f"\n  Add to config.yaml:")
     print(f"    lockin_term: '{'CRLF' if name == 'CRLF' else name}'"
