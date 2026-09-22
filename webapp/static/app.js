@@ -82,20 +82,19 @@ function palette() {
 
 /* ---------------- fit helpers ---------------- */
 
-const PARAM_NAMES_8 = [
+const GAUSS_PARAM_NAMES = [
   'Peak 1 position', 'Peak 1 σ', 'Peak 1 height',
   'Peak 2 position', 'Peak 2 σ', 'Peak 2 height',
-  'Baseline slope', 'Baseline offset',
 ];
 
-const PARAM_NAMES_9 = [
-  'Peak 1 position', 'Peak 1 σ', 'Peak 1 height',
-  'Peak 2 position', 'Peak 2 σ', 'Peak 2 height',
-  'Baseline curvature', 'Baseline slope', 'Baseline offset',
-];
+/* Names for the baseline coefficients, which are the parameters after the six
+   gaussian ones, highest power first. A straight baseline has two of them and a
+   quadratic three, so the names are taken from the end. */
+const BASELINE_PARAM_NAMES = ['Baseline curvature', 'Baseline slope', 'Baseline offset'];
 
 function paramNames(pf) {
-  return (pf && pf.length >= 9) ? PARAM_NAMES_9 : PARAM_NAMES_8;
+  const nBase = Math.max(0, (pf ? pf.length : 0) - GAUSS_PARAM_NAMES.length);
+  return GAUSS_PARAM_NAMES.concat(BASELINE_PARAM_NAMES.slice(-nBase || undefined));
 }
 
 /* Polarization from the two fitted peak heights.
@@ -241,12 +240,11 @@ function peakLabels(ev, p) {
 
 /* Baseline of the stored fit evaluated at one x, for placing the apex labels. */
 function baselineAt(ev, x) {
-  const pf = ev.pf;
-  if (pf.length >= 9) {
-    const xr = x - (ev.x_ref || 0);
-    return pf[6] * xr * xr + pf[7] * xr + pf[8];
-  }
-  return pf[6] * x + pf[7];
+  const coef = ev.pf.slice(GAUSS_PARAM_NAMES.length);
+  if (!coef.length) return 0;
+  const referenced = ev.baseline ? ev.baseline.referenced : ev.pf.length >= 9;
+  const xv = referenced ? x - (ev.x_ref || 0) : x;
+  return coef.reduce((acc, c) => acc * xv + c, 0);   // Horner, highest power first
 }
 
 /* A rule through the scan that is open below, so the run chart says which point
@@ -621,15 +619,16 @@ function renderFitPanel() {
     '<tr><td colspan="3">No fit stored for this scan.</td></tr>';
 
   const note = el('fitNote');
+  const nBase = ev.pf.length - GAUSS_PARAM_NAMES.length;
+  const referenced = ev.baseline ? ev.baseline.referenced : ev.pf.length >= 9;
   if (!ev.pf.length) {
     note.textContent = 'This scan has no stored fit.';
     note.className = 'note warn';
-  } else if (ev.pf.length >= 9) {
-    note.textContent = 'Two gaussians on a quadratic baseline referenced to mid scan.';
-    note.className = 'note';
   } else {
-    note.textContent = 'Two gaussians on a straight baseline (the eight parameter fit ' +
-      'used when this file was written).';
+    const shape = nBase > 2 ? 'a quadratic baseline' : 'a straight baseline';
+    note.textContent = 'Two gaussians on ' + shape + (referenced
+      ? ' referenced to mid scan.'
+      : ' in raw current (written before the baseline was referenced to mid scan).');
     note.className = 'note';
   }
 }

@@ -23,7 +23,9 @@ from app.gui_find_tab import FindTab
 from app.classes import Event
 from app.instruments import ProbeLaser, WavelengthMeter, LockIn, SigGen
 
-N_PARS = 9  # two gaussians (position, sigma, height each) on a quadratic baseline
+N_GAUSS_PARS = 6  # two gaussians, each a position, a sigma and a height
+BASELINE_DEGREES = (1, 2)  # straight or curved, set by baseline_degree in the config
+DEFAULT_BASELINE_DEGREE = 2
 MIN_FIT_POINTS = 25  # below this the amplitude ratio is biased by several percent even
                      # when the fit converges and passes every other check
 MIN_PEAK_SIGNIFICANCE = 3  # peak amplitude must be this many sigma above its own uncertainty
@@ -232,6 +234,13 @@ class Event():
         self.times = []
         self.x_ref = 0.0  # baseline reference, set to mid-scan once there is data to fit
 
+        # Straight or curved baseline under the peaks. A curved baseline follows a
+        # sloping laser power envelope, but on a scan that is already flat the extra
+        # term is free to bend into the peaks, so a straight one is steadier there.
+        # Both are written with the baseline referenced to x_ref, see parts().
+        self.base_deg = self.baseline_degree()
+        self.n_pars = N_GAUSS_PARS + self.base_deg + 1
+
         try:
             self.p1_zero = float(parent.run_tab.zero1_edit.text())
             self.p2_zero = float(parent.run_tab.zero2_edit.text())
@@ -239,6 +248,24 @@ class Event():
             print(e)
             self.p1_zero = 0.1
             self.p2_zero = 0.1
+
+    def baseline_degree(self):
+        '''Baseline polynomial degree from the config, falling back to quadratic.
+
+        Returns:
+            1 for a straight baseline or 2 for a quadratic one
+        '''
+
+        raw = self.settings.get('baseline_degree', DEFAULT_BASELINE_DEGREE)
+        try:
+            deg = int(raw)
+        except (TypeError, ValueError):
+            deg = None
+        if deg not in BASELINE_DEGREES:
+            logging.warning(f'baseline_degree {raw!r} is not one of {BASELINE_DEGREES}, '
+                            f'using {DEFAULT_BASELINE_DEGREE}.')
+            return DEFAULT_BASELINE_DEGREE
+        return deg
 
     def x_data(self):
         '''Return the x axis to fit and plot against, per the scan_x_axis setting'''
@@ -248,7 +275,7 @@ class Event():
         return np.array(self.currs, dtype=float)
 
     def fit_scan(self, seed=None):
-        '''Fit Scan data with two gaussians on a quadratic baseline.
+        '''Fit Scan data with two gaussians on a straight or quadratic baseline.
 
         Fits from the previous converged fit and from starting parameters estimated
         from this scan's own data, then keeps whichever result comes out better. The
@@ -323,7 +350,7 @@ class Event():
         Args:
             x: Sorted scan x axis values
             y: Scan signal values in the same order
-            start: Nine starting parameters
+            start: Starting parameters, the baseline coefficients last
             span: Width of the scan range
             dx: Typical step between scan points
         Returns:
@@ -358,7 +385,7 @@ class Event():
 
         self.x_axis = X.tolist()
         self.fit_good = False
-        self.pf = list(getattr(self, 'p0', [0.0] * N_PARS))
+        self.pf = list(getattr(self, 'p0', [0.0] * self.n_pars))
         self.pstd = []
         self.pcov = []
         self.fit = []  # nothing to draw, rather than a fit curve that doesn't exist
@@ -386,9 +413,10 @@ class Event():
     def estimate_peaks(self, x, y, span, dx):
         '''Estimate baseline and two gaussian parameters straight from sorted scan data.
 
-        The peaks are located against a straight line, not against the quadratic the
-        model will use. A quadratic guess that comes out too curved arcs away from the
-        data at the ends of the scan and invents a peak there; a line cannot.
+        The peaks are always located against a straight line, whatever degree the
+        model itself uses. A quadratic guess that comes out too curved arcs away
+        from the data at the ends of the scan and invents a peak there; a line
+        cannot.
 
         Args:
             x: Sorted scan x axis values
@@ -396,7 +424,7 @@ class Event():
             span: Width of the scan range
             dx: Typical step between scan points
         Returns:
-            List of nine starting parameters
+            List of n_pars starting parameters, the baseline coefficients last
         '''
 
         xr = x - self.x_ref
@@ -405,9 +433,9 @@ class Event():
         amp = resid.max()
         if not amp > 0:  # nothing above baseline, fall back to thirds of the range
             flat = abs(np.ptp(y)) or 1.0
-            quad, slope, inter = self.baseline_guess(x, y, 2)
+            coef = self.baseline_guess(x, y, self.base_deg)
             return [x[0] + span / 3, span / 10, flat,
-                    x[0] + 2 * span / 3, span / 10, flat, quad, slope, inter]
+                    x[0] + 2 * span / 3, span / 10, flat] + list(coef)
 
         idx, props = find_peaks(resid, prominence=0.2 * amp, distance=max(3, len(x) // 20))
         found = []
@@ -433,13 +461,13 @@ class Event():
         if pos2 - pos1 < dx:  # keep the two gaussians distinguishable
             pos1, pos2 = pos1 - dx, pos2 + dx
 
-        # now the peaks are placed, fit the quadratic to everything that isn't one
+        # now the peaks are placed, fit the baseline to everything that isn't one
         off = (np.abs(x - pos1) > 3 * sig1) & (np.abs(x - pos2) > 3 * sig2)
-        quad, slope, inter = self.baseline_guess(x, y, 2, off)
-        base = np.polyval([quad, slope, inter], xr)  # heights measured off that baseline
+        coef = self.baseline_guess(x, y, self.base_deg, off)
+        base = np.polyval(coef, xr)  # heights measured off that baseline
         hei1 = max(np.interp(pos1, x, y - base), 0.05 * amp)
         hei2 = max(np.interp(pos2, x, y - base), 0.05 * amp)
-        return [pos1, sig1, hei1, pos2, sig2, hei2, quad, slope, inter]
+        return [pos1, sig1, hei1, pos2, sig2, hei2] + list(coef)
 
     def width_to_sigma(self, width, dx, span):
         '''Convert a peak width in samples to a gaussian sigma in x units'''
@@ -461,8 +489,9 @@ class Event():
         margin = max(0.1 * span, 2 * dx)  # let a clipped peak sit just outside the window
         split = float(np.clip(0.5 * (p0[0] + p0[3]),  # peaks stay either side of their own midpoint
                               x[0] - margin + dx, x[-1] + margin - dx))
-        lower = [x[0] - margin, dx, 0, split, dx, 0, -np.inf, -np.inf, -np.inf]
-        upper = [split, span, np.inf, x[-1] + margin, span, np.inf, np.inf, np.inf, np.inf]
+        free = self.base_deg + 1  # the baseline coefficients are left unbounded
+        lower = [x[0] - margin, dx, 0, split, dx, 0] + [-np.inf] * free
+        upper = [split, span, np.inf, x[-1] + margin, span, np.inf] + [np.inf] * free
         return lower, upper
 
     def check_fit(self, pf, pstd, ssr, x, y, bounds):
@@ -498,10 +527,11 @@ class Event():
             return False, 'Fit uncertainties are undefined.'
         if pstd[2] * MIN_PEAK_SIGNIFICANCE > hei1 or pstd[5] * MIN_PEAK_SIGNIFICANCE > hei2:
             return False, 'Peak amplitudes are not significant above the noise.'
-        xr = x - self.x_ref  # the null model is now the bare baseline, with no gaussians at all
-        base_ssr = float(np.sum((y - np.polyval(np.polyfit(xr, y, 2), xr)) ** 2))
+        xr = x - self.x_ref  # the null model is the bare baseline, with no gaussians at all
+        base_ssr = float(np.sum((y - np.polyval(np.polyfit(xr, y, self.base_deg), xr)) ** 2))
         if not ssr < (1 - MIN_PEAK_POWER) * base_ssr:
-            return False, 'Peaks do not stand out from the curved baseline.'
+            shape = 'curved' if self.base_deg > 1 else 'straight'
+            return False, f'Peaks do not stand out from the {shape} baseline.'
         return True, 'Fit good.'
 
     def r_squared(self, y, fit):
@@ -513,21 +543,24 @@ class Event():
         return float(1 - np.sum((y - fit) ** 2) / ss_tot)
 
     def parts(self, x, *p):
-        '''The two gaussians and the quadratic baseline separately, each about zero.
+        '''The two gaussians and the baseline separately, each about zero.
 
-        The baseline is referenced to x_ref, the middle of the scan, so its three
-        coefficients stay nearly independent of each other. Against raw current the
-        x squared, x and constant terms are almost collinear and the covariance
-        comes back singular.
+        The baseline parameters are the polynomial coefficients, highest power
+        first, and there are base_deg + 1 of them after the six gaussian ones.
+
+        They are referenced to x_ref, the middle of the scan, so the coefficients
+        stay nearly independent of each other. Against raw current the x squared,
+        x and constant terms are almost collinear and the covariance comes back
+        singular.
         '''
         xr = x - self.x_ref
         g1 = p[2] * np.exp(-np.power((x - p[0]), 2) / (2 * np.power(p[1], 2)))
         g2 = p[5] * np.exp(-np.power((x - p[3]), 2) / (2 * np.power(p[4], 2)))
-        base = p[6] * np.power(xr, 2) + p[7] * xr + p[8]
+        base = np.polyval(p[N_GAUSS_PARS:], xr)
         return g1, g2, base
 
     def peaks(self, x, *p):
-        '''Two gaussians on a quadratic baseline: the model that gets fit'''
+        '''Two gaussians on a straight or quadratic baseline: the model that gets fit'''
 
         g1, g2, base = self.parts(x, *p)
         return g1 + g2 + base

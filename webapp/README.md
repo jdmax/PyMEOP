@@ -70,14 +70,27 @@ zero readings — so it is entered in the top bar and defaults to 1. Change it a
 every polarization number on the page updates. Treat P as meaningful only once r₀
 is set to the zero measurement that belongs with the run.
 
-## Two fit conventions
+## Baseline conventions
 
-The archive holds both. Files written before the baseline was made quadratic carry
-eight parameters, with a straight baseline in raw current. Current files carry
-nine, with the polynomial referenced to the middle of the scan. The browser reads
-the parameter count and reconstructs the components accordingly; the fit panel
-says which convention a scan used. Everything in `data/` today is the eight
-parameter form.
+The DAQ fits two gaussians on a polynomial baseline, and `baseline_degree` in
+`config.yaml` chooses the baseline: `1` for a straight one, `2` for a quadratic.
+The parameters after the six gaussian ones are that polynomial's coefficients,
+highest power first, so a straight baseline records eight parameters in total and
+a quadratic nine.
+
+Three forms are therefore readable, and the browser tells them apart by what the
+event file records rather than by counting parameters:
+
+| Written | Marker in the file | Baseline |
+|---|---|---|
+| current | `base_deg` | that degree, referenced to mid scan |
+| after mid-scan referencing, before the flag | `x_ref`, no `base_deg` | degree from the coefficient count, referenced to mid scan |
+| the original archive | neither | straight, in raw current |
+
+The distinction matters: a new eight parameter fit and an old one have the same
+shape but different baselines, one about mid scan and one about zero. The fit
+panel names the convention for whichever scan is open. Everything in `data/`
+today is the original archive form.
 
 ## Getting the numbers out
 

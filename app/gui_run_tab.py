@@ -127,11 +127,14 @@ class RunTab(QWidget):
         self.g2_hei_edit.setPlaceholderText("Height")
         self.anal_box.layout().addWidget(self.g2_hei_edit, 2, 3)        
         
+        # a straight baseline has no curvature term, so say so rather than leaving
+        # an empty box that looks like a reading that failed to arrive
+        straight = str(self.parent.settings.get('baseline_degree', 2)) == '1'
         self.slope_label = QLabel("Baseline:")
         self.anal_box.layout().addWidget(self.slope_label, 3, 0)
         self.quad_edit =  QLineEdit()
         self.quad_edit.setEnabled(False)
-        self.quad_edit.setPlaceholderText("Curvature")
+        self.quad_edit.setPlaceholderText("n/a, straight" if straight else "Curvature")
         self.anal_box.layout().addWidget(self.quad_edit, 3, 1)
         self.slope_edit =  QLineEdit()
         self.slope_edit.setEnabled(False)
@@ -361,9 +364,12 @@ class RunTab(QWidget):
         self.g2_pos_edit.setText(f"{event.pf[3]:.4f}")
         self.g2_sig_edit.setText(f"{event.pf[4]:.4f}")
         self.g2_hei_edit.setText(f"{event.pf[5]:.4f}")
-        self.quad_edit.setText(f"{event.pf[6]:.3e}")    # baseline is referenced to mid-scan
-        self.slope_edit.setText(f"{event.pf[7]:.4f}")
-        self.int_edit.setText(f"{event.pf[8]:.4f}")
+        # baseline coefficients, highest power first, referenced to mid-scan; there
+        # is no curvature term at all when the baseline is set to straight
+        coef = list(event.pf[6:])
+        self.quad_edit.setText(f"{coef[0]:.3e}" if len(coef) > 2 else "")
+        self.slope_edit.setText(f"{coef[-2]:.4f}")
+        self.int_edit.setText(f"{coef[-1]:.4f}")
 
         self.peak1_edit.setText(f"{event.pf[2]:.4f}")
         self.peak2_edit.setText(f"{event.pf[5]:.4f}")

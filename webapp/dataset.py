@@ -61,18 +61,21 @@ def name_stamp(name):
     return ((((y * 100 + mo) * 100 + d) * 100 + h) * 100 + mi) * 100 + s
 
 
-def fit_parts(x, pf, x_ref):
+N_GAUSS_PARS = 6  # two gaussians, each a position, a sigma and a height
+
+
+def fit_parts(x, pf, x_ref, referenced):
     '''The two gaussians and the baseline of a fit, each evaluated on x.
 
-    Two parameter conventions are in the archive. Files written before the
-    baseline was made quadratic carry eight parameters with a straight line in
-    raw x; current files carry nine, with the polynomial referenced to the
-    middle of the scan.
+    The parameters after the six gaussian ones are the baseline polynomial
+    coefficients, highest power first, so one or two of them is a straight
+    baseline or a quadratic without any further special casing.
 
     Args:
         x: Scan x axis values
-        pf: Fit parameter list, eight or nine long
-        x_ref: Baseline reference, the mid scan x of a nine parameter fit
+        pf: Fit parameter list, gaussians first
+        x_ref: Baseline reference, the mid scan x
+        referenced: True if the baseline is about x_ref rather than raw x
     Returns:
         (g1, g2, base) arrays, the gaussians about zero and the baseline
     '''
@@ -80,11 +83,7 @@ def fit_parts(x, pf, x_ref):
     x = np.asarray(x, dtype=float)
     g1 = pf[2] * np.exp(-np.power(x - pf[0], 2) / (2 * np.power(pf[1], 2)))
     g2 = pf[5] * np.exp(-np.power(x - pf[3], 2) / (2 * np.power(pf[4], 2)))
-    if len(pf) >= 9:
-        xr = x - x_ref
-        base = pf[6] * np.power(xr, 2) + pf[7] * xr + pf[8]
-    else:
-        base = pf[6] * x + pf[7]
+    base = np.polyval(pf[N_GAUSS_PARS:], x - x_ref if referenced else x)
     return g1, g2, base
 
 
@@ -138,14 +137,27 @@ class Event:
         self.x_key = 'wavelength' if np.any(self.waves != 0) else 'current'
         self.x = self.waves if self.x_key == 'wavelength' else self.currs
 
-        self.x_ref = 0.0
-        if len(self.x):
+        # Which baseline convention this scan was written under. Files from before
+        # the baseline was referenced to mid scan carry neither base_deg nor x_ref,
+        # and their straight baseline is in raw x. Anything with x_ref is referenced,
+        # and the coefficient count gives the degree when base_deg is not recorded.
+        self.referenced = 'base_deg' in raw or 'x_ref' in raw
+        if self.referenced and raw.get('x_ref') is not None:
+            self.x_ref = float(raw['x_ref'])
+        elif len(self.x):
             self.x_ref = float(0.5 * (np.min(self.x) + np.max(self.x)))
+        else:
+            self.x_ref = 0.0
+
+        self.base_deg = raw.get('base_deg')
+        if self.base_deg is None and len(self.pf) > N_GAUSS_PARS:
+            self.base_deg = len(self.pf) - N_GAUSS_PARS - 1
 
         self.fit = np.array(raw.get('fit') or [], dtype=float)
         self.g1 = self.g2 = self.base = np.array([])
         if len(self.pf) >= 8 and len(self.x):
-            self.g1, self.g2, self.base = fit_parts(self.x, self.pf, self.x_ref)
+            self.g1, self.g2, self.base = fit_parts(
+                self.x, self.pf, self.x_ref, self.referenced)
             if len(self.fit) != len(self.x):
                 self.fit = self.g1 + self.g2 + self.base
 
@@ -184,7 +196,8 @@ class Event:
 
         d = self.summary()
         d.update({
-            'x_ref': finite(self.x_ref),   # baseline reference of a nine parameter fit
+            'x_ref': finite(self.x_ref),
+            'baseline': {'degree': self.base_deg, 'referenced': self.referenced},
             'x': finite_list(self.x),
             'currs': finite_list(self.currs),
             'waves': finite_list(self.waves),
