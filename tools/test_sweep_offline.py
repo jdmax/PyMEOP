@@ -146,10 +146,15 @@ def report(name, pf):
 
 
 class FakeSock():
-    '''Minimal SR860 stand-in that answers CAPTUREBYTES? and CAPTUREGET?.'''
+    '''Minimal SR860 stand-in that answers CAPTUREBYTES? and CAPTUREGET?.
 
-    def __init__(self, samples):
+    framed=True sends an IEEE-488.2 block; framed=False sends the payload raw,
+    which is what firmware V1.51 actually does.
+    '''
+
+    def __init__(self, samples, framed=True):
         self.payload = samples.astype('<f4').tobytes()
+        self.framed = framed
         self.out = bytearray()
 
     def sendall(self, data):
@@ -159,8 +164,10 @@ class FakeSock():
         elif cmd.startswith('CAPTUREGET?'):
             offset_kb, n_kb = (int(v) for v in cmd.split('?')[1].split(','))
             chunk = self.payload[offset_kb * 1024:(offset_kb + n_kb) * 1024]
-            header = f"#{len(str(len(chunk)))}{len(chunk)}".encode('ascii')
-            self.out.extend(header + chunk)
+            if self.framed:
+                self.out.extend(
+                    f"#{len(str(len(chunk)))}{len(chunk)}".encode('ascii'))
+            self.out.extend(chunk)
         else:
             raise AssertionError(f"FakeSock got unexpected command {cmd!r}")
 
@@ -173,7 +180,12 @@ class FakeSock():
 
 
 def test_capture_parsing():
-    '''Round-trip interleaved float32 through the real parsing code.'''
+    '''Round-trip interleaved float32 through the real parsing code.
+
+    Both transfer framings are covered: the IEEE block some firmware sends,
+    and the headerless payload V1.51 actually sends. Getting the headerless
+    case wrong reads the first data byte as a format marker and throws.
+    '''
     n = 512
     x = np.linspace(0, 1, n)
     y = np.linspace(-1, 0, n)
@@ -181,20 +193,24 @@ def test_capture_parsing():
     interleaved[0::2] = x
     interleaved[1::2] = y
 
-    lockin = object.__new__(LockIn)      # bypass the socket-opening constructor
-    lockin.sock = FakeSock(interleaved)
-    lockin._buf = bytearray()
-    lockin._cap_channels = 2
-    lockin._cap_cursor_kb = 0
+    for framed in (True, False):
+        lockin = object.__new__(LockIn)   # bypass the socket-opening constructor
+        lockin.sock = FakeSock(interleaved, framed=framed)
+        lockin._buf = bytearray()
+        lockin._cap_channels = 2
+        lockin._cap_cursor_kb = 0
+        lockin._get_fmt = None
+        lockin._raw_transfer = False
 
-    data = lockin.capture_read_new()
-    assert data is not None, "no data returned"
-    assert data.shape[1] == 2, f"expected 2 channels, got {data.shape[1]}"
+        data = lockin.capture_read_new()
+        label = 'IEEE block' if framed else 'headerless'
+        assert data is not None, f"{label}: no data returned"
+        assert data.shape[1] == 2, f"{label}: got {data.shape[1]} channels"
 
-    n_got = data.shape[0]
-    assert np.allclose(data[:, 0], x[:n_got], atol=1e-6), "X channel mismatch"
-    assert np.allclose(data[:, 1], y[:n_got], atol=1e-6), "Y channel mismatch"
-    print(f"  capture parsing OK: {n_got} samples x 2 channels de-interleaved")
+        n_got = data.shape[0]
+        assert np.allclose(data[:, 0], x[:n_got], atol=1e-6), f"{label}: X mismatch"
+        assert np.allclose(data[:, 1], y[:n_got], atol=1e-6), f"{label}: Y mismatch"
+        print(f"  capture parsing OK ({label}): {n_got} samples x 2 channels")
 
 
 def test_zero_phase():

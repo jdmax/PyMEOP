@@ -257,6 +257,7 @@ class LockIn():
     cmd_delay = 0.05                # seconds between writes
     settle = 0.3                    # pause after changing the filter config
     _get_fmt = None                 # CAPTUREGET? argument form that works
+    _raw_transfer = False           # True once a headerless transfer is seen
 
     # Data capture vocabulary. The spelling has moved between SR860 firmware
     # revisions, so these are overridable from config (lockin_capture_cmds)
@@ -284,6 +285,7 @@ class LockIn():
         self._cap_channels = 2
         self._cap_cursor_kb = 0
         self._get_fmt = None
+        self._raw_transfer = False
         # Wire details that vary between firmware revisions. Defaults match
         # what the old telnet code used; tools/probe_lockin.py determines the
         # right values on the bench.
@@ -391,14 +393,36 @@ class LockIn():
     def query_int(self, cmd):
         return int(float(self.query(cmd)))
 
-    def _read_block(self):
-        '''Read an IEEE-488.2 definite length binary block: #<n><len><data>'''
+    def _read_block(self, expected=None):
+        '''Read a capture transfer.
+
+        Some firmware answers with an IEEE-488.2 definite length block,
+        #<ndigits><length><data>. V1.51 sends the payload raw with no header,
+        so when the first byte is not '#' it is treated as the first data byte
+        and exactly `expected` bytes are taken. The caller knows that size --
+        it asked for a whole number of kilobytes.
+        '''
         head = self._read_exact(1)
-        if head != b'#':
+        if head == b'#':
+            ndigits = int(self._read_exact(1))
+            nbytes = int(self._read_exact(ndigits))
+            return self._read_exact(nbytes)
+
+        if expected is None:
             raise IOError(f"Expected binary block, got {head!r}")
-        ndigits = int(self._read_exact(1))
-        nbytes = int(self._read_exact(ndigits))
-        return self._read_exact(nbytes)
+
+        if not self._raw_transfer:
+            self._raw_transfer = True
+            print(f"Capture transfer carries no block header (first byte "
+                  f"{head!r}); reading {expected} raw bytes per chunk")
+
+        data = head + self._read_exact(expected - 1)
+
+        # A terminator sent after the payload would otherwise be picked up as
+        # an empty reply to the next query.
+        while self._buf[:1] in (b'\r', b'\n'):
+            del self._buf[:1]
+        return data
 
     # -- configuration -----------------------------------------------------
 
@@ -574,7 +598,7 @@ class LockIn():
             try:
                 self._write(f"{self.capture_cmds['get']} "
                             + fmt.format(offset_kb, n_kb))
-                block = self._read_block()
+                block = self._read_block(expected=n_kb * 1024)
                 self._get_fmt = fmt
                 return block
             except (socket.timeout, TimeoutError, IOError) as e:
