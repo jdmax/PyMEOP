@@ -75,25 +75,27 @@ def check_lockin(settings):
     print(f"  requested     {target} Hz -> got {rate} Hz ({nch} channels, {kb} kB)")
 
     print("\nCapturing 1 s")
+    target_bytes = int(rate) * nch * 4
     lockin.capture_start(continuous=False, triggered=False)
-    chunks, deadline = [], time.time() + 5.0
-    while time.time() < deadline:
-        new = lockin.capture_read_new()
-        if new is not None and len(new):
-            chunks.append(new)
-            if sum(len(c) for c in chunks) >= rate:
-                break
-        else:
-            time.sleep(0.02)
-    lockin.capture_stop()
 
-    if not chunks:
-        print("  FAIL: no data came back. If CAPTUREBYTES? answered but "
-              "CAPTUREGET? did not, the command syntax or units differ on "
-              "your firmware -- see LockIn.capture_read_new.")
+    # CAPTUREBYTES? is live, but CAPTUREGET? is not: the buffer can only be
+    # fetched once the capture has stopped (manual p140).
+    deadline = time.time() + 5.0
+    captured = 0
+    while time.time() < deadline:
+        captured = lockin.capture_bytes()
+        if captured >= target_bytes:
+            break
+        time.sleep(0.05)
+    lockin.capture_stop()
+    print(f"  captured {captured} bytes (wanted {target_bytes})")
+
+    data = lockin.capture_read_all()
+    if data is None or not len(data):
+        print("  FAIL: buffer read back empty even though CAPTUREBYTES? "
+              "reported data. See LockIn.capture_read_all.")
         return None
 
-    data = np.concatenate(chunks)
     x, y = data[:, 0], data[:, 1]
     print(f"  got {len(data)} samples x {data.shape[1]} channels")
     print(f"  X  mean {x.mean():+.6e} V   rms {x.std():.3e}")
@@ -104,8 +106,7 @@ def check_lockin(settings):
         return None
     if np.abs(x).max() > 10:
         print("  FAIL: implausible magnitudes -- the floats are being "
-              "misparsed. Suspect telnet IAC escaping; try a raw socket port "
-              "in lockin_port.")
+              "misparsed. Check byte order and channel interleaving.")
         return None
 
     print("  capture path OK")

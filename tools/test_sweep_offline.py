@@ -8,7 +8,7 @@ Runs with no hardware attached. Two things are verified:
    time constant plus zero-phase software averaging removes the shift without
    costing statistical precision.
 
-2. The binary capture-buffer parsing in LockIn.capture_read_new, against a
+2. The binary capture-buffer parsing in LockIn.capture_read_all, against a
    fake socket that speaks the SR860's block format.
 
 Run:  python tools/test_sweep_offline.py
@@ -212,7 +212,6 @@ def test_capture_parsing():
         lockin._cap_channels = 2
         lockin._cap_cursor_kb = 0
         lockin._get_fmt = None
-        lockin._raw_transfer = False
 
         data = lockin.capture_read_all()
         label = 'IEEE block' if framed else 'headerless'
@@ -245,8 +244,6 @@ def test_short_transfer():
     lockin._cap_channels = 2
     lockin._cap_cursor_kb = 0
     lockin._get_fmt = None
-    lockin._raw_transfer = False
-    lockin._short_reported = False
 
     data = lockin.capture_read_all()
     n_got = data.shape[0]
