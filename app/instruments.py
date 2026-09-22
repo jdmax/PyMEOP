@@ -256,6 +256,7 @@ class LockIn():
     term = '\r'                     # command terminator, overridden per instance
     cmd_delay = 0.05                # seconds between writes
     settle = 0.3                    # pause after changing the filter config
+    _get_fmt = None                 # CAPTUREGET? argument form that works
 
     # Data capture vocabulary. The spelling has moved between SR860 firmware
     # revisions, so these are overridable from config (lockin_capture_cmds)
@@ -282,6 +283,7 @@ class LockIn():
         self._buf = bytearray()
         self._cap_channels = 2
         self._cap_cursor_kb = 0
+        self._get_fmt = None
         # Wire details that vary between firmware revisions. Defaults match
         # what the old telnet code used; tools/probe_lockin.py determines the
         # right values on the bench.
@@ -557,6 +559,29 @@ class LockIn():
         '''Bytes captured so far'''
         return self.query_int(self.capture_cmds['bytes'])
 
+    def _capture_get(self, offset_kb, n_kb):
+        '''Fetch one chunk of the capture buffer as a binary block.
+
+        The spacing of the arguments is not cosmetic. Firmware V1.51 answers
+        "CAPTUREGET? 0, 1" but stays silent for "CAPTUREGET? 0,1", which is
+        how this looked like a dead command for several rounds. Both forms are
+        tried and the one that works is remembered, so the fallback costs at
+        most one timeout per session rather than one per chunk.
+        '''
+        forms = [self._get_fmt] if self._get_fmt else ['{}, {}', '{},{}']
+        failure = None
+        for fmt in forms:
+            try:
+                self._write(f"{self.capture_cmds['get']} "
+                            + fmt.format(offset_kb, n_kb))
+                block = self._read_block()
+                self._get_fmt = fmt
+                return block
+            except (socket.timeout, TimeoutError, IOError) as e:
+                failure = e
+                self._drain()
+        raise failure
+
     def capture_read_new(self):
         '''Read whatever whole kB have arrived since the last call.
 
@@ -570,9 +595,7 @@ class LockIn():
         blocks = []
         while self._cap_cursor_kb < available_kb:
             n_kb = min(self.GET_CHUNK_KB, available_kb - self._cap_cursor_kb)
-            self._write(f"{self.capture_cmds['get']} "
-                        f"{self._cap_cursor_kb},{n_kb}")
-            blocks.append(self._read_block())
+            blocks.append(self._capture_get(self._cap_cursor_kb, n_kb))
             self._cap_cursor_kb += n_kb
 
         raw = b''.join(blocks)

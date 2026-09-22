@@ -224,6 +224,21 @@ def main():
           f"sweep_time={settings.get('sweep_time')} s "
           f"capture_rate={settings.get('capture_rate')} Hz")
 
+    # Missing keys fall back to code defaults, which quietly hides the fact
+    # that the config being read is not the one in the repository.
+    expected = ('sweep_mode', 'sweep_time', 'capture_rate', 'lockin_tc',
+                'lockin_slope', 'sweep_bins')
+    absent = [k for k in expected if settings.get(k) is None]
+    if absent:
+        print(f"\n  !! {os.path.abspath(args.config)} is missing: "
+              f"{', '.join(absent)}")
+        print( "  !! Code defaults are being used instead. This config predates")
+        print( "  !! the swept acquisition -- the checks below may pass while")
+        print( "  !! the GUI still runs with the wrong settings. Check:")
+        print( "  !!     git status --short config.yaml")
+        print( "  !!     git log --oneline -1")
+        print()
+
     lockin = probe = None
     if args.lockin or args.all:
         lockin = check_lockin(settings)
