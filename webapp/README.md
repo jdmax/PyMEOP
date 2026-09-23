@@ -22,8 +22,26 @@ No new dependencies: the server is Python standard library, and `dataset.py` use
 is vendored in `static/vendor/`, so the app works with no network connection.
 
 The event directory comes from `event_dir` in `config.yaml`, so the browser always
-looks where the DAQ writes. Files are re-read when they change on disk, so a run
-in progress can be watched by reloading the page.
+looks where the DAQ writes.
+
+## Watching a run live
+
+With **Live** ticked in the top bar (the default) the page checks the data
+directory every two seconds and redraws when a file changes, so a run the DAQ is
+writing grows on screen scan by scan: the run chart gains points, the tiles and
+the scan count update, and any zoom on the run chart is kept.
+
+Sitting on the **last scan of the newest run** means following it: each new scan
+opens as it arrives, and when the DAQ rolls over to a new event file (every 200
+scans, or when a run is stopped and started) the page moves to the new file.
+Anywhere else, the scan on screen stays put while the rest of the run updates
+around it. The DAQ renames a file when it closes it (`current_<start>.txt` becomes
+`<start>__<stop>.txt`); the page follows the rename.
+
+The dot beside Live is green while watching, grey when paused, and red if the
+server has stopped answering. Checks stop while the tab is hidden and catch up
+when it is shown again. Untick Live to freeze the page, for instance while
+comparing against a scan that would otherwise scroll away.
 
 ## What it shows
 
@@ -120,6 +138,7 @@ The API, should anything else want it:
 | Route | Returns |
 |---|---|
 | `GET /api/files` | every event file with scan count, duration and size |
+| `GET /api/version` | a fingerprint of the data directory that changes on any write; cheap enough to poll |
 | `GET /api/file/<name>` | the file plus a summary of each scan |
 | `GET /api/file/<name>/event/<i>` | one scan: points, fit, components, residual |
 | `GET /api/file/<name>/raw` | the original file |

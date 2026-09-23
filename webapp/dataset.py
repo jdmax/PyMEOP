@@ -6,6 +6,7 @@ on modification time, since a long run is a few hundred scans of a hundred point
 and reparsing it on every request is wasteful.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -231,17 +232,25 @@ class Run:
         self._parse()
 
     def _parse(self):
+        # Read in one go and parse after closing: on Windows the DAQ cannot rename
+        # a finished file while it is open here, so keep that window short.
         try:
             with open(self.path, 'r', encoding='utf-8', errors='replace') as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-                    try:
-                        self.events.append(Event(len(self.events), json.loads(line)))
-                    except (ValueError, TypeError):
-                        self.bad_lines += 1
+                text = f.read()
         except OSError as e:
             self.error = str(e)
+            return
+        lines = text.split('\n')
+        for i, line in enumerate(lines):
+            if not line.strip():
+                continue
+            try:
+                self.events.append(Event(len(self.events), json.loads(line)))
+            except (ValueError, TypeError):
+                # a last line with no newline is a scan still being written, not a
+                # bad one; it is read in full once the rest of it lands
+                if i < len(lines) - 1:
+                    self.bad_lines += 1
 
     def info(self):
         '''One row for the file list'''
@@ -317,4 +326,33 @@ class Library:
             run = self.run(name)
             if run:
                 rows.append(run.info())
+        # the DAQ renames a file when it closes it, so drop cache entries for
+        # paths that are gone rather than holding every old name forever
+        live = {os.path.join(os.path.realpath(data_dir()), r['name']) for r in rows}
+        with self._lock:
+            for path in [p for p in self._runs if p not in live]:
+                del self._runs[path]
         return rows
+
+    def fingerprint(self):
+        '''A short string that changes whenever an event file is added, removed or
+        written. Only stats the directory, so a browser can poll it every few
+        seconds and fetch the file list only when something has actually changed.
+        '''
+
+        h = hashlib.sha1()
+        try:
+            entries = sorted(os.scandir(data_dir()), key=lambda e: e.name)
+        except OSError:
+            return ''
+        for e in entries:
+            if not e.name.lower().endswith(('.txt', '.json', '.jsonl')):
+                continue
+            try:
+                # not e.stat(): on Windows that is the directory entry, which keeps
+                # the size and time from when the DAQ opened the file until it closes
+                st = os.stat(e.path)
+            except OSError:
+                continue  # renamed between the listing and the stat
+            h.update(('%s\0%d\0%d\n' % (e.name, st.st_size, st.st_mtime_ns)).encode('utf-8'))
+        return h.hexdigest()[:16]

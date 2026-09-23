@@ -185,10 +185,17 @@ class MainWindow(QMainWindow):
             self.eventfile.close()
             now = datetime.datetime.now(tz=datetime.timezone.utc)
             new = f'{self.eventfile_start}__{now.strftime("%Y-%m-%d_%H-%M-%S")}.txt'
-            os.rename(self.eventfile_name, os.path.join(self.config.settings["event_dir"], new))
+            for attempt in range(10):
+                try:
+                    os.rename(self.eventfile_name, os.path.join(self.config.settings["event_dir"], new))
+                    break
+                except PermissionError:  # Windows refuses while the data browser is reading the file
+                    if attempt == 9:
+                        raise
+                    time.sleep(0.05)
             logging.info(f"Closed eventfile and moved to {new}.")
-        except AttributeError:
-            logging.info(f"Error closing eventfile.")
+        except (AttributeError, OSError) as e:
+            logging.info(f"Error closing eventfile: {e}")
 
     def start_logger(self):
         '''Start logger
@@ -619,6 +626,7 @@ class Event():
                 json_dict[key] = entry.tolist()
         json_record = json.dumps(json_dict)
         eventfile.write(json_record + '\n')  # write to file as json line
+        eventfile.flush()  # so the data browser sees each scan as soon as it is written
 
 
 class AnalThread(QThread):

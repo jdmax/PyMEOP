@@ -14,6 +14,8 @@ const state = {
   eventIdx: 0,
   r0: 1,
   runCursorIdx: null,
+  version: null,      // data directory fingerprint the page was last drawn from
+  updatedAt: null,    // when a live update last changed what is on screen
 };
 
 const charts = { run: null, scan: null, resid: null };
@@ -65,6 +67,13 @@ function labelFromName(name) {
   const m = name.match(/(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})/);
   if (!m) return name;
   return m[1] + '-' + m[2] + '-' + m[3] + '  ' + m[4] + ':' + m[5] + ':' + m[6];
+}
+
+/* The run start in a file name. The DAQ writes current_<start>.txt and renames
+   it <start>__<stop>.txt when it closes it, so this is what stays the same. */
+function runStamp(name) {
+  const m = name.match(/\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}/);
+  return m ? m[0] : name;
 }
 
 /* ---------------- palette ---------------- */
@@ -364,10 +373,26 @@ function pick(fn, e) {
   }
 }
 
-function drawRunChart() {
+/* The x range the user has zoomed the run chart to, or null if it shows the
+   whole run. Only kept while the chart shows the same view of the same run, so
+   a live redraw keeps the zoom but choosing another metric still resets it. */
+function runZoom(node, viewKey) {
+  const u = node._plot;
+  if (!u || node._viewKey !== viewKey) return null;
+  const xs = u.data[0].filter((v) => v !== null && isFinite(v));
+  if (!xs.length) return null;
+  const { min, max } = u.scales.x;
+  const lo = Math.min.apply(null, xs), hi = Math.max.apply(null, xs);
+  const eps = 1e-9 * Math.max(1, Math.abs(hi - lo));
+  return (min > lo + eps || max < hi - eps) ? { min, max } : null;
+}
+
+function drawRunChart(opts) {
   const node = el('runChart');
   const run = state.run;
   if (!run || !run.events.length) { node.innerHTML = ''; return; }
+  const viewKey = el('metric').value + '|' + el('runX').value + '|' + runStamp(run.name);
+  const zoom = opts && opts.keepZoom ? runZoom(node, viewKey) : null;
 
   const p = palette();
   const spec = METRICS[el('metric').value];
@@ -407,8 +432,13 @@ function drawRunChart() {
       ' off this scale — drag to zoom, or switch to Fit R² to find the bad fits.'
     : '';
 
+  const scales = range ? { y: { range: () => range } } : {};
+  // a run's first scan is one point, which uPlot's auto range spreads across
+  // an axis of nonsense values; a live run shows exactly that after each rollover
+  if (xs.length === 1) scales.x = { time: false, range: () => [xs[0] - 1, xs[0] + 1] };
+
   charts.run = makePlot(node, {
-    scales: range ? { y: { range: () => range } } : {},
+    scales: scales,
     cursor: {
       drag: { x: true, y: false },
       points: { size: 8 },
@@ -424,6 +454,8 @@ function drawRunChart() {
   }, cols);
 
   charts.run.__accent = palette().s1;
+  node._viewKey = viewKey;
+  if (zoom) charts.run.setScale('x', zoom);
   pickOnClick(charts.run, node);
 }
 
@@ -647,7 +679,9 @@ function renderPointTable() {
   el('pointTable').querySelector('tbody').innerHTML = html;
 }
 
-function renderScan() {
+/* The scan title, slider and arrows, which change when the run grows even
+   though the scan on screen does not. */
+function renderScanNav() {
   const ev = state.event;
   const total = state.run.events.length;
   el('scanTitle').textContent = 'Scan ' + (state.eventIdx + 1) + ' of ' + total +
@@ -657,6 +691,10 @@ function renderScan() {
   const slider = el('scanSlider');
   slider.max = String(Math.max(0, total - 1));
   slider.value = String(state.eventIdx);
+}
+
+function renderScan() {
+  renderScanNav();
   renderFitPanel();
   drawScanChart();
   if (charts.run) charts.run.redraw();   // move the selection marker
@@ -722,6 +760,7 @@ async function getJSON(url) {
 async function loadFiles() {
   const data = await getJSON('api/files');
   state.files = data.files;
+  state.version = data.version;
   el('dataDir').textContent = data.data_dir;
   renderFileList();
   const want = readHash();
@@ -762,6 +801,103 @@ async function selectEvent(idx) {
     'api/file/' + encodeURIComponent(state.run.name) + '/event/' + idx);
   renderScan();
   writeHash();
+}
+
+/* ---------------- live updates ---------------- */
+
+/* The page asks the server every few seconds whether anything in the data
+   directory has changed, which costs the server a directory listing and
+   nothing more, and only fetches the files again when it has. A run the DAQ
+   is writing then grows on screen scan by scan.
+
+   Sitting on the last scan of the newest run means following it, like tail -f:
+   each new scan opens as it arrives, and when the DAQ rolls over to a new file
+   the page moves to it. Anywhere else the scan on screen stays put and only the
+   run chart and the scan count grow. */
+
+const POLL_MS = 2000;
+let polling = false;
+
+function newestWithScans(files) {
+  const f = files.find((r) => r.n_events > 0);
+  return f ? f.name : null;
+}
+
+function setLive(cls, text) {
+  const label = el('liveToggle').closest('.live');
+  label.classList.toggle('is-on', cls === 'on');
+  label.classList.toggle('is-down', cls === 'down');
+  el('liveStatus').textContent = text || '';
+}
+
+async function refresh() {
+  const before = state.files;
+  const data = await getJSON('api/files');
+  state.files = data.files;
+  state.version = data.version;
+
+  const run = state.run;
+  if (!run) {
+    renderFileList();
+    const first = newestWithScans(state.files);
+    if (first) await selectFile(first);
+    return;
+  }
+
+  const tailing = state.eventIdx >= run.events.length - 1 &&
+    runStamp(newestWithScans(before) || '') === runStamp(run.name);
+  const newest = newestWithScans(state.files);
+  if (tailing && newest && runStamp(newest) !== runStamp(run.name)) {
+    const row = state.files.find((f) => f.name === newest);
+    await selectFile(newest, row.n_events - 1);
+    return;
+  }
+
+  // the open file, possibly under the name the DAQ gave it on closing
+  const row = state.files.find((f) => f.name === run.name) ||
+    state.files.find((f) => runStamp(f.name) === runStamp(run.name));
+  if (!row || (row.name === run.name && row.size === run.size && row.mtime === run.mtime)) {
+    renderFileList();   // nothing new in the open run, or it has gone
+    return;
+  }
+
+  if (!run.events.length) {   // an empty file that has had its first scan
+    await selectFile(row.name, tailing ? row.n_events - 1 : 0);
+    return;
+  }
+
+  const fresh = await getJSON('api/file/' + encodeURIComponent(row.name));
+  if (state.run !== run) return;   // another run was picked while this loaded
+  const prevIdx = state.eventIdx;
+  state.run = fresh;
+  renderFileList();
+  if (!fresh.events.length) return;
+  renderRunBar();
+  drawRunChart({ keepZoom: true });
+  const idx = tailing ? fresh.events.length - 1 : Math.min(prevIdx, fresh.events.length - 1);
+  if (idx !== prevIdx || !state.event) {
+    await selectEvent(idx);
+  } else {
+    renderScanNav();
+    writeHash();
+  }
+}
+
+async function poll() {
+  if (polling || document.hidden || !el('liveToggle').checked) return;
+  polling = true;
+  try {
+    const { version } = await getJSON('api/version');
+    if (version !== state.version) {
+      await refresh();
+      state.updatedAt = new Date().toLocaleTimeString();
+    }
+    setLive('on', state.updatedAt ? 'updated ' + state.updatedAt : '');
+  } catch (err) {
+    setLive('down', 'server not responding');
+  } finally {
+    polling = false;
+  }
 }
 
 /* ---------------- CSV ---------------- */
@@ -901,6 +1037,21 @@ function wire() {
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     if (!document.documentElement.getAttribute('data-theme')) redrawAll();
   });
+
+  el('liveToggle').addEventListener('change', (e) => {
+    try { localStorage.setItem('pymeop-live', e.target.checked ? '1' : '0'); } catch (err) { /* private mode */ }
+    if (e.target.checked) poll(); else setLive('off', 'paused');
+  });
+  // a hidden tab stops asking; catch up as soon as it is looked at again
+  document.addEventListener('visibilitychange', poll);
+}
+
+function initLive() {
+  let saved = null;
+  try { saved = localStorage.getItem('pymeop-live'); } catch (e) { /* private mode */ }
+  el('liveToggle').checked = saved !== '0';
+  setLive(el('liveToggle').checked ? 'on' : 'off', el('liveToggle').checked ? '' : 'paused');
+  setInterval(poll, POLL_MS);
 }
 
 function showError(err) {
@@ -912,4 +1063,4 @@ function showError(err) {
 
 initTheme();
 wire();
-loadFiles().catch(showError);
+loadFiles().catch(showError).then(initLive);

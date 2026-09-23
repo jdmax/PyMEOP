@@ -54,7 +54,15 @@ class Handler(SimpleHTTPRequestHandler):
         parts = [p for p in route.split('/') if p]
 
         if parts == ['files']:
-            self.send_json({'data_dir': dataset.data_dir(), 'files': LIBRARY.index()})
+            # fingerprint before reading, so a write that lands in between shows
+            # up as a changed version on the next poll rather than being missed
+            version = LIBRARY.fingerprint()
+            self.send_json({'data_dir': dataset.data_dir(), 'files': LIBRARY.index(),
+                            'version': version})
+            return
+
+        if parts == ['version']:
+            self.send_json({'version': LIBRARY.fingerprint()})
             return
 
         if len(parts) == 2 and parts[0] == 'file':

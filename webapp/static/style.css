@@ -189,6 +189,17 @@ summary:focus-visible, a:focus-visible, input[type="range"]:focus-visible {
 
 .check input { accent-color: var(--accent); margin: 0; }
 
+/* live indicator: a dot that is green while the page is watching the data
+   directory, grey when paused, red when the server has stopped answering */
+.livedot {
+  width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: var(--muted);
+}
+.live.is-on .livedot { background: var(--good); }
+.live.is-down .livedot { background: var(--critical); }
+.livestatus { font: 11px/1.4 var(--mono); color: var(--muted); }
+.live.is-down .livestatus { color: var(--critical); }
+
 input[type="range"] { accent-color: var(--accent); width: 190px; max-width: 34vw; }
 
 /* ---------- layout ---------- */
@@ -480,6 +491,7 @@ main {
   .layout { grid-template-columns: minmax(0, 1fr); }
   .sidebar { border-right: 0; border-bottom: 1px solid var(--border); max-height: 230px; }
   .dir { display: none; }
+  .livestatus { display: none; }
 }
 
 .offscale { color: var(--critical); }

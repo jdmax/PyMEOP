@@ -16,6 +16,11 @@
   </div>
   <div class="dir" id="dataDir" title="Event directory"></div>
   <div class="grow"></div>
+  <label class="check live" title="Watch the data directory and redraw as the DAQ writes new scans">
+    <input id="liveToggle" type="checkbox" checked>
+    <span class="livedot" aria-hidden="true"></span> Live
+    <span class="livestatus" id="liveStatus" aria-live="polite"></span>
+  </label>
   <label class="field" title="Ratio of the two peak heights at zero polarization, used to scale P">
     <span>r<sub>0</sub></span>
     <input id="r0" type="number" step="0.001" value="1" inputmode="decimal">
