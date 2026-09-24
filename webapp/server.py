@@ -22,7 +22,7 @@ from urllib.parse import unquote, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from webapp import dataset
+from webapp import dataset, fitting
 
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 
@@ -43,6 +43,29 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json({'error': str(e)}, status=500)
             return
         self.static(path)
+
+    def do_POST(self):
+        '''Computations on data the page sends; nothing here touches the files'''
+
+        path = unquote(urlparse(self.path).path)
+        try:
+            length = int(self.headers.get('Content-Length') or 0)
+            if length > 10 * 1024 * 1024:
+                self.send_json({'error': 'Request too large'}, status=413)
+                return
+            body = json.loads(self.rfile.read(length) or b'{}')
+            if path == '/api/fit/exp':
+                asym = body.get('asymptote')
+                self.send_json(fitting.exp_fit(body['t'], body['y'], body.get('sigma'),
+                                               None if asym is None else float(asym)))
+                return
+            self.send_json({'error': 'Unknown route'}, status=404)
+        except BrokenPipeError:
+            pass
+        except (ValueError, KeyError, TypeError) as e:
+            self.send_json({'error': str(e)}, status=400)
+        except Exception as e:
+            self.send_json({'error': str(e)}, status=500)
 
     def api(self, route):
         '''Answer one API route

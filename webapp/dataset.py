@@ -138,6 +138,14 @@ class Event:
         self.x_key = 'wavelength' if np.any(self.waves != 0) else 'current'
         self.x = self.waves if self.x_key == 'wavelength' else self.currs
 
+        # which way the sweep ran, from where it ended against where it started
+        self.direction = None
+        if len(self.x) > 1 and np.isfinite(self.x[0]) and np.isfinite(self.x[-1]):
+            if self.x[-1] > self.x[0]:
+                self.direction = 'up'
+            elif self.x[-1] < self.x[0]:
+                self.direction = 'down'
+
         # Which baseline convention this scan was written under. Files from before
         # the baseline was referenced to mid scan carry neither base_deg nor x_ref,
         # and their straight baseline is in raw x. Anything with x_ref is referenced,
@@ -181,6 +189,7 @@ class Event:
             'duration': finite((self.stop_stamp or 0) - (self.start_stamp or 0)),
             'n_points': int(len(self.rs)),
             'x_key': self.x_key,
+            'direction': self.direction,
             'x_min': finite(np.min(self.x)) if len(self.x) else None,
             'x_max': finite(np.max(self.x)) if len(self.x) else None,
             'signal_min': finite(np.min(self.rs)) if len(self.rs) else None,

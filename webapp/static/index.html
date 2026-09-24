@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PyMEOP Data Browser</title>
+<link rel="icon" type="image/png" sizes="32x32" href="brand/favicon-32.png">
+<link rel="icon" type="image/png" sizes="64x64" href="brand/favicon-64.png">
+<link rel="apple-touch-icon" href="brand/apple-touch-icon.png">
 <link rel="stylesheet" href="vendor/uPlot.min.css">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -11,7 +14,7 @@
 
 <header class="topbar">
   <div class="brand">
-    <span class="mark" aria-hidden="true"></span>
+    <img class="mark" src="brand/icon.png" alt="" width="42" height="26">
     <h1>PyMEOP Data</h1>
   </div>
   <div class="dir" id="dataDir" title="Event directory"></div>
@@ -34,6 +37,13 @@
     <div class="side-head">
       <input id="fileSearch" type="search" placeholder="Filter runs by date or name" autocomplete="off">
       <label class="check"><input id="hideEmpty" type="checkbox" checked> Hide empty files</label>
+      <div class="presets" role="group" aria-label="Runs in the time plot">
+        <span class="seg-label">Plot</span>
+        <button class="chip" type="button" data-preset="open" title="Just the run that is open">Open run</button>
+        <button class="chip" type="button" data-preset="day" title="Every run in the 24 hours up to the end of the open run">24 h</button>
+        <button class="chip" type="button" data-preset="week" title="Every run in the 7 days up to the end of the open run">7 days</button>
+        <button class="chip" type="button" data-preset="all" title="Every run with scans">All</button>
+      </div>
       <p class="side-count" id="fileCount"></p>
     </div>
     <ul class="filelist" id="fileList"></ul>
@@ -42,6 +52,7 @@
   <main id="main">
 
     <div class="empty" id="welcome">
+      <img class="welcome-logo" src="brand/logo.png" alt="CLAS12 Polarized ³He" width="160" height="158">
       <h2>Choose a run</h2>
       <p>Each event file is one run, and each line in it is one current scan with the
          two-gaussian fit that was stored alongside it. Pick a run on the left to
@@ -50,21 +61,12 @@
 
     <div id="workspace" hidden>
 
-      <section class="runbar">
-        <div class="runtitle">
-          <h2 id="runName">&nbsp;</h2>
-          <p id="runWhen" class="muted"></p>
-        </div>
-        <div class="tiles" id="runTiles"></div>
-        <div class="runactions">
-          <a id="rawLink" class="ghost" href="#" download>Raw file</a>
-          <button id="csvRun" class="ghost" type="button">Run CSV</button>
-        </div>
-      </section>
-
       <section class="card">
         <div class="card-head">
-          <h3>Across the run</h3>
+          <div class="card-title">
+            <h3>Over time</h3>
+            <p class="subtitle" id="tlWhen"></p>
+          </div>
           <div class="controls">
             <label class="field">
               <span>Show</span>
@@ -80,18 +82,60 @@
             <label class="field">
               <span>Against</span>
               <select id="runX">
-                <option value="time">Elapsed time</option>
+                <option value="time">Time</option>
                 <option value="index">Scan number</option>
               </select>
             </label>
-            <label class="check" title="Draw the one sigma fit uncertainty as whiskers">
+            <label class="field" title="Which way the probe current was swept">
+              <span>Scans</span>
+              <select id="direction">
+                <option value="both">Both directions</option>
+                <option value="up">Low &rarr; high</option>
+                <option value="down">High &rarr; low</option>
+              </select>
+            </label>
+            <label class="check" title="Draw the one sigma uncertainty as whiskers">
               <input id="showErr" type="checkbox" checked> Error bars
             </label>
+            <button id="csvTimeline" class="ghost" type="button" title="The plotted scans, one row each">Plot CSV</button>
           </div>
         </div>
-        <p class="hint">Click a point to open that scan below; the dashed rule marks
-           the one currently open. <span id="runNote" class="offscale"></span></p>
+        <p class="hint">Tick runs in the list to add them to this plot. Click a point to
+           open that scan below; the dashed rule marks the one open.
+           <span id="runNote" class="offscale"></span></p>
+        <p class="asym" id="asymNote"></p>
         <div class="chart chart-run" id="runChart"></div>
+        <div class="fitbar">
+          <div class="seg" role="group" aria-label="What dragging on the plot does">
+            <span class="seg-label">Drag to</span>
+            <button id="dragZoom" class="ghost" type="button" aria-pressed="true">Zoom</button>
+            <button id="dragSelect" class="ghost" type="button" aria-pressed="false">Select for fit</button>
+          </div>
+          <span class="selinfo" id="selInfo"></span>
+          <div class="grow"></div>
+          <label class="field" title="Let the fit find where the polarization is heading, or hold it at zero for a relaxation">
+            <span>P<sub>&infin;</sub></span>
+            <select id="asymptote">
+              <option value="free">Free</option>
+              <option value="zero">Fixed at 0</option>
+            </select>
+          </label>
+          <button id="fitBtn" class="ghost primary" type="button" disabled>Fit exponential</button>
+          <button id="clearSel" class="ghost" type="button" disabled>Clear</button>
+        </div>
+        <div id="fitResults"></div>
+      </section>
+
+      <section class="runbar">
+        <div class="runtitle">
+          <h2 id="runName">&nbsp;</h2>
+          <p id="runWhen" class="muted"></p>
+        </div>
+        <div class="tiles" id="runTiles"></div>
+        <div class="runactions">
+          <a id="rawLink" class="ghost" href="#" download>Raw file</a>
+          <button id="csvRun" class="ghost" type="button">Run CSV</button>
+        </div>
       </section>
 
       <section class="card">

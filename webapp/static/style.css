@@ -113,12 +113,8 @@ h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: 
 
 .brand { display: flex; align-items: center; gap: 9px; }
 
-.mark {
-  width: 15px; height: 15px; border-radius: 50%;
-  background: radial-gradient(circle at 34% 34%, var(--series-3) 0 26%, transparent 27%),
-              radial-gradient(circle at 68% 66%, var(--series-2) 0 26%, transparent 27%),
-              var(--accent);
-}
+/* the lab icon; transparent, so it sits on either theme's surface as it is */
+.mark { display: block; width: auto; height: 26px; flex: none; }
 
 .dir {
   font: 11px/1.4 var(--mono);
@@ -237,7 +233,20 @@ input[type="range"] { accent-color: var(--accent); width: 190px; max-width: 34vw
   flex: 1;
 }
 
-.filelist li { margin-bottom: 2px; }
+.filelist li { margin-bottom: 2px; display: flex; align-items: center; gap: 2px; }
+
+/* the tick puts a run in the time plot; the row itself opens it */
+.tlcheck { accent-color: var(--accent); margin: 0 3px 0 5px; flex: none; cursor: pointer; }
+.tlcheck:disabled { visibility: hidden; }
+
+.presets { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+
+.chip {
+  font: inherit; font-size: 11px; color: var(--ink-2);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 999px; padding: 2px 9px; cursor: pointer;
+}
+.chip:hover { background: var(--surface-2); color: var(--ink); }
 
 .filerow {
   width: 100%;
@@ -292,6 +301,7 @@ main {
 }
 
 .empty h2 { margin-bottom: 8px; }
+.welcome-logo { display: block; margin: 0 auto 22px; width: 160px; height: auto; }
 
 .card {
   background: var(--surface);
@@ -318,6 +328,30 @@ main {
 }
 
 .hint { margin: 0 0 4px; font-size: 11px; color: var(--muted); }
+
+.card-title { flex: 1; min-width: 12ch; }
+.card-title h3 { flex: none; }
+.subtitle { margin: 2px 0 0; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* up/down asymmetry, stated in numbers under the controls */
+.asym { margin: 0 0 4px; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.asym:empty { display: none; }
+.asym b { font-weight: 600; color: var(--ink); }
+
+.fitbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--border);
+}
+.seg { display: inline-flex; align-items: center; gap: 4px; }
+.seg-label { font-size: 11px; color: var(--muted); margin-right: 2px; }
+.ghost[aria-pressed="true"] { background: var(--surface-2); color: var(--ink); border-color: var(--axis); }
+.ghost.primary:not(:disabled) { border-color: var(--accent); color: var(--accent); font-weight: 500; }
+.selinfo { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+.fittable { width: 100%; margin-top: 10px; }
+.fittable td.warn { color: var(--critical); }
+.fitnote { margin: 6px 0 0; font-size: 11px; color: var(--muted); }
+.fitnote.warn { color: var(--critical); }
 
 /* ---------- run bar and stat tiles ---------- */
 
@@ -366,7 +400,7 @@ main {
 /* --plot-h is the canvas height; the box itself grows to hold the legend uPlot
    renders below the canvas, so nothing overflows the card. */
 .chart { width: 100%; }
-.chart-run { --plot-h: 200px; }
+.chart-run { --plot-h: 300px; }
 .chart-scan { --plot-h: 330px; }
 .chart-resid { --plot-h: 120px; }
 

@@ -49,14 +49,65 @@ Pick a run in the left sidebar. Files with no scans in them are hidden by defaul
 — of the files in `data/` most are empty, written when a run started and stopped
 without recording anything.
 
-**Across the run** opens on polarization against elapsed time, and will plot any
-other fitted quantity for every scan in the file: the two peak heights, their
-positions, their widths, the height ratio, or R². The whiskers are the ±1σ
-uncertainties stored with each fit.
+**Over time** is polarization against time, across as many runs as you like. It
+opens on the newest run. Tick runs in the file list to add them (shift-click ticks
+a range), or use the buttons above the list: **Open run**, **24 h** and **7 days**
+(each counted back from the end of the run that is open), or **All**. Clicking a
+run's name opens it and, if it is not already plotted, plots just that run. Runs
+are joined in time order with a break in the line between them, and across any
+pause much longer than the scan cadence. **Against → Scan number** closes up the
+gaps when the runs are hours apart. Any other fitted quantity can be plotted
+instead: the two peak heights, their positions, their widths, the height ratio, or
+R². The whiskers are ±1σ: stored with each fit for the peak parameters, and
+propagated from the two peak heights for polarization.
 
-Click a point to open that scan in the plot below; a dashed rule marks whichever
-scan is open, so the two plots stay tied together. Arrow keys and the slider move
-the same selection.
+Click a point to open that scan in the plots below, whichever run it is in; a
+dashed rule marks whichever scan is open. Arrow keys and the slider step through
+the open run. The address bar keeps the plotted runs, so a bookmark brings back
+the same window.
+
+**Plot CSV** saves one row per plotted scan: time, file, sweep direction, R², the
+peak heights, the height ratio, and polarization with its uncertainty.
+
+### Sweep direction
+
+Each scan ramps the probe current either up or down, and the DAQ alternates
+them. **Scans** chooses what to plot: low → high, high → low, or both. With both,
+they are drawn as two series (blue and orange for a single quantity; for the two
+peaks, the colour stays with the peak and a hollow marker means high → low).
+
+With both on show, the line above the plot gives the difference, low → high minus
+high → low, and how many standard errors it is from zero. It is worked out from
+neighbouring pairs of opposite scans in the same run, taking every pair in either
+order, so a steady rise or fall in the polarization cancels out and does not show
+up as asymmetry. Neighbouring pairs share a scan, so the standard error allows for
+the correlation between successive differences. With scans selected for a fit
+(below), it covers only those scans.
+
+### Build-up and relaxation times
+
+Under the plot, **Drag to → Select for fit** switches dragging from zooming to
+picking scans. Drag across the build-up or relaxation, then **Fit exponential**
+fits
+
+```
+P(t) = P∞ + (P₀ − P∞) · exp(−(t − t₀)/τ)
+```
+
+with t₀ the first selected scan. P∞ is fitted too, or held at zero with
+**P∞ → Fixed at 0**. Each direction on show is fitted separately, and with both
+on show, the two together as well. The table gives τ, P₀ and P∞ with ±1σ, the
+number of scans, whether it is a build-up or a relaxation, and χ²ν. The fitted
+curves are drawn over the data. Each scan is weighted by its polarization
+uncertainty, and the parameter errors are scaled by √χ²ν as scipy's `curve_fit`
+does by default. A τ shown in red is not measured by the selected span: the curve
+over it is nearly straight, so select a longer stretch. A drag that ends within a
+few pixels of either edge of the plot takes every scan beyond it.
+
+The fit searches τ from a thousandth to a thousand times the selected span,
+solving for P₀ and P∞ exactly at each τ, so it needs no starting guess. It is in
+`fitting.py`. Changing r₀, the quantity shown, the directions shown or the P∞
+setting clears the fits, since they would no longer describe what is on the plot.
 
 A single failed fit can throw the height ratio out by orders of magnitude and
 flatten a whole run into a line at zero. When that happens the axis is set from
@@ -126,6 +177,7 @@ can be bookmarked or sent to someone looking at the same data directory.
 webapp/
   server.py            HTTP server and JSON API
   dataset.py           reads and caches the event files, rebuilds fit components
+  fitting.py           exponential fits for build-up and relaxation times
   static/
     index.html         the page
     app.js             charts, panels, CSV export
@@ -142,3 +194,4 @@ The API, should anything else want it:
 | `GET /api/file/<name>` | the file plus a summary of each scan |
 | `GET /api/file/<name>/event/<i>` | one scan: points, fit, components, residual |
 | `GET /api/file/<name>/raw` | the original file |
+| `POST /api/fit/exp` | exponential fit; body `{"t": [...], "y": [...], "sigma": [...] or null, "asymptote": null or 0}` |
