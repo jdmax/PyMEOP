@@ -117,13 +117,26 @@ h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: 
 .mark { display: block; width: auto; height: 26px; flex: none; }
 
 .dir {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 48ch;
   font: 11px/1.4 var(--mono);
   color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 44ch;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 4px 8px;
+  cursor: pointer;
 }
+
+.dir[hidden] { display: none; }
+.dir:hover { background: var(--surface-2); border-color: var(--border); color: var(--ink-2); }
+.dir .dirpath { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; }
+.dir .caret { flex: none; font-size: 9px; }
+/* a folder other than the default: easy to forget, so it stands out */
+.dir.is-other { color: var(--accent); border-color: var(--accent); }
 
 /* ---------- controls ---------- */
 
@@ -529,3 +542,83 @@ main {
 }
 
 .offscale { color: var(--critical); }
+
+/* ---------- loading and the folder picker ---------- */
+
+.empty progress {
+  display: block;
+  width: 100%;
+  height: 8px;
+  margin: 18px 0 8px;
+  accent-color: var(--accent);
+}
+
+.empty .dirline { font: 11px/1.4 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+.empty .progress-text { font: 12px/1.4 var(--mono); color: var(--ink-2); margin-bottom: 14px; }
+
+.folderdlg {
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(640px, calc(100vh - 32px));
+  padding: 16px 18px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.folderdlg[open] { display: flex; flex-direction: column; gap: 10px; }
+.folderdlg::backdrop { background: rgba(0, 0, 0, 0.35); }
+.folderdlg h3 { margin: 0; }
+.folderdlg .hint { margin: 0; }
+
+.folderpath { display: flex; gap: 6px; }
+
+.folderpath input {
+  flex: 1;
+  min-width: 0;
+  font: 12px var(--mono);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 5px 8px;
+}
+
+.folderlist {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  min-height: 120px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--plane);
+}
+
+.folderrow {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  text-align: left;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px 9px;
+  cursor: pointer;
+}
+
+.folderrow:hover { background: var(--surface-2); }
+.folderrow .fname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folderrow .fmeta { flex: none; font-size: 11px; color: var(--muted); }
+.folder-none { padding: 8px 10px; }
+
+.dlg-actions { display: flex; align-items: center; gap: 8px; }
+
+@media (max-width: 760px) {
+  .dir { display: inline-flex; max-width: 22ch; }
+}

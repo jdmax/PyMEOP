@@ -22,30 +22,118 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NAME_STAMP = re.compile(r'(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})')
 
 
-def data_dir():
-    '''Event directory from config.yaml, falling back to data/ beside the app'''
+EVENT_EXTS = ('.txt', '.json', '.jsonl')
 
+# set by the server from its command line; None falls through to config.yaml
+DEFAULT_DIR = None
+
+# folders the browser may open must lie under this one; None allows any folder
+FOLDER_LIMIT = None
+
+
+def data_dir():
+    '''Default event directory: the server's --data-dir, else event_dir from
+    config.yaml, falling back to data/ beside the app'''
+
+    if DEFAULT_DIR:
+        return os.path.realpath(DEFAULT_DIR)
     try:
         with open(os.path.join(ROOT, 'config.yaml')) as f:
             settings = yaml.safe_load(f)['settings']
-        return os.path.join(ROOT, settings.get('event_dir', 'data'))
+        return os.path.realpath(os.path.join(ROOT, settings.get('event_dir', 'data')))
     except Exception:
-        return os.path.join(ROOT, 'data')
+        return os.path.realpath(os.path.join(ROOT, 'data'))
 
 
-def safe_path(name):
-    '''Resolve an event file name inside the data directory, or None.
+def within(path, root):
+    '''True if path is root or somewhere below it'''
 
-    Only names that land directly in the data directory are accepted, so a
-    crafted request cannot walk out of it.
+    try:
+        return os.path.commonpath([path, root]) == root
+    except ValueError:  # different drives on Windows
+        return False
+
+
+def resolve_dir(requested=None):
+    '''The folder a request asks for, checked, or the default one.
+
+    Relative paths are taken from the repository root, as event_dir is.
+
+    Args:
+        requested: Folder from the request, or None/'' for the default
+    Returns:
+        Absolute real path of an existing directory
+    Raises:
+        ValueError if it is not a directory or lies outside FOLDER_LIMIT
+    '''
+
+    if not requested:
+        return data_dir()
+    path = os.path.realpath(os.path.join(ROOT, os.path.expanduser(requested)))
+    if not os.path.isdir(path):
+        raise ValueError('No such folder: %s' % requested)
+    if FOLDER_LIMIT and not within(path, os.path.realpath(FOLDER_LIMIT)):
+        raise ValueError('Folders outside %s are not available' % FOLDER_LIMIT)
+    return path
+
+
+def is_event_name(name):
+    return name.lower().endswith(EVENT_EXTS)
+
+
+def folders(requested=None):
+    '''A folder and the folders inside it, for the folder picker.
+
+    Args:
+        requested: Folder to list, or None for the default
+    Returns:
+        dict with the path, its parent (None at the top or at FOLDER_LIMIT),
+        the default folder, how many event files the folder holds, and each
+        subfolder with its own event file count
+    '''
+
+    path = resolve_dir(requested)
+    parent = os.path.dirname(path)
+    if parent == path or (FOLDER_LIMIT and not within(parent, os.path.realpath(FOLDER_LIMIT))):
+        parent = None
+
+    def count(d):
+        try:
+            with os.scandir(d) as it:
+                return sum(1 for e in it if is_event_name(e.name) and e.is_file())
+        except OSError:
+            return None  # no permission, or gone
+
+    dirs = []
+    try:
+        with os.scandir(path) as it:
+            entries = sorted((e for e in it if not e.name.startswith('.')),
+                             key=lambda e: e.name.lower())
+            for e in entries:
+                try:
+                    if e.is_dir():
+                        dirs.append({'name': e.name, 'path': e.path, 'n_files': count(e.path)})
+                except OSError:
+                    continue
+    except OSError as e:
+        raise ValueError(str(e))
+    return {'path': path, 'parent': parent, 'default': data_dir(),
+            'n_files': count(path), 'dirs': dirs}
+
+
+def safe_path(name, base):
+    '''Resolve an event file name inside a data directory, or None.
+
+    Only names that land directly in the directory are accepted, so a crafted
+    request cannot walk out of it.
 
     Args:
         name: File name from the request path
+        base: Directory from resolve_dir()
     Returns:
         Absolute path to an existing file, or None if the name is not one
     '''
 
-    base = os.path.realpath(data_dir())
     path = os.path.realpath(os.path.join(base, os.path.basename(name)))
     if os.path.dirname(path) != base or not os.path.isfile(path):
         return None
@@ -289,31 +377,36 @@ class Run:
 
 
 class Library:
-    '''The data directory, caching parsed files until they change on disk'''
+    '''The data directories, caching parsed files until they change on disk.
+
+    Every method takes the directory to work in, from resolve_dir(), so each
+    browser tab can look at its own folder. Parsed runs are cached by path, so
+    moving between folders and back does not read the files again.
+    '''
 
     def __init__(self):
         self._runs = {}
         self._lock = threading.Lock()
+        self._index_locks = {}   # directory -> lock, one index pass per folder at a time
+        self._progress = {}      # directory -> progress of the index pass under way
 
-    def names(self):
-        '''Event file names, newest run first'''
+    def names(self, base):
+        '''Event file names in a directory, newest run first'''
 
         try:
-            names = [n for n in os.listdir(data_dir())
-                     if n.lower().endswith(('.txt', '.json', '.jsonl'))
-                     and safe_path(n)]
+            names = [n for n in os.listdir(base) if is_event_name(n) and safe_path(n, base)]
         except OSError:
             return []
         return sorted(names, key=lambda n: (-name_stamp(n), n))
 
-    def run(self, name):
+    def run(self, name, base):
         '''Parsed run for a file name, or None if the name is not an event file.
 
         The cache is keyed on size and modification time so a file still being
         written by a live run is picked up again once it grows.
         '''
 
-        path = safe_path(name)
+        path = safe_path(name, base)
         if not path:
             return None
         stat = os.stat(path)
@@ -327,23 +420,58 @@ class Library:
             self._runs[path] = (key, run)
         return run
 
-    def index(self):
-        '''File list rows for the whole data directory'''
+    def index(self, base):
+        '''File list rows for a whole data directory.
 
-        rows = []
-        for name in self.names():
-            run = self.run(name)
-            if run:
-                rows.append(run.info())
-        # the DAQ renames a file when it closes it, so drop cache entries for
-        # paths that are gone rather than holding every old name forever
-        live = {os.path.join(os.path.realpath(data_dir()), r['name']) for r in rows}
+        The first pass over a large folder parses every file in it, which takes a
+        while, so its progress is kept for progress() to report. Only one pass
+        runs per folder at a time: a second request waits for the first and then
+        finds everything cached.
+        '''
+
         with self._lock:
-            for path in [p for p in self._runs if p not in live]:
-                del self._runs[path]
-        return rows
+            lock = self._index_locks.setdefault(base, threading.Lock())
+        with lock:
+            names = self.names(base)
+            sizes = []
+            for name in names:
+                try:
+                    sizes.append(os.stat(os.path.join(base, name)).st_size)
+                except OSError:
+                    sizes.append(0)
+            prog = {'loading': True, 'done': 0, 'total': len(names),
+                    'bytes_done': 0, 'bytes_total': sum(sizes)}
+            with self._lock:
+                self._progress[base] = prog
+            rows = []
+            try:
+                for name, size in zip(names, sizes):
+                    run = self.run(name, base)
+                    if run:
+                        rows.append(run.info())
+                    prog['done'] += 1
+                    prog['bytes_done'] += size
+            finally:
+                with self._lock:
+                    self._progress.pop(base, None)
+            # the DAQ renames a file when it closes it, so drop cache entries for
+            # paths in this folder that are gone rather than holding every old name
+            live = {os.path.join(base, r['name']) for r in rows}
+            with self._lock:
+                for path in [p for p in self._runs
+                             if os.path.dirname(p) == base and p not in live]:
+                    del self._runs[path]
+            return rows
 
-    def fingerprint(self):
+    def progress(self, base):
+        '''How far the index pass over a folder has got, or loading False if
+        none is running'''
+
+        with self._lock:
+            prog = self._progress.get(base)
+            return dict(prog) if prog else {'loading': False}
+
+    def fingerprint(self, base):
         '''A short string that changes whenever an event file is added, removed or
         written. Only stats the directory, so a browser can poll it every few
         seconds and fetch the file list only when something has actually changed.
@@ -351,11 +479,11 @@ class Library:
 
         h = hashlib.sha1()
         try:
-            entries = sorted(os.scandir(data_dir()), key=lambda e: e.name)
+            entries = sorted(os.scandir(base), key=lambda e: e.name)
         except OSError:
             return ''
         for e in entries:
-            if not e.name.lower().endswith(('.txt', '.json', '.jsonl')):
+            if not is_event_name(e.name):
                 continue
             try:
                 # not e.stat(): on Windows that is the directory entry, which keeps

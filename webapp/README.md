@@ -16,13 +16,42 @@ It serves on <http://localhost:8000> and opens a browser. Useful flags:
 | `--port 9000` | listen somewhere else |
 | `--host 0.0.0.0` | let other machines on the network reach it (default is localhost only) |
 | `--no-browser` | do not open a browser window |
+| `--data-dir DIR` | open this folder by default instead of `event_dir` from `config.yaml` |
 
 No new dependencies: the server is Python standard library, and `dataset.py` uses
 `numpy` and `PyYAML`, which the DAQ application already needs. The chart library
 is vendored in `static/vendor/`, so the app works with no network connection.
 
-The event directory comes from `event_dir` in `config.yaml`, so the browser always
-looks where the DAQ writes.
+The default event directory comes from `event_dir` in `config.yaml`, so the
+browser looks where the DAQ writes unless told otherwise.
+
+## Choosing a folder
+
+The folder path in the top bar is a button. It opens a picker that walks the
+folders on the machine running the server: click a folder to look inside it (each
+one shows how many event files it holds), type or paste a path and press Enter,
+or go **Up**. **Open this folder** switches the page to it, and **Default folder**
+goes back to `event_dir`. This makes it easy to keep smaller folders of hand-picked
+runs, for one study each, and open them without reading the whole archive.
+
+A folder other than the default is outlined in blue in the top bar. The folder
+goes into the address bar (`#dir=...`), so a bookmark reopens it, and the browser
+remembers the last one it used. Each tab can look at its own folder. Live updates
+watch whichever folder is open.
+
+When the server is started with `--host` set to something other than localhost,
+anyone who can reach it could use the picker, so it is then limited to folders
+inside the default data directory.
+
+## Loading
+
+The first time a folder is opened the server reads and parses every event file in
+it, which takes a while for a big archive (roughly 15 MB a second). While it
+works, the page shows a progress bar with the files and megabytes read so far.
+Parsed files are kept in memory, so opening the same folder again, or reloading
+the page, is quick; only files that have changed are read again. The server
+starts reading the default folder as soon as it starts, so by the time a browser
+asks for it, part of the work is done.
 
 ## Watching a run live
 
@@ -168,8 +197,9 @@ today is the original archive form.
   every fit parameter with its uncertainty.
 - **Raw file** — the original event file, untouched.
 
-The address bar carries the selection (`#file=...&scan=...`), so a particular scan
-can be bookmarked or sent to someone looking at the same data directory.
+The address bar carries the selection (`#dir=...&file=...&scan=...`, with `dir`
+only for a folder other than the default), so a particular scan can be bookmarked
+or sent to someone looking at the same data directory.
 
 ## Layout
 
@@ -187,9 +217,14 @@ webapp/
 
 The API, should anything else want it:
 
+Every `GET` route but `/api/folders` takes `?dir=<folder>` to work in a folder other
+than the default.
+
 | Route | Returns |
 |---|---|
 | `GET /api/files` | every event file with scan count, duration and size |
+| `GET /api/progress` | how far the server has got reading the folder: `loading`, `done`/`total` files and `bytes_done`/`bytes_total` |
+| `GET /api/folders?path=<folder>` | a folder's subfolders, each with its event file count, for the picker |
 | `GET /api/version` | a fingerprint of the data directory that changes on any write; cheap enough to poll |
 | `GET /api/file/<name>` | the file plus a summary of each scan |
 | `GET /api/file/<name>/event/<i>` | one scan: points, fit, components, residual |

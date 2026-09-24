@@ -17,7 +17,8 @@
     <img class="mark" src="brand/icon.png" alt="" width="42" height="26">
     <h1>PyMEOP Data</h1>
   </div>
-  <div class="dir" id="dataDir" title="Event directory"></div>
+  <button class="dir" id="dataDir" type="button" title="Event folder: click to open another"
+          aria-haspopup="dialog" hidden><span class="dirpath" id="dataDirPath"></span><span class="caret" aria-hidden="true">&#9662;</span></button>
   <div class="grow"></div>
   <label class="check live" title="Watch the data directory and redraw as the DAQ writes new scans">
     <input id="liveToggle" type="checkbox" checked>
@@ -185,6 +186,26 @@
     </div>
   </main>
 </div>
+
+<dialog class="folderdlg" id="folderDlg" aria-labelledby="folderTitle">
+  <h3 id="folderTitle">Open a folder of event files</h3>
+  <p class="hint">Click a folder to look inside it, then open the one you want.
+     Each browser tab can have its own folder.</p>
+  <div class="folderpath">
+    <button id="folderUp" class="ghost" type="button" title="Parent folder">&uarr; Up</button>
+    <input id="folderPath" type="text" spellcheck="false" autocomplete="off"
+           aria-label="Folder path" placeholder="Type or paste a folder path">
+    <button id="folderGo" class="ghost" type="button" title="Show this folder (Enter)">Go</button>
+  </div>
+  <p class="side-count" id="folderInfo" aria-live="polite"></p>
+  <ul class="folderlist" id="folderList"></ul>
+  <div class="dlg-actions">
+    <button id="folderDefault" class="ghost" type="button" title="The folder in config.yaml, where the DAQ writes">Default folder</button>
+    <div class="grow"></div>
+    <button id="folderCancel" class="ghost" type="button">Cancel</button>
+    <button id="folderOpen" class="ghost primary" type="button">Open this folder</button>
+  </div>
+</dialog>
 
 <script src="vendor/uPlot.iife.min.js"></script>
 <script src="app.js"></script>

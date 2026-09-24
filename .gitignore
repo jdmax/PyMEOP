@@ -6,3 +6,4 @@ screenshots/*
 !screenshots/.gitkeep
 docs/
 app/__pycache__/*
+webapp/__pycache__/*

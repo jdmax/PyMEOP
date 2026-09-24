@@ -16,11 +16,20 @@ const state = {
   runCursorIdx: null,
   version: null,      // data directory fingerprint the page was last drawn from
   updatedAt: null,    // when a live update last changed what is on screen
+  dir: null,          // folder of event files, or null for the server's default
+  dirPath: '',        // that folder's full path, as the server resolved it
+  loading: false,     // reading a folder's file list; live checks wait meanwhile
 };
 
 const charts = { run: null, scan: null, resid: null };
 
 const el = (id) => document.getElementById(id);
+
+/* An API address in the folder this tab is looking at */
+function api(path) {
+  if (!state.dir) return 'api/' + path;
+  return 'api/' + path + (path.indexOf('?') < 0 ? '?' : '&') + 'dir=' + encodeURIComponent(state.dir);
+}
 
 /* ---------------- formatting ---------------- */
 
@@ -460,7 +469,7 @@ async function loadTimeline() {
   // a few at a time, so ticking every run does not fire a hundred requests at once
   for (let i = 0; i < need.length; i += 6) {
     const got = await Promise.all(need.slice(i, i + 6).map((f) =>
-      getJSON('api/file/' + encodeURIComponent(f.name))));
+      getJSON(api('file/' + encodeURIComponent(f.name)))));
     got.forEach((r) => { tl.cache[r.name] = r; });
   }
   if (gen !== tl.gen) return false;
@@ -1179,7 +1188,7 @@ function renderRunBar() {
          run.x_key === 'wavelength' ? 'wavelength' : 'probe current (A)') +
     (run.bad_lines ? tile('Unreadable lines', run.bad_lines, 'skipped', 'warn') : '');
 
-  el('rawLink').href = 'api/file/' + encodeURIComponent(run.name) + '/raw';
+  el('rawLink').href = api('file/' + encodeURIComponent(run.name) + '/raw');
   el('rawLink').setAttribute('download', run.name);
 }
 
@@ -1316,18 +1325,24 @@ function onTick(box, shift) {
 /* ---------------- deep links ---------------- */
 
 /* The address bar carries the selection, so a particular scan can be bookmarked
-   or pasted to someone else looking at the same data directory. */
+   or pasted to someone else looking at the same data directory. A folder other
+   than the default one rides along too. */
 function readHash() {
   const h = new URLSearchParams(location.hash.replace(/^#/, ''));
   const file = h.get('file');
   const scan = parseInt(h.get('scan'), 10);
   const plot = (h.get('plot') || '').split(',').filter((v) => v);
-  return { file: file || null, scan: isFinite(scan) ? scan - 1 : 0, plot: plot };
+  return { dir: h.get('dir'), file: file || null, scan: isFinite(scan) ? scan - 1 : 0, plot: plot };
+}
+
+function dirHash() {
+  return state.dir ? 'dir=' + encodeURIComponent(state.dir) : '';
 }
 
 function writeHash() {
   if (!state.run) return;
-  let h = 'file=' + encodeURIComponent(state.run.name) + '&scan=' + (state.eventIdx + 1);
+  let h = (state.dir ? dirHash() + '&' : '') +
+    'file=' + encodeURIComponent(state.run.name) + '&scan=' + (state.eventIdx + 1);
   if (tl.stamps.size > 1) h += '&plot=' + Array.from(tl.stamps).sort().join(',');
   if (location.hash.replace(/^#/, '') !== h) {
     history.replaceState(null, '', '#' + h);
@@ -1343,11 +1358,85 @@ async function getJSON(url) {
   return body;
 }
 
+const WELCOME = el('welcome').innerHTML;
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+}
+
+/* The first read of a folder parses every event file in it, which can take a
+   while for a big one, so say how far it has got. Progress is by bytes, since
+   the files range from empty to a few megabytes. */
+function showLoading(p) {
+  el('workspace').hidden = true;
+  el('welcome').hidden = false;
+  let bar = '<progress aria-label="Reading event files"></progress>';
+  let text = 'Listing the folder' + '…';
+  if (p && p.loading && p.total) {
+    const frac = p.bytes_total ? p.bytes_done / p.bytes_total : p.done / p.total;
+    bar = '<progress max="1" value="' + frac.toFixed(4) + '" aria-label="Reading event files"></progress>';
+    text = p.done + ' of ' + p.total + ' files · ' + fmtSize(p.bytes_done) + ' of ' +
+      fmtSize(p.bytes_total) + ' · ' + Math.round(100 * frac) + '%';
+  }
+  el('welcome').innerHTML = '<h2>Reading event files</h2>' +
+    '<p class="dirline">' + esc(state.dir || state.dirPath) + '</p>' +
+    bar + '<p class="progress-text">' + text + '</p>' +
+    '<p class="muted">Each file is read once; after that the list comes from memory.</p>';
+  el('fileCount').textContent = p && p.loading && p.total
+    ? 'Reading ' + p.done + ' of ' + p.total + ' files' + '…' : 'Reading files' + '…';
+}
+
+/* The file list for the folder, with progress shown while the server reads it */
+async function fetchIndex() {
+  let live = true;
+  showLoading(null);
+  const timer = setInterval(async () => {
+    try {
+      const p = await getJSON(api('progress'));
+      if (!live) return;
+      if (!state.dirPath) setDirLabel(p.path);
+      showLoading(p);
+    } catch (e) { /* the list request will report it */ }
+  }, 250);
+  try {
+    return await getJSON(api('files'));
+  } finally {
+    live = false;
+    clearInterval(timer);
+  }
+}
+
+function setDirLabel(path) {
+  state.dirPath = path;
+  el('dataDir').hidden = !path;
+  // marked left to right, so the rtl box that trims the start keeps the path in order
+  el('dataDirPath').textContent = '\u200E' + path + '\u200E';
+  el('dataDir').title = path + (state.dir ? '' : ' (default)') + ': click to open another folder';
+  el('dataDir').classList.toggle('is-other', !!state.dir);
+}
+
+function saveDir() {
+  try {
+    if (state.dir) localStorage.setItem('pymeop-dir', state.dir);
+    else localStorage.removeItem('pymeop-dir');
+  } catch (e) { /* private mode */ }
+}
+
 async function loadFiles() {
-  const data = await getJSON('api/files');
+  state.loading = true;
+  let data;
+  try {
+    data = await fetchIndex();
+  } finally {
+    state.loading = false;
+  }
+  // the default folder picked by its path is still the default
+  if (data.data_dir === data.default_dir) state.dir = null;
+  saveDir();
   state.files = data.files;
   state.version = data.version;
-  el('dataDir').textContent = data.data_dir;
+  setDirLabel(data.data_dir);
+  el('welcome').innerHTML = WELCOME;
   renderFileList();
   const want = readHash();
   const known = want.file && state.files.some((f) => f.name === want.file);
@@ -1357,7 +1446,36 @@ async function loadFiles() {
     await selectFile(want.file, want.scan);
   } else if (first) {
     await selectFile(first.name);
+  } else {
+    el('welcome').innerHTML = '<h2>No scans here</h2><p>' +
+      (state.files.length
+        ? 'None of the ' + state.files.length + ' event files in this folder hold any scans.'
+        : 'This folder has no event files in it.') +
+      ' Click the folder name in the top bar to open another.</p>';
+    history.replaceState(null, '', '#' + dirHash());
   }
+}
+
+/* Start over in another folder: nothing from the old one carries across */
+async function switchFolder(dir) {
+  state.dir = dir || null;
+  state.run = null;
+  state.event = null;
+  state.eventIdx = 0;
+  state.files = [];
+  state.version = null;
+  state.updatedAt = null;
+  setDirLabel(dir || '');
+  tl.gen++;
+  tl.stamps = new Set();
+  tl.cache = {};
+  tl.events = [];
+  tl.selection = null;
+  tl.fits = [];
+  tl.lastCheck = null;
+  renderFits();
+  history.replaceState(null, '', '#' + dirHash());
+  await loadFiles();
 }
 
 /* Open a run in the run bar and scan plot. What happens to the time plot
@@ -1366,7 +1484,7 @@ async function loadFiles() {
      'keep'    clicked on the time plot: leave the plot as it is
      'extend'  followed onto a new file by a live update: add it to the plot */
 async function selectFile(name, startScan, mode) {
-  const run = await getJSON('api/file/' + encodeURIComponent(name));
+  const run = await getJSON(api('file/' + encodeURIComponent(name)));
   state.run = run;
   state.eventIdx = 0;
   tl.cache[run.name] = run;
@@ -1406,7 +1524,7 @@ async function selectEvent(idx) {
   idx = Math.max(0, Math.min(state.run.events.length - 1, idx));
   state.eventIdx = idx;
   state.event = await getJSON(
-    'api/file/' + encodeURIComponent(state.run.name) + '/event/' + idx);
+    api('file/' + encodeURIComponent(state.run.name) + '/event/' + idx));
   renderScan();
   writeHash();
 }
@@ -1440,7 +1558,9 @@ function setLive(cls, text) {
 
 async function refresh() {
   const before = state.files;
-  const data = await getJSON('api/files');
+  const dir = state.dir;
+  const data = await getJSON(api('files'));
+  if (state.dir !== dir || state.loading) return;   // the folder changed meanwhile
   state.files = data.files;
   state.version = data.version;
 
@@ -1475,7 +1595,7 @@ async function refresh() {
     return;
   }
 
-  const fresh = await getJSON('api/file/' + encodeURIComponent(row.name));
+  const fresh = await getJSON(api('file/' + encodeURIComponent(row.name)));
   if (state.run !== run) return;   // another run was picked while this loaded
   const prevIdx = state.eventIdx;
   state.run = fresh;
@@ -1498,11 +1618,12 @@ async function refreshTimeline() {
 }
 
 async function poll() {
-  if (polling || document.hidden || !el('liveToggle').checked) return;
+  if (polling || state.loading || document.hidden || !el('liveToggle').checked) return;
   polling = true;
   try {
-    const { version } = await getJSON('api/version');
-    if (version !== state.version) {
+    const dir = state.dir;
+    const { version } = await getJSON(api('version'));
+    if (version !== state.version && state.dir === dir && !state.loading) {
       await refresh();
       state.updatedAt = new Date().toLocaleTimeString();
     }
@@ -1512,6 +1633,55 @@ async function poll() {
   } finally {
     polling = false;
   }
+}
+
+/* ---------------- folder picker ---------------- */
+
+/* Walks the server's folders rather than using the browser's own file dialog,
+   which would hand over the files but never the path the server needs. */
+const picker = { path: null, parent: null };
+
+function plural(n, word) {
+  return n + ' ' + word + (n === 1 ? '' : 's');
+}
+
+async function browseFolder(path) {
+  el('folderInfo').classList.remove('offscale');
+  el('folderInfo').textContent = 'Looking' + '…';
+  let d;
+  try {
+    d = await getJSON('api/folders' + (path ? '?path=' + encodeURIComponent(path) : ''));
+  } catch (err) {
+    el('folderInfo').classList.add('offscale');
+    el('folderInfo').textContent = String(err.message || err);
+    return;
+  }
+  picker.path = d.path;
+  picker.parent = d.parent;
+  el('folderPath').value = d.path;
+  el('folderUp').disabled = !d.parent;
+  el('folderOpen').disabled = false;
+  el('folderInfo').textContent = plural(d.n_files || 0, 'event file') + ' here' +
+    (d.path === d.default ? ' · the default folder' : '') +
+    (d.dirs.length ? ' · ' + plural(d.dirs.length, 'folder') + ' inside' : '');
+  el('folderList').innerHTML = d.dirs.map((f) =>
+    '<li><button class="folderrow" type="button" data-path="' + esc(f.path) + '">' +
+    '<span class="fname">' + esc(f.name) + '</span>' +
+    '<span class="fmeta">' + (f.n_files === null ? 'no access' : f.n_files ? plural(f.n_files, 'event file') : '') +
+    '</span></button></li>').join('') ||
+    '<li class="side-count folder-none">No folders inside this one.</li>';
+}
+
+function openPicker() {
+  el('folderOpen').disabled = true;
+  el('folderList').innerHTML = '';
+  el('folderDlg').showModal();
+  browseFolder(state.dir || state.dirPath || null);
+}
+
+function choosePicked(path) {
+  el('folderDlg').close();
+  switchFolder(path).catch(showError);
 }
 
 /* ---------------- CSV ---------------- */
@@ -1649,6 +1819,20 @@ function wire() {
     if (state.event) renderFitPanel();
   });
 
+  el('dataDir').addEventListener('click', openPicker);
+  el('folderList').addEventListener('click', (e) => {
+    const row = e.target.closest('.folderrow');
+    if (row) browseFolder(row.dataset.path);
+  });
+  el('folderUp').addEventListener('click', () => { if (picker.parent) browseFolder(picker.parent); });
+  el('folderGo').addEventListener('click', () => browseFolder(el('folderPath').value.trim()));
+  el('folderPath').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); browseFolder(el('folderPath').value.trim()); }
+  });
+  el('folderCancel').addEventListener('click', () => el('folderDlg').close());
+  el('folderOpen').addEventListener('click', () => { if (picker.path) choosePicked(picker.path); });
+  el('folderDefault').addEventListener('click', () => choosePicked(null));
+
   el('themeBtn').addEventListener('click', () =>
     applyTheme(currentTheme() === 'dark' ? 'light' : 'dark'));
 
@@ -1700,6 +1884,23 @@ function showError(err) {
     String(err.message || err) + '</p>';
 }
 
+/* The folder comes from the address bar if it names one, else the one this
+   browser used last. A remembered folder that has since gone falls back to the
+   default rather than leaving the page on an error. */
+async function start() {
+  const fromHash = readHash().dir;
+  let saved = null;
+  try { saved = localStorage.getItem('pymeop-dir'); } catch (e) { /* private mode */ }
+  state.dir = fromHash || saved || null;
+  try {
+    await loadFiles();
+  } catch (err) {
+    if (fromHash || !saved) throw err;
+    state.dir = null;
+    await loadFiles();
+  }
+}
+
 initTheme();
 wire();
-loadFiles().catch(showError).then(initLive);
+start().catch(showError).then(initLive);
