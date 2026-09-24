@@ -19,7 +19,9 @@ It serves on <http://localhost:8000> and opens a browser. Useful flags:
 | `--data-dir DIR` | open this folder by default instead of `event_dir` from `config.yaml` |
 
 No new dependencies: the server is Python standard library, and `dataset.py` uses
-`numpy` and `PyYAML`, which the DAQ application already needs. The chart library
+`numpy` and `PyYAML`, which the DAQ application already needs. Refitting scans and
+drawing Voigt fits also need `scipy`, again already a DAQ requirement; it is only
+imported when one of those is asked for. The chart library
 is vendored in `static/vendor/`, so the app works with no network connection.
 
 The default event directory comes from `event_dir` in `config.yaml`, so the
@@ -144,15 +146,42 @@ the 2nd to 98th percentile of the scans instead, the outliers run off the plot,
 and a note in red says how many did. Switching to Fit R² is usually the quickest
 way to find them; the off-scale points stay clickable.
 
-**Scan** plots one scan: the measured lock-in R against probe current, the stored
-fit, the two gaussian components drawn sitting on the baseline, and the baseline
-itself. Underneath is the residual, sharing the cursor with the plot above. The
+**Scan** plots one scan: the measured lock-in R against probe current, the fit,
+the two peak components drawn sitting on the baseline, and the baseline itself. Underneath is the residual, sharing the cursor with the plot above. The
 fit panel lists every parameter with its ±1σ and flags R² in red when it drops
 below 0.99. Arrow keys step through the scans.
 
 Drag across a plot to zoom, double-click to reset, and click a name in the legend
 to hide that trace — useful when a failed fit has a component running far off the
 scale of the data.
+
+## Gaussian or Voigt
+
+The DAQ fits each scan with two gaussians or two Voigt profiles, whichever is set
+on its run tab, and records which in the scan (`profile`). Gaussians suit low
+pressure, where the lines are Doppler broadened; at around 100 mbar the pressure
+broadening is comparable and a gaussian biases the heights, and so the
+polarization.
+
+**Fit** in the top bar picks what the browser shows:
+
+- **As recorded**, the default: each scan's fit as the DAQ stored it.
+- **Gaussian** or **Voigt**: every scan in that shape. Scans the DAQ already fit
+  that way keep their stored fit; the rest are refit on the server with the DAQ's
+  own fitting code (`app/scanfit.py`), in order, each seeded from the last good
+  fit as the DAQ does. A Voigt refit takes about 30 ms a scan, so the first look
+  at a long run in the other shape takes a few seconds, shown as *refitting…*
+  beside the switch. Refits are kept in memory, and a live run only refits its
+  new scans.
+
+The fit panel says when a scan's fit is a refit, and names the checks a fit
+failed. **Show → Peak widths γ** plots the Lorentzian widths of Voigt fits. The
+choice rides along in the address bar (`&shape=voigt`) and is remembered by the
+browser.
+
+Refitting changes the peak heights but not the r₀ recorded with each scan, which
+came from heights in the DAQ's shape. To read polarization off a refit, type an
+r₀ measured in the same shape.
 
 ## Polarization and r₀
 
@@ -181,11 +210,13 @@ the right value.
 
 ## Baseline conventions
 
-The DAQ fits two gaussians on a polynomial baseline, and `baseline_degree` in
+The DAQ fits two peaks on a polynomial baseline, and `baseline_degree` in
 `config.yaml` chooses the baseline: `1` for a straight one, `2` for a quadratic.
-The parameters after the six gaussian ones are that polynomial's coefficients,
-highest power first, so a straight baseline records eight parameters in total and
-a quadratic nine.
+The peak parameters come first: position, σ and height for peak 1, then peak 2,
+and for a Voigt fit each peak's Lorentzian half width γ after those six. The
+baseline polynomial's coefficients follow, highest power first, so a gaussian fit
+records eight or nine parameters and a Voigt fit ten or eleven. The height is the
+peak's height at its centre in either shape.
 
 Three forms are therefore readable, and the browser tells them apart by what the
 event file records rather than by counting parameters:
@@ -196,8 +227,8 @@ event file records rather than by counting parameters:
 | after mid-scan referencing, before the flag | `x_ref`, no `base_deg` | degree from the coefficient count, referenced to mid scan |
 | the original archive | neither | straight, in raw current |
 
-The distinction matters: a new eight parameter fit and an old one have the same
-shape but different baselines, one about mid scan and one about zero. The fit
+The distinction matters: a new eight parameter gaussian fit and an old one have
+the same shape but different baselines, one about mid scan and one about zero. The fit
 panel names the convention for whichever scan is open. Everything in `data/`
 today is the original archive form.
 
@@ -219,6 +250,7 @@ webapp/
   server.py            HTTP server and JSON API
   dataset.py           reads and caches the event files, rebuilds fit components
   fitting.py           exponential fits for build-up and relaxation times
+../app/scanfit.py      the DAQ's peak fits, used here to refit scans
   static/
     index.html         the page
     app.js             charts, panels, CSV export
@@ -229,7 +261,9 @@ webapp/
 The API, should anything else want it:
 
 Every `GET` route but `/api/folders` takes `?dir=<folder>` to work in a folder other
-than the default.
+than the default. The two scan routes also take `?shape=gauss` or `?shape=voigt` to
+return every scan's fit in that shape, refitting as needed; left off, or
+`recorded`, they return the fits as stored.
 
 | Route | Returns |
 |---|---|

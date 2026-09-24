@@ -13,6 +13,7 @@ const state = {
   event: null,        // detail for the selected scan
   eventIdx: 0,
   r0: null,          // r0 typed in the top bar, overriding the recorded one; null uses the file's
+  shape: 'recorded',  // peak shape shown: the DAQ's own fits, or every scan as 'gauss' or 'voigt'
   runCursorIdx: null,
   version: null,      // data directory fingerprint the page was last drawn from
   updatedAt: null,    // when a live update last changed what is on screen
@@ -25,10 +26,13 @@ const charts = { run: null, scan: null, resid: null };
 
 const el = (id) => document.getElementById(id);
 
-/* An API address in the folder this tab is looking at */
+/* An API address in the folder this tab is looking at, for the fit shape shown */
 function api(path) {
-  if (!state.dir) return 'api/' + path;
-  return 'api/' + path + (path.indexOf('?') < 0 ? '?' : '&') + 'dir=' + encodeURIComponent(state.dir);
+  const q = [];
+  if (state.dir) q.push('dir=' + encodeURIComponent(state.dir));
+  if (state.shape !== 'recorded') q.push('shape=' + state.shape);
+  if (!q.length) return 'api/' + path;
+  return 'api/' + path + (path.indexOf('?') < 0 ? '?' : '&') + q.join('&');
 }
 
 /* ---------------- formatting ---------------- */
@@ -100,19 +104,31 @@ function palette() {
 
 /* ---------------- fit helpers ---------------- */
 
-const GAUSS_PARAM_NAMES = [
-  'Peak 1 position', 'Peak 1 σ', 'Peak 1 height',
-  'Peak 2 position', 'Peak 2 σ', 'Peak 2 height',
-];
+/* Peak parameters in the order the fit stores them. The first six are the same
+   in either shape; a Voigt fit adds each peak's Lorentzian half width γ. */
+const PEAK_PARAM_NAMES = {
+  gauss: ['Peak 1 position', 'Peak 1 σ', 'Peak 1 height',
+          'Peak 2 position', 'Peak 2 σ', 'Peak 2 height'],
+};
+PEAK_PARAM_NAMES.voigt = PEAK_PARAM_NAMES.gauss.concat(['Peak 1 γ', 'Peak 2 γ']);
 
-/* Names for the baseline coefficients, which are the parameters after the six
-   gaussian ones, highest power first. A straight baseline has two of them and a
+const SHAPE_NAMES = { gauss: 'Gaussian', voigt: 'Voigt' };
+
+/* Names for the baseline coefficients, which are the parameters after the peak
+   ones, highest power first. A straight baseline has two of them and a
    quadratic three, so the names are taken from the end. */
 const BASELINE_PARAM_NAMES = ['Baseline curvature', 'Baseline slope', 'Baseline offset'];
 
-function paramNames(pf) {
-  const nBase = Math.max(0, (pf ? pf.length : 0) - GAUSS_PARAM_NAMES.length);
-  return GAUSS_PARAM_NAMES.concat(BASELINE_PARAM_NAMES.slice(-nBase || undefined));
+function peakNames(ev) {
+  return PEAK_PARAM_NAMES[ev && ev.profile === 'voigt' ? 'voigt' : 'gauss'];
+}
+
+/* A name for every parameter of a scan's fit, in stored order; none without a fit */
+function paramNames(ev) {
+  if (!ev || !ev.pf || !ev.pf.length) return [];
+  const peaks = peakNames(ev);
+  const nBase = Math.max(0, ev.pf.length - peaks.length);
+  return peaks.concat(nBase ? BASELINE_PARAM_NAMES.slice(-nBase) : []);
 }
 
 /* Polarization from the two fitted peak heights.
@@ -277,7 +293,7 @@ function peakLabels(ev, p) {
 
 /* Baseline of the stored fit evaluated at one x, for placing the apex labels. */
 function baselineAt(ev, x) {
-  const coef = ev.pf.slice(GAUSS_PARAM_NAMES.length);
+  const coef = ev.pf.slice(peakNames(ev).length);
   if (!coef.length) return 0;
   const referenced = ev.baseline ? ev.baseline.referenced : ev.pf.length >= 9;
   const xv = referenced ? x - (ev.x_ref || 0) : x;
@@ -425,6 +441,16 @@ const METRICS = {
     series: [
       { name: 'Peak 1 σ', pick: (e) => e.pf[1], err: (e) => e.pstd[1], color: 's3' },
       { name: 'Peak 2 σ', pick: (e) => e.pf[4], err: (e) => e.pstd[4], color: 's4' },
+    ],
+  },
+  // only a Voigt fit has these; gaussian scans leave gaps
+  lorentz: {
+    axis: (x_key) => 'Peak width γ' + (x_key === 'wavelength' ? '' : ' (A)'),
+    series: [
+      { name: 'Peak 1 γ', pick: (e) => (e.profile === 'voigt' ? e.pf[6] : null),
+        err: (e) => e.pstd[6], color: 's3' },
+      { name: 'Peak 2 γ', pick: (e) => (e.profile === 'voigt' ? e.pf[7] : null),
+        err: (e) => e.pstd[7], color: 's4' },
     ],
   },
   polarization: {
@@ -1211,7 +1237,7 @@ function renderRunBar() {
 
 function renderFitPanel() {
   const ev = state.event;
-  const names = paramNames(ev.pf);
+  const names = paramNames(ev);
   const r = heightRatio(ev);
   const pol = polOf(ev);
 
@@ -1224,29 +1250,46 @@ function renderFitPanel() {
 
   const swatch = (c) => '<span class="swatch" style="background:' + c + '"></span>';
   const p = palette();
-  const rows = names.map((n, i) => {
-    const colour = i < 3 ? p.s3 : (i < 6 ? p.s4 : p.base);
-    const sep = (i === 3 || i === 6) ? ' class="sep"' : '';
-    return '<tr' + sep + '><td>' + (i % 3 === 0 || i >= 6 ? swatch(colour) : '') +
-      n + '</td><td>' + fmt(ev.pf[i], 6) + '</td><td>' +
+  // grouped by peak, so a Voigt's γ sits with its own peak rather than after both
+  const group = (n) => (n.indexOf('Peak 1') === 0 ? 1 : n.indexOf('Peak 2') === 0 ? 2 : 3);
+  const order = names.map((n, i) => i).sort((a, b) => group(names[a]) - group(names[b]) || a - b);
+  const rows = order.map((i, k) => {
+    const g = group(names[i]);
+    const first = k === 0 || group(names[order[k - 1]]) !== g;
+    const colour = g === 1 ? p.s3 : (g === 2 ? p.s4 : p.base);
+    return '<tr' + (first && k ? ' class="sep"' : '') + '><td>' +
+      (first || g === 3 ? swatch(colour) : '') +
+      names[i] + '</td><td>' + fmt(ev.pf[i], 6) + '</td><td>' +
       (ev.pstd && ev.pstd[i] !== undefined ? fmt(ev.pstd[i], 3) : DASH) + '</td></tr>';
   }).join('');
   el('paramTable').querySelector('tbody').innerHTML = rows ||
     '<tr><td colspan="3">No fit stored for this scan.</td></tr>';
 
   const note = el('fitNote');
-  const nBase = ev.pf.length - GAUSS_PARAM_NAMES.length;
+  const nBase = ev.pf.length - peakNames(ev).length;
   const referenced = ev.baseline ? ev.baseline.referenced : ev.pf.length >= 9;
+  const stored = ev.profile === 'voigt' ? 'gaussian' : 'Voigt';
+  const failed = ev.fit_ok === false;
+  let text;
   if (!ev.pf.length) {
-    note.textContent = 'This scan has no stored fit.';
-    note.className = 'note warn';
+    text = ev.refit ? 'The ' + SHAPE_NAMES[ev.profile] + ' refit did not converge: ' + ev.fit_message
+      : 'This scan has no stored fit.';
   } else {
-    const shape = nBase > 2 ? 'a quadratic baseline' : 'a straight baseline';
-    note.textContent = 'Two gaussians on ' + shape + (referenced
-      ? ' referenced to mid scan.'
-      : ' in raw current (written before the baseline was referenced to mid scan).');
-    note.className = 'note';
+    const base = nBase > 2 ? 'a quadratic baseline' : 'a straight baseline';
+    text = (ev.profile === 'voigt' ? 'Two Voigt profiles on ' : 'Two gaussians on ') + base +
+      (referenced ? ' referenced to mid scan.'
+        : ' in raw current (written before the baseline was referenced to mid scan).');
+    if (ev.refit) {
+      text += ' Refit here: the DAQ stored a ' + stored + ' fit for this scan.';
+      if (state.r0 === null && ev.r0) {
+        text += ' Its recorded r₀ comes from ' + stored + ' heights; type an r₀ taken ' +
+          'under this shape to correct P.';
+      }
+    }
+    if (failed && ev.fit_message) text += ' The fit failed its checks: ' + ev.fit_message;
   }
+  note.textContent = text;
+  note.className = !ev.pf.length || failed ? 'note warn' : 'note';
 }
 
 function renderPointTable() {
@@ -1349,7 +1392,8 @@ function readHash() {
   const file = h.get('file');
   const scan = parseInt(h.get('scan'), 10);
   const plot = (h.get('plot') || '').split(',').filter((v) => v);
-  return { dir: h.get('dir'), file: file || null, scan: isFinite(scan) ? scan - 1 : 0, plot: plot };
+  return { dir: h.get('dir'), file: file || null, scan: isFinite(scan) ? scan - 1 : 0, plot: plot,
+           shape: h.get('shape') };
 }
 
 function dirHash() {
@@ -1361,6 +1405,7 @@ function writeHash() {
   let h = (state.dir ? dirHash() + '&' : '') +
     'file=' + encodeURIComponent(state.run.name) + '&scan=' + (state.eventIdx + 1);
   if (tl.stamps.size > 1) h += '&plot=' + Array.from(tl.stamps).sort().join(',');
+  if (state.shape !== 'recorded') h += '&shape=' + state.shape;
   if (location.hash.replace(/^#/, '') !== h) {
     history.replaceState(null, '', '#' + h);
   }
@@ -1368,11 +1413,21 @@ function writeHash() {
 
 /* ---------------- loading ---------------- */
 
+/* Requests for a fit shape may be refitting a run on the server, which can
+   take a few seconds, so the top bar says so while any is outstanding. */
+let refitting = 0;
+
 async function getJSON(url) {
-  const res = await fetch(url);
-  const body = await res.json();
-  if (!res.ok) throw new Error(body.error || res.statusText);
-  return body;
+  const refit = url.indexOf('shape=') >= 0;
+  if (refit && refitting++ === 0) el('shapeStatus').textContent = 'refitting' + '…';
+  try {
+    const res = await fetch(url);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    return body;
+  } finally {
+    if (refit && --refitting === 0) el('shapeStatus').textContent = '';
+  }
 }
 
 const WELCOME = el('welcome').innerHTML;
@@ -1743,10 +1798,19 @@ function exportScan() {
            lines.join('\n'));
 }
 
+/* Every parameter name any scan in a run has, peaks first, so a run with both
+   gaussian and Voigt fits in it still lines up in one set of columns. */
+function runParamNames(events) {
+  const seen = new Set();
+  events.forEach((e) => paramNames(e).forEach((n) => seen.add(n)));
+  const all = PEAK_PARAM_NAMES.voigt.concat(BASELINE_PARAM_NAMES);
+  return all.filter((n) => seen.has(n));
+}
+
 function exportRun() {
   const run = state.run;
   if (!run) return;
-  const names = paramNames(run.events[0].pf);
+  const names = runParamNames(run.events);
   const head = ['scan', 'start_stamp', 'start_time', 'elapsed_s', 'n_points', 'rsq',
                 'height_ratio', 'polarization_pct']
     .concat(names.map((n) => n.toLowerCase().replace(/[^a-z0-9]+/g, '_')))
@@ -1755,12 +1819,15 @@ function exportRun() {
   const lines = [head.join(',')];
   run.events.forEach((e, i) => {
     const pol = polOf(e);
+    const at = {};
+    paramNames(e).forEach((n, j) => { at[n] = j; });
+    const val = (arr, n) => (at[n] === undefined || !arr ? null : arr[at[n]]);
     const row = [i + 1, e.start_stamp, JSON.stringify(e.start_time || ''),
                  (e.start_stamp || 0) - t0, e.n_points, e.rsq,
                  heightRatio(e), pol === null ? null : pol * 100]
       .map((v) => (typeof v === 'string' ? v : csvCell(v)))
-      .concat(names.map((n, j) => csvCell(e.pf[j])))
-      .concat(names.map((n, j) => csvCell(e.pstd[j])));
+      .concat(names.map((n) => csvCell(val(e.pf, n))))
+      .concat(names.map((n) => csvCell(val(e.pstd, n))));
     lines.push(row.join(','));
   });
   download(run.name.replace(/\.\w+$/, '') + '_run.csv', lines.join('\n'));
@@ -1847,6 +1914,8 @@ function wire() {
     if (state.event) renderFitPanel();
   });
 
+  el('shape').addEventListener('change', () => setShape(el('shape').value).catch(showError));
+
   el('dataDir').addEventListener('click', openPicker);
   el('folderList').addEventListener('click', (e) => {
     const row = e.target.closest('.folderrow');
@@ -1912,6 +1981,30 @@ function showError(err) {
     String(err.message || err) + '</p>';
 }
 
+/* Show every scan's fit in another shape. The server refits whatever the DAQ
+   stored in the other shape, which is slow the first time for a long run, so
+   say so while it works. Everything fetched for the old shape is dropped. */
+async function setShape(shape) {
+  state.shape = SHAPE_NAMES[shape] ? shape : 'recorded';
+  el('shape').value = state.shape;
+  try { localStorage.setItem('pymeop-shape', state.shape); } catch (e) { /* private mode */ }
+  tl.cache = {};
+  tl.fits = [];
+  renderFits();
+  if (!state.run) return;
+  await selectFile(state.run.name, state.eventIdx, 'keep');
+  if (await loadTimeline()) drawTimeline({ keepZoom: true });
+}
+
+function initShape() {
+  let saved = readHash().shape;
+  if (!saved) {
+    try { saved = localStorage.getItem('pymeop-shape'); } catch (e) { /* private mode */ }
+  }
+  state.shape = SHAPE_NAMES[saved] ? saved : 'recorded';
+  el('shape').value = state.shape;
+}
+
 /* The folder comes from the address bar if it names one, else the one this
    browser used last. A remembered folder that has since gone falls back to the
    default rather than leaving the page on an error. */
@@ -1930,5 +2023,6 @@ async function start() {
 }
 
 initTheme();
+initShape();
 wire();
 start().catch(showError).then(initLive);

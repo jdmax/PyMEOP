@@ -6,10 +6,12 @@ on modification time, since a long run is a few hundred scans of a hundred point
 and reparsing it on every request is wasteful.
 """
 
+import copy
 import hashlib
 import json
 import os
 import re
+import sys
 import threading
 
 import numpy as np
@@ -150,26 +152,52 @@ def name_stamp(name):
     return ((((y * 100 + mo) * 100 + d) * 100 + h) * 100 + mi) * 100 + s
 
 
+# Peak line shapes, as app/scanfit.py names them. A Voigt fit has a Lorentzian
+# width for each peak after the six gaussian parameters, then the baseline.
+PROFILES = ('gauss', 'voigt')
 N_GAUSS_PARS = 6  # two gaussians, each a position, a sigma and a height
+N_VOIGT_PARS = 8
+
+# what the browser can show: each scan's fit as the DAQ stored it, or every scan
+# in one shape, refitting the ones stored in the other
+SHAPES = ('recorded',) + PROFILES
 
 
-def fit_parts(x, pf, x_ref, referenced):
-    '''The two gaussians and the baseline of a fit, each evaluated on x.
+def n_peak_pars(profile):
+    return N_VOIGT_PARS if profile == 'voigt' else N_GAUSS_PARS
 
-    The parameters after the six gaussian ones are the baseline polynomial
+
+def scanfit():
+    '''The DAQ's own fitting module, imported only when a Voigt or a refit is
+    needed, since it brings in scipy and a browser of gaussian fits can do
+    without it'''
+
+    if ROOT not in sys.path:
+        sys.path.insert(0, ROOT)
+    from app import scanfit as module
+    return module
+
+
+def fit_parts(x, pf, x_ref, referenced, profile='gauss'):
+    '''The two peaks and the baseline of a fit, each evaluated on x.
+
+    The parameters after the peak ones are the baseline polynomial
     coefficients, highest power first, so one or two of them is a straight
     baseline or a quadratic without any further special casing.
 
     Args:
         x: Scan x axis values
-        pf: Fit parameter list, gaussians first
+        pf: Fit parameter list, peaks first
         x_ref: Baseline reference, the mid scan x
         referenced: True if the baseline is about x_ref rather than raw x
+        profile: 'gauss' or 'voigt'
     Returns:
-        (g1, g2, base) arrays, the gaussians about zero and the baseline
+        (g1, g2, base) arrays, the peaks about zero and the baseline
     '''
 
     x = np.asarray(x, dtype=float)
+    if profile == 'voigt':
+        return scanfit().parts(x, pf, x_ref if referenced else 0.0, 'voigt')
     g1 = pf[2] * np.exp(-np.power(x - pf[0], 2) / (2 * np.power(pf[1], 2)))
     g2 = pf[5] * np.exp(-np.power(x - pf[3], 2) / (2 * np.power(pf[4], 2)))
     base = np.polyval(pf[N_GAUSS_PARS:], x - x_ref if referenced else x)
@@ -233,6 +261,12 @@ class Event:
         self.times = np.array(raw.get('times') or [], dtype=float)
         self.pf = list(raw.get('pf') or [])
         self.pstd = list(raw.get('pstd') or [])
+        self.pcov = raw.get('pcov') or []
+        self.profile = raw.get('profile') if raw.get('profile') in PROFILES else 'gauss'
+        self.n_peak = n_peak_pars(self.profile)
+        self.refit = False  # True once the fit is the browser's own rather than the DAQ's
+        self.fit_ok = raw.get('fit_good')  # not in the oldest files
+        self.fit_message = raw.get('fit_message')
         self.start_stamp = raw.get('start_stamp')
         self.stop_stamp = raw.get('stop_stamp')
 
@@ -262,19 +296,50 @@ class Event:
             self.x_ref = 0.0
 
         self.base_deg = raw.get('base_deg')
-        if self.base_deg is None and len(self.pf) > N_GAUSS_PARS:
-            self.base_deg = len(self.pf) - N_GAUSS_PARS - 1
+        if self.base_deg is None and len(self.pf) > self.n_peak:
+            self.base_deg = len(self.pf) - self.n_peak - 1
 
-        self.fit = np.array(raw.get('fit') or [], dtype=float)
-        self.g1 = self.g2 = self.base = np.array([])
-        if len(self.pf) >= 8 and len(self.x):
-            self.g1, self.g2, self.base = fit_parts(
-                self.x, self.pf, self.x_ref, self.referenced)
-            if len(self.fit) != len(self.x):
-                self.fit = self.g1 + self.g2 + self.base
-
-        self.rsq = r_squared(self.rs, self.fit) if len(self.fit) == len(self.rs) else None
+        self.components(np.array(raw.get('fit') or [], dtype=float))
         self.r0 = recorded_r0(raw)
+
+    def components(self, fit):
+        '''Rebuild the fit curve, its parts and R² from pf.
+
+        Args:
+            fit: The fit curve as stored, used when it matches the scan
+        '''
+
+        self.fit = fit
+        self.g1 = self.g2 = self.base = np.array([])
+        if len(self.pf) >= self.n_peak + 2 and len(self.x):
+            try:
+                self.g1, self.g2, self.base = fit_parts(
+                    self.x, self.pf, self.x_ref, self.referenced, self.profile)
+            except ImportError:  # a Voigt fit to draw, and no scipy to draw it with
+                pass
+            else:
+                if len(self.fit) != len(self.x):
+                    self.fit = self.g1 + self.g2 + self.base
+        self.rsq = r_squared(self.rs, self.fit) if len(self.fit) == len(self.rs) else None
+
+    def with_fit(self, res, profile):
+        '''A copy of this scan carrying a refit in place of the stored fit.
+
+        Args:
+            res: One scan's entry from refit_run()
+            profile: The shape it was fit with
+        '''
+
+        e = copy.copy(self)
+        e.profile, e.n_peak, e.refit = profile, n_peak_pars(profile), True
+        e.fit_ok, e.fit_message = res['ok'], res['message']
+        e.base_deg = res['base_deg']
+        e.referenced, e.x_ref = True, res['x_ref']
+        e.pf = [] if res['pf'] is None else list(res['pf'])
+        e.pstd = [] if res['pstd'] is None else list(res['pstd'])
+        e.pcov = [] if res['pcov'] is None else res['pcov']
+        e.components(np.array([]))
+        return e
 
     def peak(self, i):
         '''Fitted height of peak 1 or 2, or None if the fit is missing'''
@@ -301,6 +366,10 @@ class Event:
             'pf': finite_list(self.pf),
             'pstd': finite_list(self.pstd),
             'rsq': self.rsq,
+            'profile': self.profile,
+            'refit': self.refit,
+            'fit_ok': self.fit_ok,
+            'fit_message': self.fit_message,
             'peak1': self.peak(1),
             'peak2': self.peak(2),
             'r0': self.r0,
@@ -313,19 +382,20 @@ class Event:
         d.update({
             'x_ref': finite(self.x_ref),
             'baseline': {'degree': self.base_deg, 'referenced': self.referenced},
+            'n_peak': self.n_peak,
             'x': finite_list(self.x),
             'currs': finite_list(self.currs),
             'waves': finite_list(self.waves),
             'times': finite_list(self.times),
             'signal': finite_list(self.rs),
             'fit': finite_list(self.fit),
-            # the gaussians are drawn sitting on the baseline, as the run tab draws
+            # the peaks are drawn sitting on the baseline, as the run tab draws
             # them, so the components stay in the range of the data
             'g1': finite_list(self.g1 + self.base) if len(self.g1) else [],
             'g2': finite_list(self.g2 + self.base) if len(self.g2) else [],
             'base': finite_list(self.base),
             'residual': finite_list(self.rs - self.fit) if len(self.fit) == len(self.rs) else [],
-            'pcov': [finite_list(row) for row in (self.raw.get('pcov') or [])],
+            'pcov': [finite_list(row) for row in self.pcov],
             'settings': self.raw.get('settings') or {},
         })
         return d
@@ -343,6 +413,7 @@ class Run:
         self.events = []
         self.bad_lines = 0
         self.error = None
+        self._views = {}
         self._parse()
 
     def _parse(self):
@@ -384,13 +455,91 @@ class Run:
             'x_key': self.events[0].x_key if self.events else 'current',
         }
 
-    def detail(self):
+    def view(self, shape='recorded'):
+        '''The scans with their fits in one shape.
+
+        Args:
+            shape: 'recorded' for each scan's fit as the DAQ stored it, or
+                'gauss' or 'voigt' for every scan in that shape, refitting any
+                stored in the other
+        Returns:
+            List of Event, refit ones being copies of the stored ones
+        Raises:
+            ValueError for an unknown shape
+        '''
+
+        if shape not in SHAPES:
+            raise ValueError('Unknown line shape %r, expected one of %s' % (shape, ', '.join(SHAPES)))
+        if shape == 'recorded':
+            return self.events
+        if shape not in self._views:
+            results = refit_run(self, shape)
+            self._views[shape] = [e if r is None else e.with_fit(r, shape)
+                                  for e, r in zip(self.events, results)]
+        return self._views[shape]
+
+    def detail(self, shape='recorded'):
         '''The file list row plus a summary of every scan in the file'''
 
         d = self.info()
         d['settings'] = self.events[0].raw.get('settings') if self.events else {}
-        d['events'] = [e.summary() for e in self.events]
+        d['shape'] = shape
+        d['events'] = [e.summary() for e in self.view(shape)]
         return d
+
+
+# Refits, kept apart from the parsed runs: a live run is parsed again each time
+# it grows, and the scans already refit should not be fit again with it.
+_refits = {}        # (run start, shape) -> [(scan start stamp, result or None, seed after)]
+_refit_locks = {}   # the same keys, so two requests for one run fit it only once
+_refit_guard = threading.Lock()
+
+
+def refit_run(run, profile):
+    '''Fit every scan of a run whose stored fit is not in the given shape.
+
+    The scans are fit in order, each seeded from the last good fit before it as
+    the DAQ does. Scans stored in the wanted shape keep their fit and seed the
+    next one.
+
+    Args:
+        run: The Run
+        profile: 'gauss' or 'voigt'
+    Returns:
+        One entry per scan: None to keep the stored fit, or a dict of pf, pstd,
+        pcov, ok, message, x_ref and base_deg (pf None if no fit converged)
+    '''
+
+    fitting = scanfit()
+    stamp = NAME_STAMP.search(run.name)
+    key = (stamp.group(0) if stamp else run.path, profile)
+    with _refit_guard:
+        lock = _refit_locks.setdefault(key, threading.Lock())
+    with lock:
+        done = _refits.get(key, [])
+        n = 0  # scans already fit, as long as the file still starts with them
+        while (n < len(done) and n < len(run.events)
+               and done[n][0] == run.events[n].start_stamp):
+            n += 1
+        out = done[:n]
+        seed = out[-1][2] if out else None
+        for ev in run.events[n:]:
+            res = None
+            if ev.profile == profile and len(ev.pf) >= ev.n_peak + 2:
+                if ev.fit_ok is not False:
+                    seed = list(ev.pf)
+            else:
+                base_deg = (ev.base_deg if ev.base_deg in fitting.BASELINE_DEGREES
+                            else fitting.DEFAULT_BASELINE_DEGREE)
+                b = fitting.ScanFitter(base_deg, profile).fit(ev.x, ev.rs, seed)
+                res = {'pf': b['pf'], 'pstd': b.get('pstd'), 'pcov': b.get('pcov'),
+                       'ok': b['ok'], 'message': b['message'], 'x_ref': b['x_ref'],
+                       'base_deg': base_deg}
+                if b['ok']:
+                    seed = list(b['pf'])
+            out.append((ev.start_stamp, res, seed))
+        _refits[key] = out
+        return [r for _, r, _ in out]
 
 
 class Library:

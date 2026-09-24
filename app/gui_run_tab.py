@@ -8,6 +8,8 @@ from PyQt5.QtGui import QIntValidator, QDoubleValidator, QValidator
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 import pyqtgraph as pg
 import numpy as np
+
+from app import scanfit
  
    
 class RunTab(QWidget):
@@ -86,8 +88,22 @@ class RunTab(QWidget):
         self.anal_box.setLayout(QGridLayout())
         self.left.addWidget(self.anal_box)
         
+        # Gaussian lines suit low pressure, where Doppler broadening dominates; at
+        # around 100 mbar the collisional width is comparable and Voigt is needed
+        self.shape_label = QLabel("Line Shape:")
+        self.anal_box.layout().addWidget(self.shape_label, 0, 0)
+        self.shape_combo = QComboBox()
+        for key, name in scanfit.PROFILES.items():
+            self.shape_combo.addItem(name, key)
+        self.shape_combo.setToolTip("Peak shape for the fit, from the scan now running on. Gaussian for "
+                                    "Doppler broadened lines at low pressure, Voigt once pressure "
+                                    "broadening is comparable. Heights differ between the two, so "
+                                    "set the zero amplitudes again after switching.")
+        self.shape_combo.currentIndexChanged.connect(self.shape_changed)
+        self.anal_box.layout().addWidget(self.shape_combo, 0, 1)
+
         self.fit_status = QLabel('')
-        self.anal_box.layout().addWidget(self.fit_status, 0, 0, 1, 4)
+        self.anal_box.layout().addWidget(self.fit_status, 1, 0, 1, 5)
         
         # self.pos_label = QLabel("Position:")
         # self.anal_box.layout().addWidget(self.pos_label, 4, 1)
@@ -97,53 +113,60 @@ class RunTab(QWidget):
         # self.anal_box.layout().addWidget(self.hei_label, 4, 3)
         
         
-        self.g1_label = QLabel("Gaussian 1:")
-        self.anal_box.layout().addWidget(self.g1_label, 1, 0)
+        self.g1_label = QLabel("Peak 1:")
+        self.anal_box.layout().addWidget(self.g1_label, 2, 0)
         self.g1_pos_edit =  QLineEdit()
         self.g1_pos_edit.setEnabled(False)
         self.g1_pos_edit.setPlaceholderText("Position")
-        self.anal_box.layout().addWidget(self.g1_pos_edit, 1, 1)
+        self.anal_box.layout().addWidget(self.g1_pos_edit, 2, 1)
         self.g1_sig_edit =  QLineEdit()
         self.g1_sig_edit.setEnabled(False)
         self.g1_sig_edit.setPlaceholderText("Sigma")
-        self.anal_box.layout().addWidget(self.g1_sig_edit, 1, 2)
+        self.anal_box.layout().addWidget(self.g1_sig_edit, 2, 2)
         self.g1_hei_edit =  QLineEdit()
         self.g1_hei_edit.setEnabled(False)
         self.g1_hei_edit.setPlaceholderText("Height")
-        self.anal_box.layout().addWidget(self.g1_hei_edit, 1, 3)        
+        self.anal_box.layout().addWidget(self.g1_hei_edit, 2, 3)
+        self.g1_gam_edit =  QLineEdit()
+        self.g1_gam_edit.setEnabled(False)
+        self.anal_box.layout().addWidget(self.g1_gam_edit, 2, 4)
         
-        self.g2_label = QLabel("Gaussian 2:")
-        self.anal_box.layout().addWidget(self.g2_label, 2, 0)
+        self.g2_label = QLabel("Peak 2:")
+        self.anal_box.layout().addWidget(self.g2_label, 3, 0)
         self.g2_pos_edit =  QLineEdit()
         self.g2_pos_edit.setEnabled(False)
         self.g2_pos_edit.setPlaceholderText("Position")
-        self.anal_box.layout().addWidget(self.g2_pos_edit, 2, 1)
+        self.anal_box.layout().addWidget(self.g2_pos_edit, 3, 1)
         self.g2_sig_edit =  QLineEdit()
         self.g2_sig_edit.setEnabled(False)
         self.g2_sig_edit.setPlaceholderText("Sigma")
-        self.anal_box.layout().addWidget(self.g2_sig_edit, 2, 2)
+        self.anal_box.layout().addWidget(self.g2_sig_edit, 3, 2)
         self.g2_hei_edit =  QLineEdit()
         self.g2_hei_edit.setEnabled(False)
         self.g2_hei_edit.setPlaceholderText("Height")
-        self.anal_box.layout().addWidget(self.g2_hei_edit, 2, 3)        
+        self.anal_box.layout().addWidget(self.g2_hei_edit, 3, 3)
+        self.g2_gam_edit =  QLineEdit()
+        self.g2_gam_edit.setEnabled(False)
+        self.anal_box.layout().addWidget(self.g2_gam_edit, 3, 4)
         
         # a straight baseline has no curvature term, so say so rather than leaving
         # an empty box that looks like a reading that failed to arrive
         straight = str(self.parent.settings.get('baseline_degree', 2)) == '1'
         self.slope_label = QLabel("Baseline:")
-        self.anal_box.layout().addWidget(self.slope_label, 3, 0)
+        self.anal_box.layout().addWidget(self.slope_label, 4, 0)
         self.quad_edit =  QLineEdit()
         self.quad_edit.setEnabled(False)
         self.quad_edit.setPlaceholderText("n/a, straight" if straight else "Curvature")
-        self.anal_box.layout().addWidget(self.quad_edit, 3, 1)
+        self.anal_box.layout().addWidget(self.quad_edit, 4, 1)
         self.slope_edit =  QLineEdit()
         self.slope_edit.setEnabled(False)
         self.slope_edit.setPlaceholderText("Slope")
-        self.anal_box.layout().addWidget(self.slope_edit, 3, 2)
+        self.anal_box.layout().addWidget(self.slope_edit, 4, 2)
         self.int_edit =  QLineEdit()
         self.int_edit.setEnabled(False)
         self.int_edit.setPlaceholderText("Offset")
-        self.anal_box.layout().addWidget(self.int_edit, 3, 3)
+        self.anal_box.layout().addWidget(self.int_edit, 4, 3)
+        self.show_gamma_boxes()
 
 
         # Populate Results box
@@ -269,6 +292,26 @@ class RunTab(QWidget):
         self.pol_plot = self.pol_wid.plot([], [], pen=self.peak_pen)   
         self.right.addWidget(self.pol_wid)
 
+    def line_shape(self):
+        '''The peak line shape picked, gauss or voigt'''
+        return self.shape_combo.currentData()
+
+    def show_gamma_boxes(self):
+        '''Label the Lorentzian width boxes, which only a Voigt fit fills'''
+        voigt = self.line_shape() == 'voigt'
+        for edit in (self.g1_gam_edit, self.g2_gam_edit):
+            edit.setPlaceholderText("Gamma" if voigt else "n/a, Gaussian")
+            if not voigt:
+                edit.setText("")
+
+    def shape_changed(self):
+        '''New line shape: the scan now running is the first one fit with it'''
+        self.last_good_pf = None    # a fit of the other shape has the wrong parameters to seed from
+        self.show_gamma_boxes()
+        self.fit_status.setText(f"{self.shape_combo.currentText()} fit from the scan now running. "
+                                "Set the zero amplitudes again under this shape.")
+        self.fit_status.setStyleSheet("color: #aa6600")
+
     def scan_pushed(self):
         '''Start main loop if conditions met'''
                
@@ -354,7 +397,7 @@ class RunTab(QWidget):
             self.fit_status.setStyleSheet("color: #aa0000")
             return
 
-        self.fit_status.setText(f"Fit good, R2 = {event.rsq:.4f}")
+        self.fit_status.setText(f"{scanfit.PROFILES[event.profile]} fit good, R2 = {event.rsq:.4f}")
         self.fit_status.setStyleSheet("color: #007700")
         self.last_good_pf = list(event.pf)    # starting point for the next scan's fit
 
@@ -364,9 +407,12 @@ class RunTab(QWidget):
         self.g2_pos_edit.setText(f"{event.pf[3]:.4f}")
         self.g2_sig_edit.setText(f"{event.pf[4]:.4f}")
         self.g2_hei_edit.setText(f"{event.pf[5]:.4f}")
+        voigt = event.profile == 'voigt'
+        self.g1_gam_edit.setText(f"{event.pf[6]:.4f}" if voigt else "")
+        self.g2_gam_edit.setText(f"{event.pf[7]:.4f}" if voigt else "")
         # baseline coefficients, highest power first, referenced to mid-scan; there
         # is no curvature term at all when the baseline is set to straight
-        coef = list(event.pf[6:])
+        coef = list(event.pf[scanfit.n_peak_pars(event.profile):])
         self.quad_edit.setText(f"{coef[0]:.3e}" if len(coef) > 2 else "")
         self.slope_edit.setText(f"{coef[-2]:.4f}")
         self.int_edit.setText(f"{coef[-1]:.4f}")

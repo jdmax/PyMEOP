@@ -25,6 +25,15 @@
     <span class="livedot" aria-hidden="true"></span> Live
     <span class="livestatus" id="liveStatus" aria-live="polite"></span>
   </label>
+  <label class="field" title="Peak shape of the fits shown. As recorded is each scan's fit as the DAQ stored it. Gaussian or Voigt shows every scan in that shape, refitting here any scan the DAQ fit in the other; the first refit of a run takes a few seconds.">
+    <span>Fit</span>
+    <select id="shape">
+      <option value="recorded">As recorded</option>
+      <option value="gauss">Gaussian</option>
+      <option value="voigt">Voigt</option>
+    </select>
+    <span class="livestatus" id="shapeStatus" aria-live="polite"></span>
+  </label>
   <label class="field" title="Ratio of the two peak heights at zero polarization, used to scale P. Left empty, each scan uses the r0 the DAQ recorded with it; a value typed here is used for every scan instead.">
     <span>r<sub>0</sub></span>
     <input id="r0" type="number" step="0.001" placeholder="from file" inputmode="decimal">
@@ -56,7 +65,7 @@
       <img class="welcome-logo" src="brand/logo.png" alt="CLAS12 Polarized ³He" width="160" height="158">
       <h2>Choose a run</h2>
       <p>Each event file is one run, and each line in it is one current scan with the
-         two-gaussian fit that was stored alongside it. Pick a run on the left to
+         two-peak fit that was stored alongside it. Pick a run on the left to
          plot its scans.</p>
     </div>
 
@@ -75,7 +84,8 @@
                 <option value="polarization" selected>Polarization</option>
                 <option value="peaks">Peak heights</option>
                 <option value="positions">Peak positions</option>
-                <option value="widths">Peak widths</option>
+                <option value="widths">Peak widths &sigma;</option>
+                <option value="lorentz">Peak widths &gamma; (Voigt)</option>
                 <option value="ratio">Peak height ratio</option>
                 <option value="rsq">Fit R&sup2;</option>
               </select>
