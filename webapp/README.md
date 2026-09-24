@@ -162,11 +162,22 @@ Polarization is computed from the two fitted peak heights as
 P = (r/r₀ − 1) / (r/r₀ + 1),   r = peak 1 height / peak 2 height
 ```
 
-r₀ is the same height ratio measured with the target unpolarized. It is a property
-of the setup rather than of the file — the archived event files do not record the
-zero readings — so it is entered in the top bar and defaults to 1. Change it and
-every polarization number on the page updates. Treat P as meaningful only once r₀
-is set to the zero measurement that belongs with the run.
+This is the same formula the DAQ uses. r₀ is the same height ratio measured with the
+target unpolarized. The DAQ writes its zero peak heights (`p1_zero`, `p2_zero`,
+from **Set Current as Zero** on the run tab) into every scan, and the browser takes
+r₀ = `p1_zero / p2_zero` from each scan, so its polarization matches what the DAQ
+showed at the time. The P tiles say which r₀ they used.
+
+The **r₀** box in the top bar is an override. Left empty, as it starts, each scan
+uses its recorded r₀. A value typed there is used for every scan instead, which is
+how to apply a zero measured later, or to give one to the older files that predate
+the recorded zero and otherwise fall back to r₀ = 1. Clear the box to go back to
+the recorded values.
+
+The earliest files with zero readings (before about 16:53 on 7 Jan 2022) have a
+stored `pol` of 1.0 for every scan, from a bug in the DAQ at the time. The browser
+recomputes P from the peak heights rather than reading `pol`, so those scans show
+the right value.
 
 ## Baseline conventions
 

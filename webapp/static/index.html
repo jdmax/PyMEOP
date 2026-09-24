@@ -25,9 +25,9 @@
     <span class="livedot" aria-hidden="true"></span> Live
     <span class="livestatus" id="liveStatus" aria-live="polite"></span>
   </label>
-  <label class="field" title="Ratio of the two peak heights at zero polarization, used to scale P">
+  <label class="field" title="Ratio of the two peak heights at zero polarization, used to scale P. Left empty, each scan uses the r0 the DAQ recorded with it; a value typed here is used for every scan instead.">
     <span>r<sub>0</sub></span>
-    <input id="r0" type="number" step="0.001" value="1" inputmode="decimal">
+    <input id="r0" type="number" step="0.001" placeholder="from file" inputmode="decimal">
   </label>
   <button id="themeBtn" class="ghost" type="button" title="Switch light and dark">Theme</button>
 </header>

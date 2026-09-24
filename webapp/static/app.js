@@ -12,7 +12,7 @@ const state = {
   run: null,          // detail for the selected file
   event: null,        // detail for the selected scan
   eventIdx: 0,
-  r0: 1,
+  r0: null,          // r0 typed in the top bar, overriding the recorded one; null uses the file's
   runCursorIdx: null,
   version: null,      // data directory fingerprint the page was last drawn from
   updatedAt: null,    // when a live update last changed what is on screen
@@ -118,8 +118,27 @@ function paramNames(pf) {
 /* Polarization from the two fitted peak heights.
 
    r is the height ratio for this scan and r0 the same ratio with the target
-   unpolarized, so r/r0 is what the polarization is actually read off. r0 is a
-   property of the setup rather than of the file, so it is entered in the UI. */
+   unpolarized, so r/r0 is what the polarization is actually read off. The DAQ
+   records the r0 it used in every scan, and that is used unless one is typed in
+   the top bar; files from before the DAQ recorded it fall back to 1. */
+function r0For(e) {
+  if (state.r0 !== null) return state.r0;
+  return e && e.r0 ? e.r0 : 1;
+}
+
+/* How the r0 behind a set of scans is described next to their polarization */
+function r0Label(events) {
+  if (state.r0 !== null) return 'r₀ = ' + state.r0 + ' (typed)';
+  const seen = new Set(events.map((e) => (e.r0 ? e.r0.toFixed(4) : 'none')));
+  if (seen.size > 1) return 'r₀ as recorded, per scan';
+  const only = seen.values().next().value;
+  return only === 'none' || only === undefined ? 'r₀ = 1, none recorded' : 'r₀ = ' + only + ' (recorded)';
+}
+
+function polOf(e) {
+  return polarization(e.peak1, e.peak2, r0For(e));
+}
+
 function polarization(peak1, peak2, r0) {
   if (peak1 === null || peak2 === null || !peak2 || !r0 || !isFinite(r0)) return null;
   const ratio = (peak1 / peak2) / r0;
@@ -370,7 +389,8 @@ function shownDirs() {
 /* One sigma on the polarization, from the uncertainties on the two peak
    heights, taken as independent. With q = (h1/h2)/r0 and P = (q-1)/(q+1),
    dP/dq = 2/(q+1)^2. */
-function polarizationErr(e, r0) {
+function polarizationErr(e) {
+  const r0 = r0For(e);
   const h1 = e.peak1, h2 = e.peak2;
   const s1 = e.pstd ? e.pstd[2] : null, s2 = e.pstd ? e.pstd[5] : null;
   if (h1 === null || h2 === null || !h1 || !h2 || !r0 || s1 == null || s2 == null) return null;
@@ -381,7 +401,7 @@ function polarizationErr(e, r0) {
 }
 
 function polPercent(e) {
-  const p = polarization(e.peak1, e.peak2, state.r0);
+  const p = polOf(e);
   return p === null ? null : p * 100;
 }
 
@@ -411,7 +431,7 @@ const METRICS = {
     axis: () => 'Polarization (%)',
     unit: ' %',
     series: [
-      { name: 'P', pick: polPercent, err: (e) => polarizationErr(e, state.r0), color: 's1' },
+      { name: 'P', pick: polPercent, err: polarizationErr, color: 's1' },
     ],
   },
   ratio: {
@@ -958,9 +978,9 @@ async function doFit() {
   try {
     for (const g of groups) {
       const pts = g.events
-        .map((e) => ({ t: e.start_stamp, y: polPercent(e), s: polarizationErr(e, state.r0) }))
+        .map((e) => ({ t: e.start_stamp, y: polPercent(e), s: polarizationErr(e) }))
         .filter((q) => q.y !== null);
-      const base = { key: g.key, label: g.label, n: pts.length, r0: state.r0 };
+      const base = { key: g.key, label: g.label, n: pts.length, r0: r0Label(g.events) };
       try {
         const sig = pts.every((q) => q.s !== null && q.s > 0) ? pts.map((q) => q.s) : null;
         const r = await postJSON('api/fit/exp', {
@@ -1012,7 +1032,7 @@ function renderFits() {
       'exp(−(t − t<sub>0</sub>)/τ), with t<sub>0</sub> the first scan selected. ' +
       (weighted ? 'Weighted by each scan\'s ±1σ from its peak fit; '
                 : 'Unweighted, as some scans have no stored uncertainty; ') +
-      'uncertainties scaled by √χ²<sub>ν</sub>. Fitted at r<sub>0</sub> = ' + ok[0].r0 + '.</p>');
+      'uncertainties scaled by √χ²<sub>ν</sub>. Fitted with ' + ok[0].r0 + '.</p>');
   }
   host.innerHTML = '<table class="params fittable">' +
     '<caption class="sr-only">Exponential fits to the selected polarization</caption>' +
@@ -1042,7 +1062,7 @@ function exportTimeline() {
   tl.events.forEach((e) => {
     lines.push([e.start_stamp, JSON.stringify(e.start_time || ''), JSON.stringify(e.file),
                 e.idx + 1, e.direction || '', e.n_points, e.rsq, e.peak1, e.peak2,
-                heightRatio(e), polPercent(e), polarizationErr(e, state.r0)]
+                heightRatio(e), polPercent(e), polarizationErr(e)]
       .map((v) => (typeof v === 'string' ? v : csvCell(v))).join(','));
   });
   const first = runStamp(tl.events[0].file), last = runStamp(tl.events[tl.events.length - 1].file);
@@ -1167,10 +1187,7 @@ function renderRunBar() {
     fmtStamp(run.stop_stamp) + '   ·   ' + fmtSize(run.size);
 
   const rsqs = run.events.map((e) => e.rsq);
-  const pols = run.events.map((e) => {
-    const v = polarization(e.peak1, e.peak2, state.r0);
-    return v === null ? null : v * 100;
-  });
+  const pols = run.events.map(polPercent);
   const medRsq = median(rsqs);
   const medPol = median(pols);
   const xmin = median(run.events.map((e) => e.x_min));
@@ -1182,7 +1199,7 @@ function renderRunBar() {
          medRsq !== null && medRsq > 0.99 ? 'fits converged' : 'check the fits',
          medRsq === null ? '' : (medRsq > 0.99 ? 'good' : 'warn')) +
     tile('Median P', medPol === null ? DASH : medPol.toFixed(2) + ' %',
-         'at r₀ = ' + state.r0) +
+         r0Label(run.events)) +
     tile('Scan range',
          fmt(xmin, 4) + ' – ' + fmt(xmax, 4),
          run.x_key === 'wavelength' ? 'wavelength' : 'probe current (A)') +
@@ -1196,14 +1213,14 @@ function renderFitPanel() {
   const ev = state.event;
   const names = paramNames(ev.pf);
   const r = heightRatio(ev);
-  const pol = polarization(ev.peak1, ev.peak2, state.r0);
+  const pol = polOf(ev);
 
   el('fitTiles').innerHTML =
     tile('R²', fmt(ev.rsq, 5), ev.n_points + ' points',
          ev.rsq === null ? '' : (ev.rsq > 0.99 ? 'good' : 'warn')) +
     tile('Height ratio r', fmt(r, 5), 'peak 1 / peak 2') +
     tile('Polarization', pol === null ? DASH : (pol * 100).toFixed(2) + ' %',
-         'r₀ = ' + state.r0);
+         r0Label([ev]));
 
   const swatch = (c) => '<span class="swatch" style="background:' + c + '"></span>';
   const p = palette();
@@ -1737,7 +1754,7 @@ function exportRun() {
   const t0 = run.start_stamp || 0;
   const lines = [head.join(',')];
   run.events.forEach((e, i) => {
-    const pol = polarization(e.peak1, e.peak2, state.r0);
+    const pol = polOf(e);
     const row = [i + 1, e.start_stamp, JSON.stringify(e.start_time || ''),
                  (e.start_stamp || 0) - t0, e.n_points, e.rsq,
                  heightRatio(e), pol === null ? null : pol * 100]
@@ -1821,7 +1838,7 @@ function wire() {
 
   el('r0').addEventListener('input', () => {
     const v = parseFloat(el('r0').value);
-    state.r0 = isFinite(v) && v !== 0 ? v : 1;
+    state.r0 = isFinite(v) && v !== 0 ? v : null;   // cleared: back to the recorded r0
     if (!state.run) return;
     renderRunBar();
     tl.fits = [];

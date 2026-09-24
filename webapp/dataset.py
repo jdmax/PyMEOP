@@ -206,6 +206,21 @@ def finite_list(seq):
     return [finite(v) for v in (seq if seq is not None else [])]
 
 
+def recorded_r0(raw):
+    '''The zero polarization height ratio the DAQ used for a scan, or None.
+
+    The DAQ writes its zero peak heights, p1_zero and p2_zero from the run tab,
+    into every event and reads polarization off r/r0 with r0 their ratio. Older
+    files predate this and carry neither.
+    '''
+
+    p1, p2 = finite(raw.get('p1_zero')), finite(raw.get('p2_zero'))
+    if p1 is not None and p2:
+        return finite(p1 / p2)
+    r0 = finite(raw.get('r0'))
+    return r0 if r0 else None
+
+
 class Event:
     '''One scan: its raw points, its fit, and the numbers derived from the fit'''
 
@@ -259,6 +274,7 @@ class Event:
                 self.fit = self.g1 + self.g2 + self.base
 
         self.rsq = r_squared(self.rs, self.fit) if len(self.fit) == len(self.rs) else None
+        self.r0 = recorded_r0(raw)
 
     def peak(self, i):
         '''Fitted height of peak 1 or 2, or None if the fit is missing'''
@@ -287,6 +303,7 @@ class Event:
             'rsq': self.rsq,
             'peak1': self.peak(1),
             'peak2': self.peak(2),
+            'r0': self.r0,
         }
 
     def detail(self):
