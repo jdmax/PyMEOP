@@ -1359,6 +1359,7 @@ async function getJSON(url) {
 }
 
 const WELCOME = el('welcome').innerHTML;
+const LOGO = el('welcome').querySelector('.welcome-logo').outerHTML;
 
 function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -1366,22 +1367,32 @@ function esc(s) {
 
 /* The first read of a folder parses every event file in it, which can take a
    while for a big one, so say how far it has got. Progress is by bytes, since
-   the files range from empty to a few megabytes. */
+   the files range from empty to a few megabytes. The splash is built once and
+   then only the bar and the text change, so the logo does not flicker. */
 function showLoading(p) {
   el('workspace').hidden = true;
   el('welcome').hidden = false;
-  let bar = '<progress aria-label="Reading event files"></progress>';
+  let box = el('welcome').querySelector('.loading');
+  if (!box) {
+    el('welcome').innerHTML = LOGO + '<div class="loading"><h2>Reading event files</h2>' +
+      '<p class="dirline"></p>' +
+      '<progress max="1" aria-label="Reading event files"></progress>' +
+      '<p class="progress-text"></p>' +
+      '<p class="muted">Each file is read once; after that the list comes from memory.</p></div>';
+    box = el('welcome').querySelector('.loading');
+  }
+  box.querySelector('.dirline').textContent = state.dir || state.dirPath;
+  const bar = box.querySelector('progress');
   let text = 'Listing the folder' + '…';
   if (p && p.loading && p.total) {
     const frac = p.bytes_total ? p.bytes_done / p.bytes_total : p.done / p.total;
-    bar = '<progress max="1" value="' + frac.toFixed(4) + '" aria-label="Reading event files"></progress>';
+    bar.value = frac;
     text = p.done + ' of ' + p.total + ' files · ' + fmtSize(p.bytes_done) + ' of ' +
       fmtSize(p.bytes_total) + ' · ' + Math.round(100 * frac) + '%';
+  } else {
+    bar.removeAttribute('value');   // indeterminate until the server reports a count
   }
-  el('welcome').innerHTML = '<h2>Reading event files</h2>' +
-    '<p class="dirline">' + esc(state.dir || state.dirPath) + '</p>' +
-    bar + '<p class="progress-text">' + text + '</p>' +
-    '<p class="muted">Each file is read once; after that the list comes from memory.</p>';
+  box.querySelector('.progress-text').textContent = text;
   el('fileCount').textContent = p && p.loading && p.total
     ? 'Reading ' + p.done + ' of ' + p.total + ' files' + '…' : 'Reading files' + '…';
 }
