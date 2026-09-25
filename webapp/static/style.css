@@ -211,6 +211,28 @@ summary:focus-visible, a:focus-visible, input[type="range"]:focus-visible {
 
 input[type="range"] { accent-color: var(--accent); width: 190px; max-width: 34vw; }
 
+/* refits under way on the server, shown under the top bar until they finish */
+.refitbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.refitbar[hidden] { display: none; }
+.refitbar .refit-text {
+  font: 11px/1.4 var(--mono);
+  color: var(--ink-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.refitbar progress { flex: 1 1 auto; min-width: 80px; height: 6px; accent-color: var(--accent); }
+
 /* ---------- layout ---------- */
 
 .layout {

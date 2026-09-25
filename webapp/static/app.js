@@ -14,6 +14,7 @@ const state = {
   eventIdx: 0,
   r0: null,          // r0 typed in the top bar, overriding the recorded one; null uses the file's
   shape: 'recorded',  // peak shape shown: the DAQ's own fits, or every scan as 'gauss' or 'voigt'
+  base: 'recorded',   // baseline shown: each scan's own, or every scan on '1' straight or '2' quadratic
   runCursorIdx: null,
   version: null,      // data directory fingerprint the page was last drawn from
   updatedAt: null,    // when a live update last changed what is on screen
@@ -26,11 +27,12 @@ const charts = { run: null, scan: null, resid: null };
 
 const el = (id) => document.getElementById(id);
 
-/* An API address in the folder this tab is looking at, for the fit shape shown */
+/* An API address in the folder this tab is looking at, for the fit shape and baseline shown */
 function api(path) {
   const q = [];
   if (state.dir) q.push('dir=' + encodeURIComponent(state.dir));
   if (state.shape !== 'recorded') q.push('shape=' + state.shape);
+  if (state.base !== 'recorded') q.push('base=' + state.base);
   if (!q.length) return 'api/' + path;
   return 'api/' + path + (path.indexOf('?') < 0 ? '?' : '&') + q.join('&');
 }
@@ -113,6 +115,7 @@ const PEAK_PARAM_NAMES = {
 PEAK_PARAM_NAMES.voigt = PEAK_PARAM_NAMES.gauss.concat(['Peak 1 γ', 'Peak 2 γ']);
 
 const SHAPE_NAMES = { gauss: 'Gaussian', voigt: 'Voigt' };
+const BASE_NAMES = { 1: 'straight', 2: 'quadratic' };  // baseline polynomial degrees
 
 /* Names for the baseline coefficients, which are the parameters after the peak
    ones, highest power first. A straight baseline has two of them and a
@@ -1268,7 +1271,6 @@ function renderFitPanel() {
   const note = el('fitNote');
   const nBase = ev.pf.length - peakNames(ev).length;
   const referenced = ev.baseline ? ev.baseline.referenced : ev.pf.length >= 9;
-  const stored = ev.profile === 'voigt' ? 'gaussian' : 'Voigt';
   const failed = ev.fit_ok === false;
   let text;
   if (!ev.pf.length) {
@@ -1280,10 +1282,14 @@ function renderFitPanel() {
       (referenced ? ' referenced to mid scan.'
         : ' in raw current (written before the baseline was referenced to mid scan).');
     if (ev.refit) {
-      text += ' Refit here: the DAQ stored a ' + stored + ' fit for this scan.';
+      const was = ev.stored || {};
+      const wasBase = BASE_NAMES[was.base_deg];
+      text += ' Refit here: the DAQ stored ' +
+        (was.profile === 'voigt' ? 'two Voigt profiles' : 'two gaussians') +
+        (wasBase ? ' on a ' + wasBase + ' baseline' : '') + ' for this scan.';
       if (state.r0 === null && ev.r0) {
-        text += ' Its recorded r₀ comes from ' + stored + ' heights; type an r₀ taken ' +
-          'under this shape to correct P.';
+        text += ' Its recorded r₀ comes from heights under the DAQ\'s fit; type an r₀ taken ' +
+          'under this one to correct P.';
       }
     }
     if (failed && ev.fit_message) text += ' The fit failed its checks: ' + ev.fit_message;
@@ -1393,7 +1399,7 @@ function readHash() {
   const scan = parseInt(h.get('scan'), 10);
   const plot = (h.get('plot') || '').split(',').filter((v) => v);
   return { dir: h.get('dir'), file: file || null, scan: isFinite(scan) ? scan - 1 : 0, plot: plot,
-           shape: h.get('shape') };
+           shape: h.get('shape'), base: h.get('base') };
 }
 
 function dirHash() {
@@ -1406,6 +1412,7 @@ function writeHash() {
     'file=' + encodeURIComponent(state.run.name) + '&scan=' + (state.eventIdx + 1);
   if (tl.stamps.size > 1) h += '&plot=' + Array.from(tl.stamps).sort().join(',');
   if (state.shape !== 'recorded') h += '&shape=' + state.shape;
+  if (state.base !== 'recorded') h += '&base=' + state.base;
   if (location.hash.replace(/^#/, '') !== h) {
     history.replaceState(null, '', '#' + h);
   }
@@ -1413,20 +1420,61 @@ function writeHash() {
 
 /* ---------------- loading ---------------- */
 
-/* Requests for a fit shape may be refitting a run on the server, which can
-   take a few seconds, so the top bar says so while any is outstanding. */
+/* Requests for a fit shape or baseline may be refitting a run on the server,
+   which can take a while for a long run. While any is outstanding the page asks
+   the server how far its refits have got and shows a bar under the top bar.
+   The bar waits for the first answer, so a refit already in memory, which comes
+   back at once, does not flash it. */
 let refitting = 0;
+let refitTimer = null;
+
+function describeRefits(refits) {
+  if (!refits.length) return 'Refitting' + '…';
+  const done = refits.reduce((a, r) => a + r.done, 0);
+  const total = refits.reduce((a, r) => a + r.total, 0);
+  const count = done + ' of ' + total + ' scans';
+  if (refits.length > 1) return 'Refitting ' + refits.length + ' runs · ' + count;
+  const r = refits[0];
+  const how = [r.profile ? SHAPE_NAMES[r.profile] : null,
+               r.base ? BASE_NAMES[r.base] + ' baseline' : null].filter((v) => v).join(', ');
+  return 'Refitting ' + r.name + (how ? ' (' + how + ')' : '') + ' · ' + count;
+}
+
+async function pollRefits() {
+  let refits = [];
+  try {
+    refits = (await getJSON('api/refitting')).refits || [];
+  } catch (e) { /* the refit request itself will report any trouble */ }
+  if (!refitting) return;
+  const total = refits.reduce((a, r) => a + r.total, 0);
+  const bar = el('refitProgress');
+  if (total) bar.value = refits.reduce((a, r) => a + r.done, 0) / total;
+  else bar.removeAttribute('value');  // indeterminate until the server has a count
+  el('refitText').textContent = describeRefits(refits);
+  el('refitBar').hidden = false;
+}
+
+function refitStarted() {
+  if (refitting++ === 0) refitTimer = setInterval(pollRefits, 250);
+}
+
+function refitEnded() {
+  if (--refitting > 0) return;
+  clearInterval(refitTimer);
+  refitTimer = null;
+  el('refitBar').hidden = true;
+}
 
 async function getJSON(url) {
-  const refit = url.indexOf('shape=') >= 0;
-  if (refit && refitting++ === 0) el('shapeStatus').textContent = 'refitting' + '…';
+  const refit = /[?&](shape|base)=/.test(url);
+  if (refit) refitStarted();
   try {
     const res = await fetch(url);
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || res.statusText);
     return body;
   } finally {
-    if (refit && --refitting === 0) el('shapeStatus').textContent = '';
+    if (refit) refitEnded();
   }
 }
 
@@ -1914,7 +1962,8 @@ function wire() {
     if (state.event) renderFitPanel();
   });
 
-  el('shape').addEventListener('change', () => setShape(el('shape').value).catch(showError));
+  el('shape').addEventListener('change', () => setFit(el('shape').value, state.base).catch(showError));
+  el('base').addEventListener('change', () => setFit(state.shape, el('base').value).catch(showError));
 
   el('dataDir').addEventListener('click', openPicker);
   el('folderList').addEventListener('click', (e) => {
@@ -1981,13 +2030,16 @@ function showError(err) {
     String(err.message || err) + '</p>';
 }
 
-/* Show every scan's fit in another shape. The server refits whatever the DAQ
-   stored in the other shape, which is slow the first time for a long run, so
-   say so while it works. Everything fetched for the old shape is dropped. */
-async function setShape(shape) {
-  state.shape = SHAPE_NAMES[shape] ? shape : 'recorded';
-  el('shape').value = state.shape;
-  try { localStorage.setItem('pymeop-shape', state.shape); } catch (e) { /* private mode */ }
+/* Show every scan's fit in another shape or on another baseline. The server
+   refits whatever the DAQ stored some other way, which is slow the first time
+   for a long run, so say so while it works. Everything fetched for the old
+   choice is dropped. */
+async function setFit(shape, base) {
+  showFit(shape, base);
+  try {
+    localStorage.setItem('pymeop-shape', state.shape);
+    localStorage.setItem('pymeop-base', state.base);
+  } catch (e) { /* private mode */ }
   tl.cache = {};
   tl.fits = [];
   renderFits();
@@ -1996,13 +2048,23 @@ async function setShape(shape) {
   if (await loadTimeline()) drawTimeline({ keepZoom: true });
 }
 
-function initShape() {
-  let saved = readHash().shape;
-  if (!saved) {
-    try { saved = localStorage.getItem('pymeop-shape'); } catch (e) { /* private mode */ }
-  }
-  state.shape = SHAPE_NAMES[saved] ? saved : 'recorded';
+/* Set the shape and baseline choices, anything unknown meaning as recorded */
+function showFit(shape, base) {
+  state.shape = SHAPE_NAMES[shape] ? shape : 'recorded';
+  state.base = BASE_NAMES[base] ? String(base) : 'recorded';
   el('shape').value = state.shape;
+  el('base').value = state.base;
+}
+
+function initFit() {
+  const hash = readHash();
+  let shape = hash.shape;
+  let base = hash.base;
+  try {
+    if (!shape) shape = localStorage.getItem('pymeop-shape');
+    if (!base) base = localStorage.getItem('pymeop-base');
+  } catch (e) { /* private mode */ }
+  showFit(shape, base);
 }
 
 /* The folder comes from the address bar if it names one, else the one this
@@ -2023,6 +2085,6 @@ async function start() {
 }
 
 initTheme();
-initShape();
+initFit();
 wire();
 start().catch(showError).then(initLive);

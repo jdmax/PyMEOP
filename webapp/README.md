@@ -170,18 +170,26 @@ polarization.
   that way keep their stored fit; the rest are refit on the server with the DAQ's
   own fitting code (`app/scanfit.py`), in order, each seeded from the last good
   fit as the DAQ does. A Voigt refit takes about 30 ms a scan, so the first look
-  at a long run in the other shape takes a few seconds, shown as *refitting…*
-  beside the switch. Refits are kept in memory, and a live run only refits its
-  new scans.
+  at a long run in the other shape takes a few seconds. Meanwhile a bar under
+  the top bar shows the run being refit and how many of its scans are done.
+  Refits are kept in memory, and a live run only refits its new scans.
 
 The fit panel says when a scan's fit is a refit, and names the checks a fit
 failed. **Show → Peak widths γ** plots the Lorentzian widths of Voigt fits. The
 choice rides along in the address bar (`&shape=voigt`) and is remembered by the
 browser.
 
+**Baseline** beside it does the same for the polynomial under the peaks:
+
+- **As recorded**, the default: each scan's baseline as the DAQ fit it.
+- **Straight** or **Quadratic**: every scan on that baseline, refitting the scans
+  the DAQ fit on the other in the same way. It combines with **Fit**, so
+  *Voigt* on *Quadratic* refits any scan not already stored exactly that way.
+  It rides along as `&base=1` or `&base=2`.
+
 Refitting changes the peak heights but not the r₀ recorded with each scan, which
-came from heights in the DAQ's shape. To read polarization off a refit, type an
-r₀ measured in the same shape.
+came from heights under the DAQ's own fit. To read polarization off a refit, type
+an r₀ measured with the same shape and baseline.
 
 ## Polarization and r₀
 
@@ -262,13 +270,15 @@ The API, should anything else want it:
 
 Every `GET` route but `/api/folders` takes `?dir=<folder>` to work in a folder other
 than the default. The two scan routes also take `?shape=gauss` or `?shape=voigt` to
-return every scan's fit in that shape, refitting as needed; left off, or
+return every scan's fit in that shape, and `?base=1` or `?base=2` for every scan
+on a straight or quadratic baseline, refitting as needed; left off, or
 `recorded`, they return the fits as stored.
 
 | Route | Returns |
 |---|---|
 | `GET /api/files` | every event file with scan count, duration and size |
 | `GET /api/progress` | how far the server has got reading the folder: `loading`, `done`/`total` files and `bytes_done`/`bytes_total` |
+| `GET /api/refitting` | the refits under way, each with its file `name`, `profile`, `base` and `done`/`total` scans |
 | `GET /api/folders?path=<folder>` | a folder's subfolders, each with its event file count, for the picker |
 | `GET /api/version` | a fingerprint of the data directory that changes on any write; cheap enough to poll |
 | `GET /api/file/<name>` | the file plus a summary of each scan |

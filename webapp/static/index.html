@@ -32,7 +32,14 @@
       <option value="gauss">Gaussian</option>
       <option value="voigt">Voigt</option>
     </select>
-    <span class="livestatus" id="shapeStatus" aria-live="polite"></span>
+  </label>
+  <label class="field" title="Baseline under the peaks. As recorded is each scan's baseline as the DAQ fit it. Straight or Quadratic shows every scan on that baseline, refitting here any scan the DAQ fit on the other.">
+    <span>Baseline</span>
+    <select id="base">
+      <option value="recorded">As recorded</option>
+      <option value="1">Straight</option>
+      <option value="2">Quadratic</option>
+    </select>
   </label>
   <label class="field" title="Ratio of the two peak heights at zero polarization, used to scale P. Left empty, each scan uses the r0 the DAQ recorded with it; a value typed here is used for every scan instead.">
     <span>r<sub>0</sub></span>
@@ -40,6 +47,11 @@
   </label>
   <button id="themeBtn" class="ghost" type="button" title="Switch light and dark">Theme</button>
 </header>
+
+<div class="refitbar" id="refitBar" role="status" hidden>
+  <span class="refit-text" id="refitText"></span>
+  <progress id="refitProgress" max="1" aria-label="Refitting scans"></progress>
+</div>
 
 <div class="layout">
 
