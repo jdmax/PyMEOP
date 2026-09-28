@@ -1,6 +1,7 @@
 '''PyMEOP J.Maxwell 2021
 '''
 import re
+import importlib
 import math
 import sys
 import time
@@ -25,8 +26,18 @@ from srsinst.sr860 import SR860
 
 
 class ProbeLaser():
-    '''Access Probe laser over telnet
-    '''
+    """Toptica DLC pro, driven through Toptica's own SDK.
+
+    The DeCoF parameter names and the (exec '...) call convention were being
+    hand-written here, which is how the wide-scan start ended up as a
+    param-set! that silently did nothing. The SDK carries the parameter tree
+    for each firmware revision, so a wrong name is an AttributeError at the
+    call rather than a command the controller quietly ignores.
+
+    probe_sdk_version in the config selects the module matching the DLC pro's
+    firmware. The firmware reports itself on connect and a mismatch is
+    flagged, since most parameters are stable across revisions but not all.
+    """
 
     # laser1:wide-scan:output-channel enum values
     CHANNEL_TEMP = 56
@@ -36,104 +47,99 @@ class ProbeLaser():
     SHAPE_TRIANGLE = 1
 
     def __init__(self, settings):
-        '''Open connection to Toptica DLC controller
-        '''
+        """Open a connection to the DLC pro controller."""
         self.ip = settings['probe_ip']
-        self.port = 1998
+        self.version = settings.get('probe_sdk_version', 'v2_5_2')
+        self.dlc = None
 
         try:
-            self.tn = Telnet(self.ip, port=self.port, timeout=2)
+            sdk = importlib.import_module(
+                f'toptica.lasersdk.dlcpro.{self.version}')
+            self.dlc = sdk.DLCpro(sdk.NetworkConnection(self.ip))
+            self.dlc.open()
 
-            outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
-            self.tn.write(bytes("(param-disp 'laser1:dl:cc:current-set)\n", 'ascii'))
-            outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
-
-
-
+            firmware = self.dlc.fw_ver.get()
+            model = self.dlc.system_model.get()
+            print(f"Probe laser {model} on {self.ip}, firmware {firmware}")
+            wanted = self.version.lstrip('v').replace('_', '.')
+            if not str(firmware).startswith(wanted):
+                print(f"  probe_sdk_version is {self.version} but the "
+                      f"controller reports {firmware}. Most parameters are "
+                      f"the same across revisions, but set probe_sdk_version "
+                      f"to match if anything behaves oddly.")
         except Exception as e:
             print(f"Probe connection failed on {self.ip}: {e}")
+            self.dlc = None
 
-    # def __del__(self):
-        # self.tn.close()
+    def __del__(self):
+        try:
+            self.dlc.close()
+        except Exception:
+            pass
 
-    def _send(self, line):
-        '''Write one DeCoF line and return the controller's reply text'''
-        self.tn.write(bytes(f"{line}\n", 'ascii'))
-        return self.tn.read_until(bytes(">", 'ascii'), 2).decode('ascii')
+    @property
+    def connected(self):
+        return self.dlc is not None
 
-    def _set(self, param, value):
-        '''Set a DeCoF parameter'''
-        return self._send(f"(param-set! '{param} {value})")
+    @property
+    def laser(self):
+        return self.dlc.laser1
 
-    def _get(self, param):
-        '''Read a DeCoF parameter, raw reply text'''
-        return self._send(f"(param-disp '{param})")
-
-    def _exec(self, param):
-        '''Execute a DeCoF command.
-
-        Note this is (exec '...), not (param-set! '...) -- an execute takes no
-        value, so the old param-set! form was malformed and silently did nothing.
-        '''
-        return self._send(f"(exec '{param})")
+    @property
+    def wide_scan(self):
+        return self.dlc.laser1.wide_scan
 
     @staticmethod
-    def _number(reply):
-        '''Pull the first number out of a DeCoF reply, or None'''
-        if reply is None:
+    def _number(value):
+        """Kept so callers that used to parse a DeCoF reply still work."""
+        if value is None:
             return None
-        m = re.search(r'-?\d+\.?\d*(?:[eE][-+]?\d+)?', reply)
+        if isinstance(value, (int, float)):
+            return float(value)
+        m = re.search(r'-?\d+\.?\d*(?:[eE][-+]?\d+)?', str(value))
         return float(m.group()) if m else None
 
+    # -- diode current and temperature -------------------------------------
+
     def read_current(self):
-        """
-        """
-        self.tn.write(bytes(f"(param-disp 'laser1:dl:cc:current-set)\n", 'ascii'))
-        outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
-        return outp
+        """Diode current setpoint in mA."""
+        return self.laser.dl.cc.current_set.get()
+
+    def read_current_actual(self):
+        """Diode current as measured, which is what moves during a scan."""
+        return self.laser.dl.cc.current_act.get()
 
     def set_current(self, current):
-        '''Arguments:
-                curent: float
-        '''
-        self.tn.write(bytes(f"(param-set! 'laser1:dl:cc:current-set {current})\n", 'ascii'))
-        outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
-        return outp
+        self.laser.dl.cc.current_set.set(float(current))
 
-
-    def read_temp(self, temp):
-        '''
-        '''
-        self.tn.write(bytes(f"(param-disp 'laser1:dl:tc:temp-set)\n", 'ascii'))
-        outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
-        return outp
+    def read_temp(self, temp=None):
+        """Grating temperature setpoint in C. The argument is ignored."""
+        return self.laser.dl.tc.temp_set.get()
 
     def set_temp(self, temp):
-        '''Arguments:
-                temp: float
-        '''
-        self.tn.write(bytes(f"(param-set! 'laser1:dl:tc:temp-set {temp})\n", 'ascii'))
-        outp = self.tn.read_until(bytes(">", 'ascii'),2).decode('ascii')
-        return outp
+        self.laser.dl.tc.temp_set.set(float(temp))
+
+    # -- wide scan ---------------------------------------------------------
 
     def config_scan(self, type, begin, end, mode, shape, speed):
-        """ Configure parameters for a wide-scan
+        """Configure a wide-scan by scan rate.
+
         Arguments:
-            type: STR: current or temp (mA or C)
-            begin: start value (mA or C)
-            end: stop value
-            mode: BOOL: true (#t) for continuous, false (#f) for one-shot
-            shape: INT: 0 for sawtooth, 1 for triangle
+            type: 'current' or 'temp'
+            begin, end: scan limits (mA or C)
+            mode: True for continuous, False for a single ramp
+            shape: SHAPE_SAWTOOTH or SHAPE_TRIANGLE
             speed: rate in mA/s or K/s
         """
         try:
-            type_code = self.CHANNEL_TEMP if 'temp' in type else self.CHANNEL_CURRENT
-            self._set('laser1:wide-scan:output-channel', type_code)
-            self._set('laser1:wide-scan:scan-begin', begin)
-            self._set('laser1:wide-scan:scan-end', end)
-            self._set('laser1:wide-scan:continuous-mode', "#t" if mode else "#f")
-            self._set('laser1:wide-scan:shape', shape)
-            self._set('laser1:wide-scan:speed', speed)
+            ws = self.wide_scan
+            ws.output_channel.set(self.CHANNEL_TEMP if 'temp' in type
+                                  else self.CHANNEL_CURRENT)
+            ws.scan_begin.set(float(begin))
+            ws.scan_end.set(float(end))
+            ws.continuous_mode.set(bool(mode))
+            ws.shape.set(int(shape))
+            ws.speed.set(float(speed))
             return True
         except Exception as e:
             print(f"Scan config failed: {e}")
@@ -141,61 +147,90 @@ class ProbeLaser():
 
     def config_wide_scan(self, channel, begin, end, duration,
                          shape=SHAPE_SAWTOOTH, continuous=False):
-        '''Configure a wide-scan by duration rather than by rate.
+        """Configure a wide-scan by duration rather than by rate.
 
-        Arguments:
-            channel: 'current' or 'temp'
-            begin, end: scan limits (mA or C)
-            duration: seconds for one ramp
-            shape: SHAPE_SAWTOOTH or SHAPE_TRIANGLE
-            continuous: True to free-run, False for a single ramp
-        Returns:
-            The speed actually requested, in units/s.
-        '''
+        The controller exposes duration directly and derives the speed, so
+        the ramp time the sweep depends on is set rather than calculated.
+        Both are read back: a duration the controller would not accept is
+        otherwise invisible until the capture times out waiting for samples.
+
+        Returns the speed actually in force, in units/s.
+        """
         span = abs(end - begin)
         if duration <= 0 or span <= 0:
-            raise ValueError(f"Bad wide-scan range {begin}->{end} over {duration} s")
-        speed = span / float(duration)
-        self.config_scan(channel, begin, end, continuous, shape, speed)
+            raise ValueError(f"Bad wide-scan range {begin}->{end} "
+                             f"over {duration} s")
+
+        ws = self.wide_scan
+        ws.output_channel.set(self.CHANNEL_TEMP if 'temp' in channel
+                              else self.CHANNEL_CURRENT)
+        ws.scan_begin.set(float(begin))
+        ws.scan_end.set(float(end))
+        ws.continuous_mode.set(bool(continuous))
+        ws.shape.set(int(shape))
+        ws.duration.set(float(duration))
+
+        got = ws.duration.get()
+        speed = ws.speed.get()
+        if abs(got - duration) > 0.05 * duration:
+            lo, hi = ws.speed_min.get(), ws.speed_max.get()
+            print(f"Wide-scan duration {duration:.2f} s was adjusted to "
+                  f"{got:.2f} s (speed {speed:.3f}, allowed {lo:.3f} to "
+                  f"{hi:.3f}). The sweep will use the requested duration to "
+                  f"place samples, so fix the range or the time.")
         return speed
 
     def wide_scan_state(self):
-        '''Return the wide-scan state as a number, or None if unavailable.'''
+        """Wide-scan state as a number, or None if it cannot be read."""
         try:
-            return self._number(self._get('laser1:wide-scan:state'))
+            return self.wide_scan.state.get()
         except Exception:
             return None
 
-    def set_scan_trigger(self, enabled):
-        '''Enable the wide-scan trigger output so the lock-in can hardware-sync.
-
-        The exact DeCoF parameter for the trigger output differs between DLC pro
-        firmware revisions -- this is the one spot to fix if 'trigger' sync does
-        not work on the bench. Failure here is non-fatal: the caller falls back
-        to software sync.
-        '''
+    def wide_scan_state_text(self):
+        """Wide-scan state in words, which is what the controller calls it."""
         try:
-            self._set('laser1:wide-scan:trigger:output-enabled', "#t" if enabled else "#f")
+            return self.wide_scan.state_txt.get()
+        except Exception:
+            return None
+
+    def scan_value(self):
+        """Current value of the scanned channel while a scan runs."""
+        try:
+            return self.wide_scan.value_act.get()
+        except Exception:
+            return None
+
+    def scan_progress(self):
+        """(percent complete, seconds remaining) for a running wide-scan."""
+        try:
+            return (self.wide_scan.progress.get(),
+                    self.wide_scan.remaining_time.get())
+        except Exception:
+            return None, None
+
+    def set_scan_trigger(self, enabled):
+        """Enable the wide-scan trigger output so the lock-in can sync to it."""
+        try:
+            self.wide_scan.trigger.output_enabled.set(bool(enabled))
             return True
         except Exception as e:
             print(f"Wide-scan trigger config failed: {e}")
             return False
 
     def start_scan(self):
-        """ Start wide scan
-        """
+        """Start the wide scan."""
         try:
-            self._exec('laser1:wide-scan:start')
+            self.wide_scan.start()
             return True
         except Exception as e:
             print(f"Start scan failed: {e}")
             return False
 
     def stop_scan(self):
-        """ Stop wide scan
-        """
+        """Stop the wide scan."""
         try:
-            self._exec('laser1:wide-scan:stop')
+            self.wide_scan.stop()
             return True
         except Exception as e:
             print(f"Stop scan failed: {e}")

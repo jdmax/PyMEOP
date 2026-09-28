@@ -130,46 +130,66 @@ def check_lockin(settings):
 
 def check_laser(settings):
     '''Wide-scan ramp actually moves the diode current.'''
-    print(f"\nConnecting to probe laser at {settings['probe_ip']}")
+    print(chr(10) + f"Connecting to probe laser at {settings['probe_ip']}")
     probe = ProbeLaser(settings)
-    if not hasattr(probe, 'tn'):
-        print("  FAIL: no connection.")
+    if not probe.connected:
+        print("  FAIL: no connection. Check the IP and that nothing else "
+              "holds the DLC pro command line.")
         return None
 
-    start = probe._number(probe.read_current())
-    print(f"  current-set reads {start} mA")
+    print(f"  current setpoint {probe.read_current():.3f} mA")
+    print(f"  current actual   {probe.read_current_actual():.3f} mA")
+    print(f"  grating temp     {probe.read_temp():.3f} C")
+    print(f"  wide-scan state  {probe.wide_scan_state()} "
+          f"({probe.wide_scan_state_text()})")
 
-    begin = float(input("  ramp begin (mA), blank to skip: ") or 0) or None
-    if begin is None:
+    answer = input("  ramp begin (mA), blank to skip: ").strip()
+    if not answer:
         print("  skipped")
         return probe
+    begin = float(answer)
     end = float(input("  ramp end   (mA): "))
     duration = float(settings.get('sweep_time', 2.0))
 
-    print(f"\n  ramping {begin} -> {end} mA over {duration} s")
+    print(chr(10) + f"  ramping {begin} -> {end} mA over {duration} s")
     probe.stop_scan()
     speed = probe.config_wide_scan('current', begin, end, duration)
-    print(f"  speed {speed:.2f} mA/s")
-    print(f"  wide-scan state before start: {probe.wide_scan_state()}")
+    print(f"  speed {speed:.3f} mA/s")
 
     probe.start_scan()
     t0 = time.time()
     seen = []
+    # value_act follows the scanned channel itself, rather than the setpoint
+    # the host last wrote, so it shows whether the ramp is really running.
     while time.time() - t0 < duration * 1.3:
-        value = probe._number(probe.read_current())
+        value = probe.scan_value()
         if value is not None:
-            seen.append(value)
-        time.sleep(duration / 12)
+            seen.append((time.time() - t0, value))
+        time.sleep(duration / 15)
+    state_during = probe.wide_scan_state_text()
     probe.stop_scan()
 
-    print(f"  sampled current during ramp: "
-          + ", ".join(f"{v:.2f}" for v in seen[:12]))
-
-    if len(seen) < 3 or (max(seen) - min(seen)) < 0.2 * abs(end - begin):
-        print("  FAIL: the current did not move over the requested range. "
-              "The wide-scan did not start -- check the output-channel enum "
-              "(ProbeLaser.CHANNEL_CURRENT) and that (exec '...) is accepted.")
+    if not seen:
+        print("  FAIL: could not read the scan value at all.")
         return None
+
+    print("  scan value during the ramp:")
+    for t, v in seen[:10]:
+        print(f"      +{t:5.2f}s  {v:8.3f}")
+    values = [v for _, v in seen]
+    covered = max(values) - min(values)
+    print(f"  state while running: {state_during}")
+    print(f"  covered {covered:.2f} mA of the {abs(end - begin):.2f} mA asked for")
+
+    if covered < 0.2 * abs(end - begin):
+        print("  FAIL: the scanned value did not move over the requested "
+              "range, so the wide-scan never ran. Check the output-channel "
+              "enum (ProbeLaser.CHANNEL_CURRENT) and whether probe_sdk_version "
+              "matches the controller firmware.")
+        return None
+    if covered < 0.9 * abs(end - begin):
+        print("  WARNING: the ramp covered less than the full range. It may "
+              "still have been accelerating, or the duration was clipped.")
 
     print("  wide-scan OK")
     return probe
