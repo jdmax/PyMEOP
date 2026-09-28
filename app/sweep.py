@@ -241,7 +241,7 @@ class SweepThread(QThread):
 
         try:
             self.probe.stop_scan()
-            self.lockin.capture_stop()
+            self.lockin.capture_stop(wait=False)
         except Exception:
             pass
         self.finished.emit()
@@ -295,14 +295,14 @@ class SweepThread(QThread):
         # rather than continuously during one.
         while True:
             if not self.is_running():
-                self.lockin.capture_stop()
+                self.lockin.capture_stop(wait=False)   # buffer is discarded
                 return None
 
             captured = self.lockin.capture_bytes()
             if captured >= target_bytes:
                 break
             if time.time() - started > timeout:
-                self.lockin.capture_stop()
+                self.lockin.capture_stop(wait=False)
                 raise TimeoutError(
                     f"Captured {captured}/{target_bytes} bytes in "
                     f"{timeout:.1f} s. Check that the wide-scan actually "
@@ -311,6 +311,8 @@ class SweepThread(QThread):
             self.emit_progress(captured, target_bytes)
             time.sleep(0.05)
 
+        # Waits for CAPTURESTAT? bit 0 to clear -- CAPTURESTOP only halts at
+        # the next 2 kB boundary and CAPTUREGET? is refused until then.
         self.lockin.capture_stop()
         samples = self.lockin.capture_read_all()
         if samples is None or len(samples) < 10:

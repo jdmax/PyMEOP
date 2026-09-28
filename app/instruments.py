@@ -270,6 +270,7 @@ class LockIn():
         'stop': 'CAPTURESTOP',
         'bytes': 'CAPTUREBYTES?',
         'get': 'CAPTUREGET?',
+        'stat': 'CAPTURESTAT?',
         'rate_read': 'CAPTURERATE?',
         'len_read': 'CAPTURELEN?',
     }
@@ -404,8 +405,10 @@ class LockIn():
             self._drain()
             raise IOError(
                 f"CAPTUREGET? answered {head!r} instead of a binary block. "
-                f"The capture must be stopped before reading it (manual p140: "
-                f"a running capture gives a range error).")
+                f"A running capture gives a range error (manual p140), and "
+                f"CAPTURESTOP only takes effect at the next 2 kB boundary "
+                f"(p139) -- capture_stop() should have waited for "
+                f"CAPTURESTAT? bit 0 to clear.")
         ndigits = int(self._read_exact(1))
         nbytes = int(self._read_exact(ndigits))
         return self._read_exact(nbytes)
@@ -565,8 +568,37 @@ class LockIn():
         self.command(f"{self.capture_cmds['start']} "
                      f"{1 if continuous else 0},{1 if triggered else 0}")
 
-    def capture_stop(self):
+    def capture_status(self):
+        """CAPTURESTAT? as a bit field: 1 running, 2 triggered, 4 wrapped."""
+        return self.query_int(self.capture_cmds['stat'])
+
+    def capture_stop(self, wait=True, timeout=3.0):
+        """Stop the capture, and by default wait until it has really stopped.
+
+        Manual p139: CAPTURESTOP halts at the next 2 kB block boundary, and
+        bit 0 of CAPTURESTAT? stays set until that block has finished filling.
+        CAPTUREGET? raises a range error for the whole of that window, so
+        returning as soon as the command is sent makes the next read fail.
+        At 1220 Hz on two channels a 2 kB block is about 0.2 s.
+        """
         self.command(self.capture_cmds['stop'])
+        if not wait:
+            return True
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                if not (self.capture_status() & 1):
+                    return True
+            except Exception as e:
+                print(f"Could not read capture status ({e}); "
+                      f"reading the buffer anyway")
+                return False
+            time.sleep(0.02)
+
+        print(f"Capture still reports running {timeout:.1f} s after "
+              f"CAPTURESTOP; reading the buffer anyway")
+        return False
 
     def capture_bytes(self):
         '''Bytes captured so far'''

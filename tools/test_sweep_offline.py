@@ -153,15 +153,30 @@ class FakeSock():
     which is what firmware V1.51 actually does.
     '''
 
-    def __init__(self, samples, framed=True, max_kb=None):
+    def __init__(self, samples, framed=True, max_kb=None, blocks_to_stop=0):
         self.payload = samples.astype('<f4').tobytes()
         self.framed = framed
         self.max_kb = max_kb        # cap per transfer, as the real unit does
+        self.blocks_to_stop = blocks_to_stop  # CAPTURESTAT? polls before halting
+        self.stopping = 0
+        self.running = False
         self.out = bytearray()
 
     def sendall(self, data):
         cmd = data.decode('ascii').strip()
-        if cmd == 'CAPTUREBYTES?':
+        if cmd == 'CAPTURESTOP':
+            self.stopping = getattr(self, 'blocks_to_stop', 0)
+            self.running = self.stopping > 0
+        elif cmd == 'CAPTURESTAT?':
+            # bit 0 stays set until the current 2 kB block finishes filling
+            if self.stopping > 0:
+                self.stopping -= 1
+            self.running = self.stopping > 0
+            self.out.extend((str(int(self.running)) + chr(13)).encode("ascii"))
+        elif cmd == 'CAPTUREGET?' or (cmd.startswith('CAPTUREGET?')
+                                      and self.running):
+            raise AssertionError("CAPTUREGET? issued while still running")
+        elif cmd == 'CAPTUREBYTES?':
             self.out.extend(f"{len(self.payload)}\r".encode('ascii'))
         elif cmd.startswith('CAPTUREGET?'):
             offset_kb, n_kb = (int(v) for v in cmd.split('?')[1].split(','))
@@ -255,6 +270,38 @@ def test_short_transfer():
     print(f"  short transfers OK: {expected_kb} kB reassembled 1 kB at a time")
 
 
+def test_stop_before_read():
+    """capture_stop must wait for the capture to actually halt.
+
+    CAPTURESTOP only takes effect at the next 2 kB boundary, and CAPTUREGET?
+    is refused until then (manual p139/p140). Reading too early was the
+    failure that produced a lone 0x03 byte on the bench.
+    """
+    n = 256
+    interleaved = np.zeros(2 * n, dtype=np.float32)
+
+    lockin = object.__new__(LockIn)
+    lockin.sock = FakeSock(interleaved, blocks_to_stop=4)
+    lockin._buf = bytearray()
+    lockin._cap_channels = 2
+    lockin._cap_cursor_kb = 0
+    lockin._get_fmt = None
+    lockin.capture_cmds = dict(LockIn.CAPTURE_CMDS)
+    lockin.term = chr(13)        # CR, as the SR860 wants
+    lockin.cmd_delay = 0
+
+    stopped = lockin.capture_stop()
+    assert stopped, "capture_stop gave up before the capture halted"
+    assert not lockin.sock.running, "returned while the capture was still running"
+
+    # FakeSock raises if CAPTUREGET? arrives while running, so reaching here
+    # without an AssertionError is the check that the ordering held.
+    data = lockin.capture_read_all()
+    assert data is not None and len(data), "read nothing after a clean stop"
+    print(f"  stop-before-read OK: waited {4} status polls, "
+          f"then read {len(data)} samples")
+
+
 def test_zero_phase():
     '''A symmetric kernel must not move a peak; a causal one does.'''
     x = np.linspace(0, 100, 4000)
@@ -290,6 +337,7 @@ def main():
     print("Unit checks")
     print("=" * 72)
     test_capture_parsing()
+    test_stop_before_read()
     test_zero_phase()
     test_binning()
 
