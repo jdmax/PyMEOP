@@ -37,8 +37,10 @@ def load_settings(path='config.yaml'):
 
 def check_lockin(settings):
     '''Socket, settings readback, and a short capture into the buffer.'''
-    print(f"\nConnecting to lock-in at {settings['lockin_ip']}:"
-          f"{settings.get('lockin_port', 23)}")
+    interface = settings.get('lockin_interface', 'vxi11')
+    where = (settings['lockin_ip'] if interface == 'vxi11'
+             else f"{settings['lockin_ip']}:{settings.get('lockin_port', 23)}")
+    print(chr(10) + f"Connecting to lock-in over {interface} at {where}")
     lockin = LockIn(settings)
     if not lockin.connected:
         print("  FAIL: no connection. Check the IP, that nothing else holds "

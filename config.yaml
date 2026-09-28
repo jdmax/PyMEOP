@@ -47,15 +47,16 @@ settings:
     wave_poll: 0.2              # wavemeter polling interval during a wide sweep, seconds
 
     # ---- Lock-in transport -------------------------------------------------
-    # The SR860 is driven through srsinst.sr860, which handles the command
-    # terminator and the capture buffer transfer itself.
-    #   'tcpip'  the telnet port above, which is what the lab already uses
-    #   'vxi11'  the transport in SRS's own Ethernet example; try this if
-    #            the capture transfer misbehaves on tcpip
-    lockin_interface: 'tcpip'
-    # Command terminator for tcpip only. srsgui defaults to LF, but the
-    # SR860's TELNET terminator is a front-panel setting and this unit
-    # answers CR. A mismatch is silent: the banner appears on connect and
+    # The SR860 is driven through srsinst.sr860, which owns the capture
+    # buffer transfer.
+    #   'vxi11'  SRS's own Ethernet transport. This unit's telnet port
+    #            answers text commands but not a binary CAPTUREGET?, so
+    #            capture only works here.
+    #   'tcpip'  the telnet port above. Text only on this unit; usable for
+    #            the legacy stepped sweep_mode, not for wide.
+    lockin_interface: 'vxi11'
+    # Command terminator, tcpip only. srsgui defaults to LF but this unit
+    # answers CR, and a mismatch is silent -- the banner still appears and
     # then every command is ignored until the query times out.
     lockin_term: 'CR'           # CR, LF or CRLF
 

@@ -482,7 +482,17 @@ class LockIn():
         srsinst returns one row per channel; the rest of PyMEOP works in
         samples by channels, so the result is transposed.
         """
-        data = self.capture.get_all_data()
+        try:
+            data = self.capture.get_all_data()
+        except Exception as e:
+            if self.interface != 'vxi11':
+                raise IOError(
+                    f"Capture transfer failed on {self.interface} ({e}). This "
+                    f"unit answers text commands on its telnet port but not a "
+                    f"binary CAPTUREGET?. Set lockin_interface to 'vxi11', "
+                    f"which is the transport in SRS's own Ethernet example."
+                ) from e
+            raise
         if data is None or not len(data):
             return None
         return np.asarray(data).T
