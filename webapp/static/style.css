@@ -387,6 +387,7 @@ main {
 .fittable td.warn { color: var(--critical); }
 .fitnote { margin: 6px 0 0; font-size: 11px; color: var(--muted); }
 .fitnote.warn { color: var(--critical); }
+.ghost.small { font-size: 11px; padding: 1px 7px; }
 
 /* ---------- run bar and stat tiles ---------- */
 

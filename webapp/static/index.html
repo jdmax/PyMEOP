@@ -41,10 +41,12 @@
       <option value="2">Quadratic</option>
     </select>
   </label>
-  <label class="field" title="Ratio of the two peak heights at zero polarization, used to scale P. Left empty, each scan uses the r0 the DAQ recorded with it; a value typed here is used for every scan instead.">
+  <label class="field" title="Ratio of the two peak heights at zero polarization, used to scale P. Left empty, each scan uses the r0 the DAQ recorded with it; a value typed here, or set from a relaxation fit with its r0 for P-infinity = 0 button, is used for every scan instead.">
     <span>r<sub>0</sub></span>
-    <input id="r0" type="number" step="0.001" placeholder="from file" inputmode="decimal">
+    <input id="r0" type="number" step="any" placeholder="from file" inputmode="decimal">
   </label>
+  <button id="r0Reset" class="ghost" type="button" disabled
+          title="Clear the r0 set here and go back to the r0 recorded with each scan">Recorded r<sub>0</sub></button>
   <button id="themeBtn" class="ghost" type="button" title="Switch light and dark">Theme</button>
 </header>
 

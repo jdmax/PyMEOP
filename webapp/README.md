@@ -47,13 +47,20 @@ inside the default data directory.
 
 ## Loading
 
-The first time a folder is opened the server reads and parses every event file in
-it, which takes a while for a big archive (roughly 15 MB a second). While it
-works, the page shows a progress bar with the files and megabytes read so far.
-Parsed files are kept in memory, so opening the same folder again, or reloading
-the page, is quick; only files that have changed are read again. The server
-starts reading the default folder as soon as it starts, so by the time a browser
-asks for it, part of the work is done.
+The file list comes from a quick look at each event file: its lines are counted
+and only its first and last scans are read, for when the run started and
+stopped. A file's scans and their points are only parsed when it is opened from
+the list or ticked for the time plot. Listing a folder reads the files but does
+not parse them, so it is quick even for a big archive; while it works, the page
+shows a progress bar with the files and megabytes read so far. The list rows are
+kept, so opening the same folder again, or reloading the page, only reads the
+files that have changed. The server starts listing the default folder as soon as
+it starts.
+
+The server keeps the 24 most recently used parsed files in memory
+(`MAX_PARSED_RUNS` in `dataset.py`) and drops the oldest past that. Until a file
+has been opened, its row in the list counts any unreadable lines as scans, since
+only a full parse finds them.
 
 ## Watching a run live
 
@@ -225,8 +232,18 @@ showed at the time. The P tiles say which r₀ they used.
 The **r₀** box in the top bar is an override. Left empty, as it starts, each scan
 uses its recorded r₀. A value typed there is used for every scan instead, which is
 how to apply a zero measured later, or to give one to the older files that predate
-the recorded zero and otherwise fall back to r₀ = 1. Clear the box to go back to
-the recorded values.
+the recorded zero and otherwise fall back to r₀ = 1. When the box is empty it shows
+the run's recorded r₀ in grey. Clear the box, or click **Recorded r₀**, to go back
+to the recorded values.
+
+A relaxation that settles at a P∞ other than zero means the recorded r₀ is off.
+Each fit with P∞ free has an **r₀ for P∞ = 0** column: the r₀ that would read
+the fitted asymptote as zero, r₀ (1 + P∞)/(1 − P∞), with its 1σ from P∞ in the
+tooltip. Click it to use that r₀ for every scan. The fits are then redone on the
+same selection, and since P is not linear in r₀, the step is repeated until P∞
+is zero to within 0.001 % (two or three steps). The P tiles and the fit note then
+say r₀ was set for P∞ = 0. The column is empty when P∞ is held at zero, or when
+the selected scans were read off different recorded r₀ values.
 
 The earliest files with zero readings (before about 16:53 on 7 Jan 2022) have a
 stored `pol` of 1.0 for every scan, from a bug in the DAQ at the time. The browser

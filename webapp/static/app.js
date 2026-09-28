@@ -12,7 +12,8 @@ const state = {
   run: null,          // detail for the selected file
   event: null,        // detail for the selected scan
   eventIdx: 0,
-  r0: null,          // r0 typed in the top bar, overriding the recorded one; null uses the file's
+  r0: null,          // r0 set in the top bar, overriding the recorded one; null uses the file's
+  r0Source: null,    // how that r0 was set: 'typed', or 'fit' to zero a fit's P∞
   shape: 'recorded',  // peak shape shown: the DAQ's own fits, or every scan as 'gauss' or 'voigt'
   base: 'recorded',   // baseline shown: each scan's own, or every scan on '1' straight or '2' quadratic
   range: null,        // [lo, hi] x of each scan to fit, or null for every point
@@ -151,11 +152,36 @@ function r0For(e) {
 
 /* How the r0 behind a set of scans is described next to their polarization */
 function r0Label(events) {
-  if (state.r0 !== null) return 'r₀ = ' + state.r0 + ' (typed)';
+  if (state.r0 !== null) {
+    return 'r₀ = ' + state.r0 + (state.r0Source === 'fit' ? ' (set for P∞ = 0)' : ' (typed)');
+  }
   const seen = new Set(events.map((e) => (e.r0 ? e.r0.toFixed(4) : 'none')));
   if (seen.size > 1) return 'r₀ as recorded, per scan';
   const only = seen.values().next().value;
   return only === 'none' || only === undefined ? 'r₀ = 1, none recorded' : 'r₀ = ' + only + ' (recorded)';
+}
+
+/* The one r0 behind every one of these scans' polarization, or null if they
+   were read off different recorded values */
+function commonR0(events) {
+  const seen = new Set(events.map(r0For));
+  return seen.size === 1 ? seen.values().next().value : null;
+}
+
+/* Use r0 for every scan, or null to go back to each scan's recorded one. The
+   fits are cleared, as they were made with the old r0. */
+function setR0(v, source) {
+  state.r0 = v;
+  state.r0Source = v === null ? null : source;
+  const box = el('r0');
+  if (source !== 'typed') box.value = v === null ? '' : String(v);
+  el('r0Reset').disabled = v === null;
+  if (!state.run) return;
+  renderRunBar();
+  tl.fits = [];
+  renderFits();
+  if (el('metric').value === 'polarization') drawTimeline({ keepZoom: true });
+  if (state.event) renderFitPanel();
 }
 
 function polOf(e) {
@@ -1013,7 +1039,8 @@ async function doFit() {
       const pts = g.events
         .map((e) => ({ t: e.start_stamp, y: polPercent(e), s: polarizationErr(e) }))
         .filter((q) => q.y !== null);
-      const base = { key: g.key, label: g.label, n: pts.length, r0: r0Label(g.events) };
+      const base = { key: g.key, label: g.label, n: pts.length, r0: r0Label(g.events),
+                     r0Used: commonR0(g.events.filter((e) => polOf(e) !== null)) };
       try {
         const sig = pts.every((q) => q.s !== null && q.s > 0) ? pts.map((q) => q.s) : null;
         const r = await postJSON('api/fit/exp', {
@@ -1033,6 +1060,35 @@ async function doFit() {
   if (charts.run) charts.run.redraw();
 }
 
+/* The r0 that puts a fit's P∞ at zero, with its 1σ, or null if there is none
+   to give. P∞ is where the height ratio r settles, read through the r0 the fit
+   was made with; that r is the r0 which reads it as zero. From
+   P = (q-1)/(q+1) with q = r/r0, r∞ = r0 (1+P∞)/(1-P∞). */
+function r0ForZero(f) {
+  if (f.error || f.asymptote_fixed || !f.r0Used) return null;
+  const p = f.p_inf / 100;
+  if (!isFinite(p) || Math.abs(p) >= 1) return null;
+  const r0 = f.r0Used * (1 + p) / (1 - p);
+  const err = f.p_inf_err === null || f.p_inf_err === undefined ? null
+    : Math.abs(f.r0Used * 2 / ((1 - p) * (1 - p)) * f.p_inf_err / 100);
+  return isFinite(r0) && r0 > 0 ? { r0: r0, err: err } : null;
+}
+
+/* Set r0 so that the given fit's P∞ is zero, refitting until it is. P is not
+   linear in r0, so one step leaves the refitted P∞ a little off zero; a few
+   more take it there. */
+async function zeroPInf(key) {
+  for (let i = 0; i < 6; i++) {
+    const f = tl.fits.find((q) => q.key === key);
+    if (!f || f.error) return;
+    if (i > 0 && Math.abs(f.p_inf) < 1e-3) return;
+    const z = r0ForZero(f);
+    if (!z) return;
+    setR0(parseFloat(z.r0.toPrecision(7)), 'fit');
+    await doFit();
+  }
+}
+
 function renderFits() {
   const host = el('fitResults');
   if (!tl.fits.length) { host.innerHTML = ''; return; }
@@ -1041,7 +1097,15 @@ function renderFits() {
   const loose = (f) => f.tau_unbounded || (f.tau_err !== null && f.tau_err > 0.5 * f.tau);
   const rows = tl.fits.map((f) => {
     const head = '<td>' + swatch(fitColour(f.key, p)) + f.label + '</td>';
-    if (f.error) return '<tr>' + head + '<td colspan="6" class="warn">' + f.error + '</td></tr>';
+    if (f.error) return '<tr>' + head + '<td colspan="7" class="warn">' + f.error + '</td></tr>';
+    const z = r0ForZero(f);
+    const zeroCell = z
+      ? '<button class="ghost small" type="button" data-zero="' + f.key + '" title="Use r₀ = ' +
+        fmtPM(z.r0, z.err) + ' for every scan, so that the P∞ of this fit is zero, and refit">' +
+        fmt(z.r0, 5) + '</button>'
+      : '<span class="muted" title="' + (f.asymptote_fixed ? 'P∞ is held at zero'
+          : 'The selected scans were read off different recorded r₀ values; set one first') +
+        '">' + DASH + '</span>';
     return '<tr>' + head +
       '<td>' + f.n + '</td>' +
       '<td>' + f.kind + '</td>' +
@@ -1049,7 +1113,8 @@ function renderFits() {
         fmtTau(f.tau, f.tau_err) + '</td>' +
       '<td>' + fmtPM(f.p_0, f.p_0_err) + '</td>' +
       '<td>' + (f.asymptote_fixed ? '0 (fixed)' : fmtPM(f.p_inf, f.p_inf_err)) + '</td>' +
-      '<td>' + fmt(f.redchi2, 3) + '</td></tr>';
+      '<td>' + fmt(f.redchi2, 3) + '</td>' +
+      '<td>' + zeroCell + '</td></tr>';
   }).join('');
 
   const ok = tl.fits.filter((f) => !f.error);
@@ -1071,7 +1136,9 @@ function renderFits() {
     '<caption class="sr-only">Exponential fits to the selected polarization</caption>' +
     '<thead><tr><th scope="col">Scans</th><th scope="col">N</th><th scope="col">Type</th>' +
     '<th scope="col">τ</th><th scope="col">P<sub>0</sub> (%)</th>' +
-    '<th scope="col">P<sub>∞</sub> (%)</th><th scope="col">χ²<sub>ν</sub></th></tr></thead>' +
+    '<th scope="col">P<sub>∞</sub> (%)</th><th scope="col">χ²<sub>ν</sub></th>' +
+    '<th scope="col" title="The r₀ that would put P∞ at zero; click to use it">r<sub>0</sub> for P<sub>∞</sub> = 0</th>' +
+    '</tr></thead>' +
     '<tbody>' + rows + '</tbody></table>' + notes.join('');
 }
 
@@ -1293,6 +1360,10 @@ function renderRunBar() {
          fmt(xmin, 4) + ' – ' + fmt(xmax, 4),
          run.x_key === 'wavelength' ? 'wavelength' : 'probe current (A)') +
     (run.bad_lines ? tile('Unreadable lines', run.bad_lines, 'skipped', 'warn') : '');
+
+  const rec = new Set(run.events.map((e) => (e.r0 ? e.r0.toFixed(4) : 'none')));
+  const only = rec.size === 1 ? rec.values().next().value : null;
+  el('r0').placeholder = rec.size > 1 ? 'per scan' : only && only !== 'none' ? only : '1 (none)';
 
   el('rawLink').href = api('file/' + encodeURIComponent(run.name) + '/raw');
   el('rawLink').setAttribute('download', run.name);
@@ -1575,7 +1646,7 @@ function showLoading(p) {
       '<p class="dirline"></p>' +
       '<progress max="1" aria-label="Reading event files"></progress>' +
       '<p class="progress-text"></p>' +
-      '<p class="muted">Each file is read once; after that the list comes from memory.</p></div>';
+      '<p class="muted">Scans are only loaded when a file is opened; the list is kept after this.</p></div>';
     box = el('welcome').querySelector('.loading');
   }
   box.querySelector('.dirline').textContent = state.dir || state.dirPath;
@@ -2030,13 +2101,12 @@ function wire() {
 
   el('r0').addEventListener('input', () => {
     const v = parseFloat(el('r0').value);
-    state.r0 = isFinite(v) && v !== 0 ? v : null;   // cleared: back to the recorded r0
-    if (!state.run) return;
-    renderRunBar();
-    tl.fits = [];
-    renderFits();
-    if (el('metric').value === 'polarization') drawTimeline({ keepZoom: true });
-    if (state.event) renderFitPanel();
+    setR0(isFinite(v) && v !== 0 ? v : null, 'typed');   // cleared: back to the recorded r0
+  });
+  el('r0Reset').addEventListener('click', () => setR0(null));
+  el('fitResults').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-zero]');
+    if (btn) zeroPInf(btn.dataset.zero).catch(showError);
   });
 
   el('shape').addEventListener('change', () => setFit(el('shape').value, state.base).catch(showError));

@@ -1,11 +1,15 @@
 """Read-only access to the PyMEOP event files under the data directory.
 
 Event files are written by Event.print_event() as one JSON object per line, so a
-file is a run and each line in it is one scan. Files are parsed lazily and cached
-on modification time, since a long run is a few hundred scans of a hundred points
-and reparsing it on every request is wasteful.
+file is a run and each line in it is one scan. The file list comes from a quick
+look at each file, its line count and its first and last scans; a file is only
+parsed in full when it is opened or plotted. Parsed files are cached on
+modification time, since a long run is a few hundred scans of a hundred points
+and reparsing it on every request is wasteful, but only the most recently used
+few are kept, so browsing a big archive does not hold all of it in memory.
 """
 
+import collections
 import copy
 import hashlib
 import json
@@ -25,6 +29,9 @@ NAME_STAMP = re.compile(r'(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})')
 
 
 EVENT_EXTS = ('.txt', '.json', '.jsonl')
+
+# fully parsed files kept in memory at once; the least recently used goes first
+MAX_PARSED_RUNS = 24
 
 # set by the server from its command line; None falls through to config.yaml
 DEFAULT_DIR = None
@@ -289,6 +296,67 @@ def finite_list(seq):
     return [finite(v) for v in (seq if seq is not None else [])]
 
 
+def x_key_of(waves):
+    '''The scan's x axis: wavelength when the wavemeter was actually read, else
+    current, as in current scans the wavelength column sits at zero'''
+
+    return 'wavelength' if np.any(np.asarray(waves, dtype=float) != 0) else 'current'
+
+
+def _scan_line(line):
+    '''One line of an event file as a dict, or None if it is not one'''
+
+    try:
+        raw = json.loads(line)
+    except (ValueError, TypeError):
+        return None
+    return raw if isinstance(raw, dict) else None
+
+
+def quick_info(path):
+    '''The file list row for an event file, without parsing it in full.
+
+    Counts the scans by their lines and reads only the first and last of them,
+    for when the run started and stopped and its x axis. The scans are written
+    in time order, so those two give the same span as reading them all. A last
+    line that does not parse and has no newline after it is a scan still being
+    written, and is not counted. Unreadable lines elsewhere are counted as
+    scans, as only a full parse finds them, so bad_lines is None here.
+    '''
+
+    stat = os.stat(path)
+    row = {'name': os.path.basename(path), 'size': stat.st_size, 'mtime': stat.st_mtime,
+           'n_events': 0, 'bad_lines': None, 'error': None, 'start_stamp': None,
+           'stop_stamp': None, 'duration': None, 'x_key': 'current'}
+    try:
+        with open(path, 'rb') as f:
+            data = f.read()
+    except OSError as e:
+        row['error'] = str(e)
+        return row
+    lines = [line for line in data.split(b'\n') if line.strip()]
+    first = last = None
+    for line in lines:
+        first = _scan_line(line)
+        if first is not None:
+            break
+    j = len(lines)
+    for j in range(len(lines) - 1, -1, -1):
+        last = _scan_line(lines[j])
+        if last is not None:
+            break
+    if lines and j < len(lines) - 1 and not data.endswith(b'\n'):
+        lines.pop()  # the scan being written
+    row['n_events'] = len(lines)
+    if first is None:
+        return row
+    start, stop = finite(first.get('start_stamp')), finite(last.get('stop_stamp'))
+    row.update({'start_stamp': start, 'stop_stamp': stop,
+                'duration': finite(stop - start) if start and stop else None,
+                'x_key': x_key_of(first.get('waves') or [])})
+    return row
+
+
 def recorded_r0(raw):
     '''The zero polarization height ratio the DAQ used for a scan, or None.
 
@@ -329,7 +397,7 @@ class Event:
 
         # wavelength is only the x axis when the wavemeter was actually read;
         # in current scans the column sits at zero and current is the axis
-        self.x_key = 'wavelength' if np.any(self.waves != 0) else 'current'
+        self.x_key = x_key_of(self.waves)
         self.x = self.waves if self.x_key == 'wavelength' else self.currs
 
         # which way the sweep ran, from where it ended against where it started
@@ -358,6 +426,10 @@ class Event:
 
         self.components(np.array(raw.get('fit') or [], dtype=float))
         self.r0 = recorded_r0(raw)
+        # the point lists live on as the arrays above; keeping them twice would
+        # double what a parsed run holds
+        for k in ('currs', 'waves', 'rs', 'times', 'fit'):
+            raw.pop(k, None)
 
     def components(self, fit):
         '''Rebuild the fit curve, its parts and R² from pf.
@@ -665,7 +737,8 @@ class Library:
     '''
 
     def __init__(self):
-        self._runs = {}
+        self._runs = collections.OrderedDict()   # path -> (key, Run), least recently used first
+        self._rows = {}   # path -> (key, file list row), from quick_info()
         self._lock = threading.Lock()
         self._index_locks = {}   # directory -> lock, one index pass per folder at a time
         self._progress = {}      # directory -> progress of the index pass under way
@@ -694,16 +767,45 @@ class Library:
         with self._lock:
             hit = self._runs.get(path)
             if hit and hit[0] == key:
+                self._runs.move_to_end(path)
                 return hit[1]
         run = Run(path)
         with self._lock:
             self._runs[path] = (key, run)
+            self._runs.move_to_end(path)
+            while len(self._runs) > MAX_PARSED_RUNS:
+                self._runs.popitem(last=False)
         return run
+
+    def row(self, name, base):
+        '''File list row for a file name, or None if it is not an event file.
+
+        From the parsed run when that is in memory and current, as it has the
+        exact scan and bad line counts, and otherwise from quick_info(), cached
+        on size and modification time like the runs.
+        '''
+
+        path = safe_path(name, base)
+        if not path:
+            return None
+        stat = os.stat(path)
+        key = (path, stat.st_size, stat.st_mtime)
+        with self._lock:
+            hit = self._runs.get(path)
+            if hit and hit[0] == key:
+                return hit[1].info()
+            hit = self._rows.get(path)
+            if hit and hit[0] == key:
+                return hit[1]
+        row = quick_info(path)
+        with self._lock:
+            self._rows[path] = (key, row)
+        return row
 
     def index(self, base):
         '''File list rows for a whole data directory.
 
-        The first pass over a large folder parses every file in it, which takes a
+        The first pass over a large folder reads every file in it, which takes a
         while, so its progress is kept for progress() to report. Only one pass
         runs per folder at a time: a second request waits for the first and then
         finds everything cached.
@@ -726,9 +828,12 @@ class Library:
             rows = []
             try:
                 for name, size in zip(names, sizes):
-                    run = self.run(name, base)
-                    if run:
-                        rows.append(run.info())
+                    try:
+                        row = self.row(name, base)
+                    except OSError:
+                        row = None  # renamed by the DAQ since the listing
+                    if row:
+                        rows.append(row)
                     prog['done'] += 1
                     prog['bytes_done'] += size
             finally:
@@ -738,9 +843,10 @@ class Library:
             # paths in this folder that are gone rather than holding every old name
             live = {os.path.join(base, r['name']) for r in rows}
             with self._lock:
-                for path in [p for p in self._runs
-                             if os.path.dirname(p) == base and p not in live]:
-                    del self._runs[path]
+                for cache in (self._runs, self._rows):
+                    for path in [p for p in cache
+                                 if os.path.dirname(p) == base and p not in live]:
+                        del cache[path]
             return rows
 
     def progress(self, base):
