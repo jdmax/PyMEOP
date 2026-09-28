@@ -70,7 +70,11 @@ class ProbeLaser():
     name a module explicitly if that guess ever needs overriding.
     """
 
-    # laser1:wide-scan:output-channel enum values
+    # laser1:wide-scan:output-channel numbers. Bare integers in the DeCoF
+    # tree with no enum in the SDK, and they differ between controllers --
+    # these came from the old code and are rejected by the unit on this
+    # bench. tools/probe_wide_scan.py reads the numbers a controller accepts
+    # and what each one drives.
     CHANNEL_TEMP = 56
     CHANNEL_CURRENT = 63
 
@@ -164,6 +168,40 @@ class ProbeLaser():
 
     # -- wide scan ---------------------------------------------------------
 
+    def _select_channel(self, channel):
+        """Point the wide scan at the diode current or the grating temperature.
+
+        The channel numbers are bare integers in the DeCoF tree with no enum
+        in the SDK, and they differ between controllers -- the values
+        inherited from the old code are rejected by this one. After setting
+        it, value-unit says what was actually selected, which catches a
+        number that is accepted but means something else.
+        """
+        wanted = self.CHANNEL_TEMP if 'temp' in channel else self.CHANNEL_CURRENT
+        ws = self.wide_scan
+        try:
+            ws.output_channel.set(wanted)
+        except Exception as e:
+            raise ValueError(
+                f"The controller rejected wide-scan output-channel {wanted} "
+                f"for {channel!r} ({e}). These numbers vary between "
+                f"controllers; run tools/probe_wide_scan.py to read the ones "
+                f"this unit accepts, then set ProbeLaser.CHANNEL_CURRENT and "
+                f"CHANNEL_TEMP."
+            ) from e
+
+        try:
+            unit = str(ws.value_unit.get()).strip()
+        except Exception:
+            return wanted           # nothing to check against, carry on
+        expected = 'K' if 'temp' in channel else 'A'
+        if expected.lower() not in unit.lower():
+            print(f"Wide-scan channel {wanted} selected a channel reading in "
+                  f"{unit!r}, which does not look like {channel}. Check "
+                  f"ProbeLaser.CHANNEL_CURRENT and CHANNEL_TEMP against "
+                  f"tools/probe_wide_scan.py.")
+        return wanted
+
     def config_scan(self, type, begin, end, mode, shape, speed):
         """Configure a wide-scan by scan rate.
 
@@ -175,9 +213,8 @@ class ProbeLaser():
             speed: rate in mA/s or K/s
         """
         try:
+            self._select_channel(type)
             ws = self.wide_scan
-            ws.output_channel.set(self.CHANNEL_TEMP if 'temp' in type
-                                  else self.CHANNEL_CURRENT)
             ws.scan_begin.set(float(begin))
             ws.scan_end.set(float(end))
             ws.continuous_mode.set(bool(mode))
@@ -204,9 +241,8 @@ class ProbeLaser():
             raise ValueError(f"Bad wide-scan range {begin}->{end} "
                              f"over {duration} s")
 
+        self._select_channel(channel)
         ws = self.wide_scan
-        ws.output_channel.set(self.CHANNEL_TEMP if 'temp' in channel
-                              else self.CHANNEL_CURRENT)
         ws.scan_begin.set(float(begin))
         ws.scan_end.set(float(end))
         ws.continuous_mode.set(bool(continuous))
