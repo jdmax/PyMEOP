@@ -40,9 +40,9 @@ def check_lockin(settings):
     print(f"\nConnecting to lock-in at {settings['lockin_ip']}:"
           f"{settings.get('lockin_port', 23)}")
     lockin = LockIn(settings)
-    if lockin.sock is None:
-        print("  FAIL: no socket. Check the IP and that nothing else holds "
-              "the connection.")
+    if not lockin.connected:
+        print("  FAIL: no connection. Check the IP, that nothing else holds "
+              "the session, and lockin_interface in the config.")
         return None
 
     ident = lockin.query('*IDN?')

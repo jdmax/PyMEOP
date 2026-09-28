@@ -6,3 +6,5 @@ pyserial~=3.5
 telnetlib3~=5.0.0
 PyYAML~=6.0.2
 scipy~=1.14.1
+srsinst.sr860~=0.3
+xdrlib3~=0.1    # python-vxi11 imports xdrlib, gone from the stdlib in 3.13

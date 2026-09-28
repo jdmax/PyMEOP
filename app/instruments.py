@@ -2,8 +2,7 @@
 '''
 import re
 import math
-import socket
-import struct
+import sys
 import time
 
 import numpy as np
@@ -231,247 +230,122 @@ class WavelengthMeter():
         return float(outp)*1e9
 
 
+
 class LockIn():
-    '''Access SR860 lock-in amplifier.
+    """SR860 lock-in, driven through Stanford Research Systems' own package.
 
-    Uses a plain socket rather than telnet: the data capture buffer is
-    transferred as a binary IEEE-488.2 block, and a telnet connection escapes
-    0xFF (IAC) bytes, which corrupts float data. Set 'lockin_port' in the config
-    to a raw socket port if the default does not transfer binary cleanly.
-    '''
+    Everything below the public methods is srsinst.sr860. The capture buffer
+    protocol is fiddly -- the block framing, the argument spacing, when the
+    buffer may be read -- and hand-rolling it cost a long run of bench
+    failures for no benefit. SRS ship a tested implementation; this class
+    exists only to keep the interface the rest of PyMEOP already uses.
 
-    # OFLT index -> time constant in seconds
-    TC_TABLE = [1e-6, 3e-6, 1e-5, 3e-5, 1e-4, 3e-4,
-                1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1,
-                1.0, 3.0, 10.0, 30.0, 1e2, 3e2,
-                1e3, 3e3, 1e4, 3e4]
-    # OFSL index -> filter slope in dB/oct
-    SLOPE_TABLE = [6, 12, 18, 24]
-    # CAPTURECFG index -> (name, number of channels)
-    CAPTURE_CFG = {'X': (0, 1), 'XY': (1, 2), 'RT': (2, 2), 'XYRT': (3, 4)}
+    One thing worth recording from that episode: srsgui terminates commands
+    with LF. This code previously sent CR, which the SR860 answers for text
+    queries but evidently not for a binary CAPTUREGET?.
+    """
 
-    MAX_CAPTURE_KB = 4096           # manual p137: 1 <= n <= 4096 kB
-    GET_CHUNK_KB = 64               # manual p140: max j is 64 kB
-
-    term = '\r'                     # command terminator, overridden per instance
-    cmd_delay = 0.05                # seconds between writes
-    settle = 0.3                    # pause after changing the filter config
-    _get_fmt = None                 # CAPTUREGET? argument form that works
-
-    # Data capture vocabulary. The spelling has moved between SR860 firmware
-    # revisions, so these are overridable from config (lockin_capture_cmds)
-    # once tools/probe_lockin.py has established what this unit answers to.
-    CAPTURE_CMDS = {
-        'ratemax': 'CAPTURERATEMAX?',
-        'rate': 'CAPTURERATE',
-        'cfg': 'CAPTURECFG',
-        'len': 'CAPTURELEN',
-        'start': 'CAPTURESTART',
-        'stop': 'CAPTURESTOP',
-        'bytes': 'CAPTUREBYTES?',
-        'get': 'CAPTUREGET?',
-        'stat': 'CAPTURESTAT?',
-        'rate_read': 'CAPTURERATE?',
-        'len_read': 'CAPTURELEN?',
-    }
-    capture_cmds = CAPTURE_CMDS     # instance copy is made in __init__
+    CHANNELS = {'X': 1, 'XY': 2, 'RT': 2, 'XYRT': 4}   # columns per config
+    settle = 0.3        # filters need a moment after the time constant changes
 
     def __init__(self, settings):
-        '''Open socket to the lock-in'''
+        """Connect over the interface named by lockin_interface in the config.
+
+        'tcpip' is the telnet port the rest of the lab uses; 'vxi11' is the
+        transport in SRS's own Ethernet example, worth trying if the capture
+        transfer misbehaves.
+        """
         self.ip = settings['lockin_ip']
         self.port = int(settings.get('lockin_port', 23))
-        self.sock = None
-        self._buf = bytearray()
-        self._cap_channels = 2
-        self._cap_cursor_kb = 0
-        self._get_fmt = None
-        # Wire details that vary between firmware revisions. Defaults match
-        # what the old telnet code used; tools/probe_lockin.py determines the
-        # right values on the bench.
-        self.term = settings.get('lockin_term', '\r').encode().decode(
-            'unicode_escape')
-        self.cmd_delay = float(settings.get('lockin_cmd_delay', 0.05))
-        self.settle = float(settings.get('lockin_settle', 0.3))
-        self.capture_cmds = dict(self.CAPTURE_CMDS)
-        self.capture_cmds.update(settings.get('lockin_capture_cmds') or {})
+        self.interface = settings.get('lockin_interface', 'tcpip')
+        self.lockin = None
+        self._channels = 2
 
         try:
-            self.sock = socket.create_connection((self.ip, self.port), timeout=5)
-            self.sock.settimeout(5)
-            # Drain any banner the instrument sends on connect
-            self._drain()
+            self.lockin = _sr860()
+            if self.interface == 'vxi11':
+                self.lockin.connect('vxi11', self.ip)
+            else:
+                self.lockin.connect('tcpip', self.ip, self.port)
         except Exception as e:
             print(f"Lock-in connection failed on {self.ip}: {e}")
+            self.lockin = None
 
     def __del__(self):
         try:
-            self.sock.close()
+            self.lockin.disconnect()
         except Exception:
             pass
 
-    # -- transport ---------------------------------------------------------
-
-    def _drain(self):
-        '''Discard anything already waiting on the socket'''
-        self.sock.settimeout(0.2)
+    @property
+    def connected(self):
         try:
-            while True:
-                chunk = self.sock.recv(4096)
-                if not chunk:
-                    break
-        except (socket.timeout, OSError):
-            pass
-        finally:
-            self.sock.settimeout(5)
-        self._buf.clear()
+            return bool(self.lockin) and self.lockin.is_connected()
+        except Exception:
+            return False
 
-    def _write(self, cmd):
-        self.sock.sendall(bytes(f"{cmd}{self.term}", 'ascii'))
-
-    def _read_exact(self, n):
-        '''Read exactly n bytes'''
-        while len(self._buf) < n:
-            chunk = self.sock.recv(max(4096, n - len(self._buf)))
-            if not chunk:
-                raise IOError("Lock-in closed the connection")
-            self._buf.extend(chunk)
-        out = bytes(self._buf[:n])
-        del self._buf[:n]
-        return out
-
-    def _read_line(self):
-        '''Read up to a \\r or \\n terminator'''
-        while True:
-            for i, b in enumerate(self._buf):
-                if b in (0x0A, 0x0D):
-                    line = bytes(self._buf[:i])
-                    del self._buf[:i + 1]
-                    # A CRLF pair must be consumed whole, or the stray LF is
-                    # read as an empty reply to the next query.
-                    if self._buf[:1] in (b'\n', b'\r') and self._buf[:1] != bytes([b]):
-                        del self._buf[:1]
-                    return line.decode('ascii', 'replace').strip()
-            chunk = self.sock.recv(4096)
-            if not chunk:
-                raise IOError("Lock-in closed the connection")
-            self._buf.extend(chunk)
+    def query(self, cmd):
+        """Send a query and return the reply text, for diagnostics."""
+        return self.lockin.query_text(cmd)
 
     def command(self, cmd):
-        '''Send a command that returns nothing.
-
-        Consecutive sets can arrive coalesced in a single TCP segment, which
-        some firmware parses badly. Queries need no such gap -- the blocking
-        read that follows paces them, and a delay there would only slow the
-        capture polling loop.
-        '''
-        self._write(cmd)
-        if self.cmd_delay:
-            time.sleep(self.cmd_delay)
-
-    def query(self, cmd, retries=1):
-        '''Send a query and return the reply as a string.
-
-        Retries once on a timeout. The first query after a burst of set
-        commands is intermittently dropped by this unit -- changing the time
-        constant reconfigures the filter chain, and a query landing in that
-        window sometimes goes unanswered. Draining first discards a late
-        reply so it cannot be mistaken for the answer to the retry.
-        '''
-        for attempt in range(retries + 1):
-            try:
-                self._write(cmd)
-                return self._read_line()
-            except (socket.timeout, TimeoutError):
-                if attempt >= retries:
-                    raise
-                self._drain()
-
-    def query_float(self, cmd):
-        return float(self.query(cmd))
-
-    def query_int(self, cmd):
-        return int(float(self.query(cmd)))
-
-    def _read_block(self):
-        """Read an IEEE-488.2 definite length block: #<ndigits><length><data>.
-
-        SR860 manual p140: the CAPTUREGET? response is always this format, and
-        the payload is little-endian float32. A reply that is not a block means
-        the query was rejected -- overwhelmingly because the capture was still
-        running, which raises a range error.
-        """
-        head = self._read_exact(1)
-        if head != b'#':
-            self._drain()
-            raise IOError(
-                f"CAPTUREGET? answered {head!r} instead of a binary block. "
-                f"A running capture gives a range error (manual p140), and "
-                f"CAPTURESTOP only takes effect at the next 2 kB boundary "
-                f"(p139) -- capture_stop() should have waited for "
-                f"CAPTURESTAT? bit 0 to clear.")
-        ndigits = int(self._read_exact(1))
-        nbytes = int(self._read_exact(ndigits))
-        return self._read_exact(nbytes)
+        self.lockin.send(cmd)
 
     # -- configuration -----------------------------------------------------
 
-    @classmethod
-    def nearest_tc(cls, seconds):
-        '''Return (index, actual_seconds) for the closest available TC'''
-        idx = min(range(len(cls.TC_TABLE)),
-                  key=lambda i: abs(math.log(cls.TC_TABLE[i] / float(seconds))))
-        return idx, cls.TC_TABLE[idx]
-
-    @classmethod
-    def nearest_slope(cls, db_per_oct):
-        '''Return (index, actual_db) for the closest available filter slope'''
-        idx = min(range(len(cls.SLOPE_TABLE)),
-                  key=lambda i: abs(cls.SLOPE_TABLE[i] - db_per_oct))
-        return idx, cls.SLOPE_TABLE[idx]
+    @staticmethod
+    def _nearest(value, choices):
+        """Closest available setting, compared logarithmically over decades."""
+        value = float(value)
+        if value <= 0:
+            return min(choices, key=lambda c: abs(c - value))
+        return min(choices, key=lambda c: abs(math.log(c / value)) if c > 0
+                   else float('inf'))
 
     def configure(self, tc=None, slope=None, sync=None):
-        '''Set time constant (s), filter slope (dB/oct) and sync filter.
+        """Set time constant (s), filter slope (dB/oct) and sync filter.
 
-        Returns the configuration actually applied, read back from the
-        instrument rather than assumed.
-        '''
+        Returns the configuration read back from the instrument rather than
+        the values that were requested.
+        """
+        signal = self.lockin.signal
         if tc is not None:
-            idx, actual = self.nearest_tc(tc)
-            self.command(f"OFLT {idx}")
-            if abs(actual - tc) / float(tc) > 0.01:
-                print(f"Lock-in TC {tc} s not available, using {actual} s")
+            choice = self._nearest(tc, list(signal.time_constant.set_dict.keys()))
+            signal.time_constant = choice
+            if abs(choice - tc) / float(tc) > 0.01:
+                print(f"Lock-in TC {tc} s not available, using {choice} s")
         if slope is not None:
-            idx, actual = self.nearest_slope(slope)
-            self.command(f"OFSL {idx}")
-            if actual != slope:
-                print(f"Lock-in slope {slope} dB/oct not available, using {actual} dB/oct")
+            choice = self._nearest(slope, list(signal.filter_slope.set_dict.keys()))
+            signal.filter_slope = choice
+            if choice != slope:
+                print(f"Lock-in slope {slope} dB/oct not available, "
+                      f"using {choice} dB/oct")
         if sync is not None:
-            self.command(f"SYNC {1 if sync else 0}")
+            signal.sync_filter = 'on' if sync else 'off'
 
-        # Changing the time constant reconfigures the output filter. Give it a
-        # moment before reading anything back, rather than relying on the
-        # retry in query() to paper over a query that lands mid-reconfigure.
         time.sleep(self.settle)
         return self.get_config()
 
     def get_config(self):
-        '''Read back the settings that affect the shape of a swept spectrum.
+        """Read back the settings that shape a swept spectrum.
 
-        This goes into every event file so a scan can be interpreted later.
-        '''
+        This goes into every event file, so a scan stays interpretable after
+        the settings have moved on. Read one at a time so an unsupported or
+        slow query names itself rather than taking the whole readback down.
+        """
         config = {}
-        # Queried one at a time so a single unsupported or slow command names
-        # itself instead of taking the whole readback down with it.
-        for key, cmd, convert in (
-                ('tc', "OFLT?", lambda v: self.TC_TABLE[int(float(v))]),
-                ('slope_db', "OFSL?", lambda v: self.SLOPE_TABLE[int(float(v))]),
-                ('sync', "SYNC?", lambda v: bool(int(float(v)))),
-                ('sensitivity', "SCAL?", float),
-                ('ref_freq', "FREQ?", float)):
+        signal = self.lockin.signal
+        for key, read in (
+                ('tc', lambda: float(signal.time_constant)),
+                ('slope_db', lambda: int(signal.filter_slope)),
+                ('sync', lambda: str(signal.sync_filter) == 'on'),
+                ('sensitivity', lambda: float(signal.voltage_sensitivity)),
+                ('enbw', lambda: float(signal.equivalent_noise_bandwidth)),
+                ('ref_freq', lambda: float(self.lockin.ref.detection_frequency))):
             try:
-                config[key] = convert(self.query(cmd))
+                config[key] = read()
             except Exception as e:
-                print(f"Lock-in {cmd} failed ({type(e).__name__}: {e})")
+                print(f"Lock-in could not read {key} ({type(e).__name__}: {e})")
 
         if 'slope_db' in config and 'tc' in config:
             # group delay of an n-pole filter is n * tau
@@ -481,14 +355,9 @@ class LockIn():
         return config
 
     def read_all(self):
-        '''Returns lock-in x, y, r.
-
-        Uses SNAP? with explicit parameters rather than SNAPD?, which returns
-        whatever the front panel display happens to be configured to show.
-        '''
+        """Return lock-in x, y, r as a single snapshot."""
         try:
-            reply = self.query("SNAP? 0,1,2")
-            x, y, r = reply.split(',')[:3]
+            x, y, r = self.lockin.data.get_values(0, 1, 2)
             return x, y, r
         except Exception as e:
             print(f"Lock read failed: {e}")
@@ -496,92 +365,56 @@ class LockIn():
 
     # -- data capture ------------------------------------------------------
 
+    @property
+    def capture(self):
+        return self.lockin.capture
+
     def capture_rate_max(self):
-        '''Maximum capture rate in Hz for the current time constant'''
-        return self.query_float(self.capture_cmds['ratemax'])
+        """Maximum capture rate in Hz, which depends on the time constant."""
+        return float(self.capture.max_rate)
 
     def capture_config(self, target_rate, channels='XY', seconds=None):
-        '''Configure the capture buffer.
+        """Configure the capture buffer.
 
-        Arguments:
-            target_rate: desired sample rate in Hz. The SR860 only supports
-                rate_max / 2**n, so the nearest available rate is used.
-            channels: 'X', 'XY', 'RT' or 'XYRT'
-            seconds: length of acquisition to size the buffer for
-        Returns:
-            (actual_rate, n_channels, buffer_kb)
-        '''
-        cfg_idx, nch = self.CAPTURE_CFG[channels]
-        self.command(f"{self.capture_cmds['cfg']} {cfg_idx}")
-        self._cap_channels = nch
+        The rate is a power-of-two divisor of the maximum, so the nearest
+        available one is set and then read back -- every sample's position on
+        the current axis is derived from it.
+
+        Returns (actual_rate, n_channels, buffer_kb).
+        """
+        nch = self.CHANNELS[channels]
+        self.capture.config = channels
 
         rate_max = self.capture_rate_max()
         n = int(round(math.log2(rate_max / float(target_rate))))
         n = max(0, min(20, n))
-        self.command(f"{self.capture_cmds['rate']} {n}")
+        self.capture.rate_divisor_exponent = n
+        actual_rate = float(self.capture.rate)
 
-        # CAPTURERATE? answers in Hz while CAPTURERATE is set with a divider
-        # index, so the rate is read back rather than assumed. Every sample's
-        # position on the current axis is derived from this number -- if it is
-        # wrong the spectrum is stretched and the peak positions are nonsense.
-        expected = rate_max / (2 ** n)
-        actual_rate = expected
-        try:
-            reading = self.query_float(self.capture_cmds['rate_read'])
-            if reading > 0:
-                actual_rate = reading
-                if abs(reading - expected) / expected > 0.01:
-                    print(f"Capture rate set as index {n} (expected "
-                          f"{expected:.1f} Hz) but reads back {reading:.1f} Hz. "
-                          f"Using the readback. If this looks like the index "
-                          f"was taken as a frequency, CAPTURERATE wants Hz on "
-                          f"this firmware.")
-        except Exception as e:
-            print(f"Could not read capture rate back ({e}); "
-                  f"assuming {expected:.1f} Hz")
-
-        if seconds is None:
-            seconds = 1.0
-        nbytes = actual_rate * seconds * nch * 4
+        nbytes = actual_rate * (seconds if seconds else 1.0) * nch * 4
         kb = int(math.ceil(nbytes / 1024.0)) + 2       # margin for rounding
-        # Manual p137: the internal blocks are 2 kB, so n must be even; an odd
-        # value is silently rounded up to n+1 and the readback would not match.
-        kb += kb % 2
-        kb = max(2, min(self.MAX_CAPTURE_KB, kb))
-        self.command(f"{self.capture_cmds['len']} {kb}")
+        kb += kb % 2        # internal blocks are 2 kB, odd lengths round up
+        kb = max(2, min(4096, kb))
+        self.capture.buffer_size_in_kilobytes = kb
 
-        try:
-            got_kb = self.query_float(self.capture_cmds['len_read'])
-            if got_kb and abs(got_kb - kb) > max(1, 0.1 * kb):
-                print(f"Capture length asked for {kb} kB but reads back "
-                      f"{got_kb:g}. CAPTURELEN may not be in kilobytes on this "
-                      f"firmware; a short buffer truncates every sweep.")
-                kb = got_kb
-        except Exception:
-            pass
-
+        self._channels = nch
         return actual_rate, nch, kb
 
     def capture_start(self, continuous=False, triggered=False):
-        '''Start a capture. Resets the read cursor.'''
-        self._cap_cursor_kb = 0
-        self.command(f"{self.capture_cmds['start']} "
-                     f"{1 if continuous else 0},{1 if triggered else 0}")
+        self.capture.start(1 if continuous else 0, 1 if triggered else 0)
 
     def capture_status(self):
-        """CAPTURESTAT? as a bit field: 1 running, 2 triggered, 4 wrapped."""
-        return self.query_int(self.capture_cmds['stat'])
+        """Capture state as a bit field: 1 running, 2 triggered, 4 wrapped."""
+        return int(self.capture.state)
 
     def capture_stop(self, wait=True, timeout=3.0):
-        """Stop the capture, and by default wait until it has really stopped.
+        """Stop the capture, by default waiting until it has really stopped.
 
-        Manual p139: CAPTURESTOP halts at the next 2 kB block boundary, and
-        bit 0 of CAPTURESTAT? stays set until that block has finished filling.
-        CAPTUREGET? raises a range error for the whole of that window, so
-        returning as soon as the command is sent makes the next read fail.
-        At 1220 Hz on two channels a 2 kB block is about 0.2 s.
+        CAPTURESTOP halts at the next 2 kB block boundary and the running bit
+        stays set until that block has filled, so returning as soon as the
+        command is sent can leave the buffer briefly unreadable.
         """
-        self.command(self.capture_cmds['stop'])
+        self.capture.stop()
         if not wait:
             return True
 
@@ -591,75 +424,43 @@ class LockIn():
                 if not (self.capture_status() & 1):
                     return True
             except Exception as e:
-                print(f"Could not read capture status ({e}); "
-                      f"reading the buffer anyway")
+                print(f"Could not read capture status ({e}); reading anyway")
                 return False
             time.sleep(0.02)
-
-        print(f"Capture still reports running {timeout:.1f} s after "
-              f"CAPTURESTOP; reading the buffer anyway")
+        print(f"Capture still reports running {timeout:.1f} s after stopping")
         return False
 
     def capture_bytes(self):
-        '''Bytes captured so far'''
-        return self.query_int(self.capture_cmds['bytes'])
-
-    def _capture_get(self, offset_kb, n_kb):
-        '''Fetch one chunk of the capture buffer as a binary block.
-
-        Manual p140: offset and length are both in kilobytes and the maximum
-        length is 64. Argument spacing is tried both ways because this unit
-        appeared to accept only one of them during bring-up; the form that
-        works is remembered, so the fallback costs at most one timeout.
-        '''
-        forms = [self._get_fmt] if self._get_fmt else ['{}, {}', '{},{}']
-        failure = None
-        for fmt in forms:
-            try:
-                self._write(f"{self.capture_cmds['get']} "
-                            + fmt.format(offset_kb, n_kb))
-                block = self._read_block()
-                self._get_fmt = fmt
-                return block
-            except (socket.timeout, TimeoutError, IOError) as e:
-                failure = e
-                self._drain()
-        raise failure
+        """Bytes captured so far. Live, so it can follow a sweep in progress."""
+        return int(self.capture.data_size_in_bytes)
 
     def capture_read_all(self):
-        """Read the whole capture buffer. The capture must already be stopped.
+        """Read the whole capture buffer as an (n_samples, n_channels) array.
 
-        Manual p140: CAPTUREGET? raises a range error while a capture is
-        running, so there is no way to stream the buffer out as it fills --
-        a sweep has to finish before its data can be fetched.
-
-        Returns an (n_samples, n_channels) float array, or None if the buffer
-        is empty.
+        srsinst returns one row per channel; the rest of PyMEOP works in
+        samples by channels, so the result is transposed.
         """
-        nbytes = self.capture_bytes()
-        if nbytes <= 0:
+        data = self.capture.get_all_data()
+        if data is None or not len(data):
             return None
+        return np.asarray(data).T
 
-        # CAPTUREBYTES? reports non-zero data after a stop, but transfers move
-        # whole kilobytes, so round up and trim the zero fill afterwards.
-        total_kb = int(math.ceil(nbytes / 1024.0))
-        total_kb += total_kb % 2
 
-        blocks = []
-        offset = 0
-        while offset < total_kb:
-            n_kb = min(self.GET_CHUNK_KB, total_kb - offset)
-            blocks.append(self._capture_get(offset, n_kb))
-            offset += n_kb
+def _sr860():
+    """Import and construct an SR860, around a 3.13 standard library removal.
 
-        raw = b''.join(blocks)[:nbytes]
-        n_floats = len(raw) // 4
-        if n_floats == 0:
-            return None
-        # Manual p140: 4-byte single precision float, little endian
-        data = np.array(struct.unpack(f'<{n_floats}f', raw[:n_floats * 4]))
-        usable = (len(data) // self._cap_channels) * self._cap_channels
-        return data[:usable].reshape(-1, self._cap_channels)
+    python-vxi11 imports xdrlib, which left the standard library in Python
+    3.13. xdrlib3 is the same code under a new name, so it stands in -- the
+    same shape of fix as telnetlib3 at the top of this file.
+    """
+    if 'xdrlib' not in sys.modules:
+        try:
+            import xdrlib3
+            sys.modules['xdrlib'] = xdrlib3
+        except ImportError:
+            pass        # a real xdrlib may still be present on older Pythons
+    from srsinst.sr860 import SR860
+    return SR860()
 
 
 class SigGen():

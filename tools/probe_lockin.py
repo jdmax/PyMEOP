@@ -298,6 +298,90 @@ def probe_port_for_binary(ip, port, term):
     return out
 
 
+def probe_capture_detail(ip, port, term):
+    '''Walk the documented capture sequence, reporting every step.
+
+    CAPTUREGET? keeps answering with a single 0x03 even once CAPTURESTAT?
+    says the capture has stopped, so the assumption that a running capture is
+    the cause is wrong. This stops inferring and records what the instrument
+    actually does: the status at each step, whether the ASCII CAPTUREVAL?
+    reads the same buffer, and the full byte count for several argument forms.
+    '''
+    w = Wire(ip, port, timeout=5.0, verbose=False)
+    try:
+        w.send('*IDN?', term)
+        if not w.read(2.0):
+            print("    no answer to *IDN?")
+            return
+        w.drain(0.2)
+
+        print("    configuring: CAPTURECFG 1, CAPTURELEN 16, CAPTURERATE 5")
+        for cmd in ('CAPTURECFG 1', 'CAPTURELEN 16', 'CAPTURERATE 5'):
+            w.send(cmd, term)
+            time.sleep(0.1)
+        w.drain(0.2)
+        for q in ('CAPTURECFG?', 'CAPTURELEN?', 'CAPTURERATE?'):
+            w.send(q, term)
+            print(f"      {q:<16} {w.read(2.0)!r}")
+            w.drain(0.05)
+
+        print("\n    CAPTURESTART 0,0 then 1.0 s")
+        w.send('CAPTURESTART 0,0', term)
+        time.sleep(1.0)
+        for q in ('CAPTUREBYTES?', 'CAPTURESTAT?'):
+            w.send(q, term)
+            print(f"      {q:<16} {w.read(2.0)!r}   (while running)")
+            w.drain(0.05)
+
+        print("\n    CAPTURESTOP, then CAPTURESTAT? until bit 0 clears")
+        w.send('CAPTURESTOP', term)
+        t0 = time.time()
+        for i in range(30):
+            w.send('CAPTURESTAT?', term)
+            raw = w.read(2.0)
+            txt = raw.decode('ascii', 'replace').strip()
+            print(f"      +{time.time() - t0:5.2f}s  CAPTURESTAT? -> {txt!r}")
+            w.drain(0.05)
+            try:
+                if not (int(txt) & 1):
+                    break
+            except ValueError:
+                break
+            time.sleep(0.05)
+
+        for q in ('CAPTUREBYTES?', 'CAPTUREPROG?'):
+            w.send(q, term)
+            print(f"      {q:<16} {w.read(2.0)!r}   (after stop)")
+            w.drain(0.05)
+
+        # ASCII read of the same buffer. If this works the capture is fine and
+        # only the binary transfer is broken, which is a different problem.
+        print("\n    CAPTUREVAL? (plain text, manual p140)")
+        for n in (0, 1, 2):
+            w.send(f'CAPTUREVAL? {n}', term)
+            print(f"      CAPTUREVAL? {n}     {w.read(2.0)!r}")
+            w.drain(0.05)
+
+        print("\n    CAPTUREGET? argument forms (raw bytes, 4 s window)")
+        for form in ('CAPTUREGET? 0,1', 'CAPTUREGET? 0, 1', 'CAPTUREGET?0,1',
+                     'CAPTUREGET? 0,2', 'CAPTUREGET? 0,16', 'CAPTUREGET? 0,64'):
+            w.send(form, term)
+            raw = w.read_raw(4.0)
+            print(f"      {form:<22} {describe(raw)}")
+            if raw and len(raw) < 8:
+                # a couple of bytes is an error code, so ask what went wrong
+                w.drain(0.1)
+                for q in ('ERRS?', '*STB?', 'CAPTURESTAT?'):
+                    w.send(q, term)
+                    print(f"        after it: {q:<14} {w.read(1.5)!r}")
+                    w.drain(0.05)
+            w.drain(0.3)
+    except Exception as e:
+        print(f"    {type(e).__name__}: {e}")
+    finally:
+        w.close()
+
+
 def stage(title):
     print(f"\n{title}")
     print("  " + "-" * 66)
@@ -310,6 +394,8 @@ def main():
     ap.add_argument('--config', default='config.yaml')
     ap.add_argument('--ports', action='store_true',
                     help='only test which port can carry a binary transfer')
+    ap.add_argument('--capture', action='store_true',
+                    help='only walk the capture sequence, reporting each step')
     args = ap.parse_args()
 
     ip, port = load_ip(args.config)
@@ -321,6 +407,11 @@ def main():
 
     print(f"Probing SR860 at {ip}:{port}")
     findings = {}
+
+    if args.capture:
+        stage("Capture sequence, step by step")
+        probe_capture_detail(ip, port, TERMINATORS[0][1])  # CR
+        return 0
 
     if args.ports:
         stage("Which port can carry a binary capture transfer?")
