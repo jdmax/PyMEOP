@@ -3,6 +3,7 @@
 import re
 import importlib
 import math
+import pkgutil
 import sys
 import time
 
@@ -25,6 +26,34 @@ if 'xdrlib' not in sys.modules:
 from srsinst.sr860 import SR860
 
 
+def _sdk_version(module_name):
+    """('v2_4_0') -> (2, 4, 0), for ordering the available parameter trees."""
+    return tuple(int(part) for part in module_name.lstrip('v').split('_'))
+
+
+def _best_sdk_module(firmware):
+    """Newest DLC pro parameter tree that is not ahead of this firmware.
+
+    Firmware reads like '2.4.1.63149c929', so only the first three numbers
+    are meaningful. A tree newer than the controller can carry parameters it
+    does not have; an older one is missing some but works for what it covers.
+    """
+    import toptica.lasersdk.dlcpro as pkg
+    trees = sorted((m.name for m in pkgutil.iter_modules(pkg.__path__)
+                    if m.name.startswith('v')), key=_sdk_version)
+
+    numbers = tuple(int(n) for n in re.findall(r'\d+', str(firmware))[:3])
+    match = None
+    for tree in trees:
+        if _sdk_version(tree) <= numbers:
+            match = tree
+    if match is None:
+        match = trees[0]
+        print(f"No parameter tree as old as firmware {firmware}; "
+              f"falling back to {match}")
+    return match
+
+
 class ProbeLaser():
     """Toptica DLC pro, driven through Toptica's own SDK.
 
@@ -34,9 +63,11 @@ class ProbeLaser():
     for each firmware revision, so a wrong name is an AttributeError at the
     call rather than a command the controller quietly ignores.
 
-    probe_sdk_version in the config selects the module matching the DLC pro's
-    firmware. The firmware reports itself on connect and a mismatch is
-    flagged, since most parameters are stable across revisions but not all.
+    The SDK ships one parameter tree per firmware revision. Which one to use
+    is worked out from the firmware the controller reports rather than being
+    configured, since a version set by hand is a setting that can silently
+    drift out of date after an instrument update. probe_sdk_version can still
+    name a module explicitly if that guess ever needs overriding.
     """
 
     # laser1:wide-scan:output-channel enum values
@@ -46,30 +77,42 @@ class ProbeLaser():
     SHAPE_SAWTOOTH = 0
     SHAPE_TRIANGLE = 1
 
+    BOOTSTRAP = 'v1_4_0'    # oldest tree, used only to read fw-ver
+
     def __init__(self, settings):
         """Open a connection to the DLC pro controller."""
         self.ip = settings['probe_ip']
-        self.version = settings.get('probe_sdk_version', 'v2_5_2')
+        self.version = settings.get('probe_sdk_version', 'auto')
         self.dlc = None
 
         try:
+            if self.version in (None, '', 'auto'):
+                self.version = self._detect_version()
             sdk = importlib.import_module(
                 f'toptica.lasersdk.dlcpro.{self.version}')
             self.dlc = sdk.DLCpro(sdk.NetworkConnection(self.ip))
             self.dlc.open()
-
-            firmware = self.dlc.fw_ver.get()
-            model = self.dlc.system_model.get()
-            print(f"Probe laser {model} on {self.ip}, firmware {firmware}")
-            wanted = self.version.lstrip('v').replace('_', '.')
-            if not str(firmware).startswith(wanted):
-                print(f"  probe_sdk_version is {self.version} but the "
-                      f"controller reports {firmware}. Most parameters are "
-                      f"the same across revisions, but set probe_sdk_version "
-                      f"to match if anything behaves oddly.")
+            print(f"Probe laser {self.dlc.system_model.get()} on {self.ip}, "
+                  f"firmware {self.dlc.fw_ver.get()}, using {self.version}")
         except Exception as e:
             print(f"Probe connection failed on {self.ip}: {e}")
             self.dlc = None
+
+    def _detect_version(self):
+        """Pick the newest parameter tree not ahead of the controller.
+
+        Connects with the oldest tree purely to read fw-ver, which every
+        revision carries, then closes again.
+        """
+        sdk = importlib.import_module(
+            f'toptica.lasersdk.dlcpro.{self.BOOTSTRAP}')
+        probe = sdk.DLCpro(sdk.NetworkConnection(self.ip))
+        probe.open()
+        try:
+            firmware = str(probe.fw_ver.get())
+        finally:
+            probe.close()
+        return _best_sdk_module(firmware)
 
     def __del__(self):
         try:

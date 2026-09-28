@@ -17,6 +17,7 @@ that range is safe before running them.
 '''
 import argparse
 import os
+import re
 import sys
 import time
 import types
@@ -33,6 +34,31 @@ from app.sweep import SweepThread, process_sweep, SweepPlan
 def load_settings(path='config.yaml'):
     with open(path) as f:
         return yaml.load(f, Loader=yaml.FullLoader)['settings']
+
+
+def ask_range(prompt):
+    """Read a two-number range, however it is reasonably typed.
+
+    Accepts '100-120', '100 120', '100,120', or a single number followed by
+    a second prompt. Returns (begin, end), or None if the answer was blank.
+    Re-asks rather than raising, since this runs at the bench.
+    """
+    while True:
+        answer = input(prompt).strip()
+        if not answer:
+            return None
+        # The lookbehind keeps '100-120' from reading as 100 and -120,
+        # while a genuinely negative first value still parses.
+        numbers = re.findall(r'(?<![\d.])-?\d+\.?\d*', answer)
+        if len(numbers) >= 2:
+            return float(numbers[0]), float(numbers[1])
+        if len(numbers) == 1:
+            second = input("  ramp end   (mA): ").strip()
+            more = re.findall(r'(?<![\d.])-?\d+\.?\d*', second)
+            if more:
+                return float(numbers[0]), float(more[0])
+        print(f"    could not read a range from {answer!r}, "
+              f"try something like 100-120")
 
 
 def check_lockin(settings):
@@ -143,12 +169,11 @@ def check_laser(settings):
     print(f"  wide-scan state  {probe.wide_scan_state()} "
           f"({probe.wide_scan_state_text()})")
 
-    answer = input("  ramp begin (mA), blank to skip: ").strip()
-    if not answer:
+    limits = ask_range("  ramp range in mA (e.g. 100-120), blank to skip: ")
+    if limits is None:
         print("  skipped")
         return probe
-    begin = float(answer)
-    end = float(input("  ramp end   (mA): "))
+    begin, end = limits
     duration = float(settings.get('sweep_time', 2.0))
 
     print(chr(10) + f"  ramping {begin} -> {end} mA over {duration} s")

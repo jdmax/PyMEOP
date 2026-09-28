@@ -2,10 +2,9 @@
 ---
 settings:
     probe_ip: 129.57.36.81
-    # DLC pro parameter tree version, matching the controller firmware.
-    # The SDK ships one module per revision; the firmware is reported on
-    # connect and a mismatch is flagged.
-    probe_sdk_version: 'v2_5_2'
+    # DLC pro parameter tree. auto reads the firmware and picks the
+    # newest tree not ahead of it; override only if that goes wrong.
+    probe_sdk_version: 'auto'   # or a module name such as v2_4_0
     meter_ip: 129.57.37.92
     siggen_ip: 129.57.37.95    #91
     lockin_ip: 129.57.37.101
