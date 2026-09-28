@@ -10,6 +10,19 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt
 # from labjack import ljm
 from telnetlib3 import Telnet    # stdlib telnetlib removed in Python 3.13
 
+# python-vxi11, which srsinst.sr860 imports, still uses xdrlib. That left the
+# standard library in 3.13; xdrlib3 is the same code under a new name, so it
+# stands in -- the same shape of fix as telnetlib3 above. This has to happen
+# before srsinst is imported.
+if 'xdrlib' not in sys.modules:
+    try:
+        import xdrlib3
+        sys.modules['xdrlib'] = xdrlib3
+    except ImportError:
+        pass        # a real xdrlib is still there on older Pythons
+
+from srsinst.sr860 import SR860
+
 
 class ProbeLaser():
     '''Access Probe laser over telnet
@@ -262,7 +275,7 @@ class LockIn():
         self._channels = 2
 
         try:
-            self.lockin = _sr860()
+            self.lockin = SR860()
             if self.interface == 'vxi11':
                 self.lockin.connect('vxi11', self.ip)
             else:
@@ -444,23 +457,6 @@ class LockIn():
         if data is None or not len(data):
             return None
         return np.asarray(data).T
-
-
-def _sr860():
-    """Import and construct an SR860, around a 3.13 standard library removal.
-
-    python-vxi11 imports xdrlib, which left the standard library in Python
-    3.13. xdrlib3 is the same code under a new name, so it stands in -- the
-    same shape of fix as telnetlib3 at the top of this file.
-    """
-    if 'xdrlib' not in sys.modules:
-        try:
-            import xdrlib3
-            sys.modules['xdrlib'] = xdrlib3
-        except ImportError:
-            pass        # a real xdrlib may still be present on older Pythons
-    from srsinst.sr860 import SR860
-    return SR860()
 
 
 class SigGen():
