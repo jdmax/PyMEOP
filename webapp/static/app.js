@@ -571,6 +571,11 @@ async function loadTimeline() {
 async function setTimeline(stamps) {
   tl.stamps = stamps;
   tl.fits = [];
+  if (!state.run) {
+    // the plot is hidden until a run is open, so open the newest one ticked
+    const f = state.files.find((r) => r.n_events > 0 && stamps.has(runStamp(r.name)));
+    if (f) { await selectFile(f.name, 0, 'keep'); return; }
+  }
   renderFileList();
   if (await loadTimeline()) drawTimeline();
   renderFits();
@@ -1719,12 +1724,14 @@ async function loadFiles() {
   renderFileList();
   const want = readHash();
   const known = want.file && state.files.some((f) => f.name === want.file);
-  const first = state.files.find((f) => f.n_events > 0);
+  const anyScans = state.files.some((f) => f.n_events > 0);
   if (want.plot.length) tl.stamps = new Set(want.plot);
+  // nothing opens by itself: the welcome stays up until a run is picked, bar
+  // one named in the address, as after a reload or from a bookmark
   if (known) {
     await selectFile(want.file, want.scan);
-  } else if (first) {
-    await selectFile(first.name);
+  } else if (anyScans) {
+    history.replaceState(null, '', '#' + dirHash());
   } else {
     el('welcome').innerHTML = '<h2>No scans here</h2><p>' +
       (state.files.length
@@ -1845,9 +1852,7 @@ async function refresh() {
 
   const run = state.run;
   if (!run) {
-    renderFileList();
-    const first = newestWithScans(state.files);
-    if (first) await selectFile(first);
+    renderFileList();   // nothing open to follow until a run is picked
     return;
   }
 

@@ -83,12 +83,13 @@ comparing against a scan that would otherwise scroll away.
 
 ## What it shows
 
-Pick a run in the left sidebar. Files with no scans in them are hidden by default
+Pick a run in the left sidebar; nothing opens until you do, unless the address
+names one (a reload or a bookmark reopens the run it was on). Files with no scans in them are hidden by default
 — of the files in `data/` most are empty, written when a run started and stopped
 without recording anything.
 
 **Over time** is polarization against time, across as many runs as you like. It
-opens on the newest run. Tick runs in the file list to add them (shift-click ticks
+starts on the run you open. Tick runs in the file list to add them (shift-click ticks
 a range), or use the buttons above the list: **Open run**, **24 h** and **7 days**
 (each counted back from the end of the run that is open), or **All**. Clicking a
 run's name opens it and, if it is not already plotted, plots just that run. Runs
