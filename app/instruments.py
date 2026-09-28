@@ -71,12 +71,15 @@ class ProbeLaser():
     """
 
     # laser1:wide-scan:output-channel numbers. Bare integers in the DeCoF
-    # tree with no enum in the SDK, and they differ between controllers --
-    # these came from the old code and are rejected by the unit on this
-    # bench. tools/probe_wide_scan.py reads the numbers a controller accepts
-    # and what each one drives.
+    # tree with no enum in the SDK, and they differ between controllers, so
+    # tools/probe_wide_scan.py reads what a given unit accepts and what each
+    # number drives. On the DFB here it reports:
+    #     20, 21 -> V     aux voltage outputs
+    #     51     -> mA    diode current
+    #     56, 57 -> deg C temperature
+    # 63 came from the old code and this controller rejects it outright.
     CHANNEL_TEMP = 56
-    CHANNEL_CURRENT = 63
+    CHANNEL_CURRENT = 51
 
     SHAPE_SAWTOOTH = 0
     SHAPE_TRIANGLE = 1
@@ -194,8 +197,10 @@ class ProbeLaser():
             unit = str(ws.value_unit.get()).strip()
         except Exception:
             return wanted           # nothing to check against, carry on
-        expected = 'K' if 'temp' in channel else 'A'
-        if expected.lower() not in unit.lower():
+        # Temperature reads as 'deg C' or 'K' depending on the channel, and
+        # current as 'mA'; neither set of letters appears in the other.
+        expected = ('c', 'k') if 'temp' in channel else ('a',)
+        if not any(letter in unit.lower() for letter in expected):
             print(f"Wide-scan channel {wanted} selected a channel reading in "
                   f"{unit!r}, which does not look like {channel}. Check "
                   f"ProbeLaser.CHANNEL_CURRENT and CHANNEL_TEMP against "
