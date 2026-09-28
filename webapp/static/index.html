@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PyMEOP Data Browser</title>
+<link rel="icon" type="image/png" sizes="32x32" href="brand/favicon-32.png">
+<link rel="icon" type="image/png" sizes="64x64" href="brand/favicon-64.png">
+<link rel="apple-touch-icon" href="brand/apple-touch-icon.png">
+<link rel="stylesheet" href="vendor/uPlot.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <img class="mark" src="brand/icon.png" alt="" width="42" height="26">
+    <h1>PyMEOP Data</h1>
+  </div>
+  <button class="dir" id="dataDir" type="button" title="Event folder: click to open another"
+          aria-haspopup="dialog" hidden><span class="dirpath" id="dataDirPath"></span><span class="caret" aria-hidden="true">&#9662;</span></button>
+  <div class="grow"></div>
+  <label class="check live" title="Watch the data directory and redraw as the DAQ writes new scans">
+    <input id="liveToggle" type="checkbox" checked>
+    <span class="livedot" aria-hidden="true"></span> Live
+    <span class="livestatus" id="liveStatus" aria-live="polite"></span>
+  </label>
+  <label class="field" title="Peak shape of the fits shown. As recorded is each scan's fit as the DAQ stored it. Gaussian or Voigt shows every scan in that shape, refitting here any scan the DAQ fit in the other; the first refit of a run takes a few seconds.">
+    <span>Fit</span>
+    <select id="shape">
+      <option value="recorded">As recorded</option>
+      <option value="gauss">Gaussian</option>
+      <option value="voigt">Voigt</option>
+    </select>
+  </label>
+  <label class="field" title="Baseline under the peaks. As recorded is each scan's baseline as the DAQ fit it. Straight or Quadratic shows every scan on that baseline, refitting here any scan the DAQ fit on the other.">
+    <span>Baseline</span>
+    <select id="base">
+      <option value="recorded">As recorded</option>
+      <option value="1">Straight</option>
+      <option value="2">Quadratic</option>
+    </select>
+  </label>
+  <label class="field" title="Ratio of the two peak heights at zero polarization, used to scale P. Left empty, each scan uses the r0 the DAQ recorded with it; a value typed here, or set from a relaxation fit with its r0 for P-infinity = 0 button, is used for every scan instead.">
+    <span>r<sub>0</sub></span>
+    <input id="r0" type="number" step="any" placeholder="from file" inputmode="decimal">
+  </label>
+  <button id="r0Reset" class="ghost" type="button" disabled
+          title="Clear the r0 set here and go back to the r0 recorded with each scan">Recorded r<sub>0</sub></button>
+  <button id="themeBtn" class="ghost" type="button" title="Switch light and dark">Theme</button>
+</header>
+
+<div class="refitbar" id="refitBar" role="status" hidden>
+  <span class="refit-text" id="refitText"></span>
+  <progress id="refitProgress" max="1" aria-label="Refitting scans"></progress>
+</div>
+
+<div class="layout">
+
+  <aside class="sidebar">
+    <div class="side-head">
+      <input id="fileSearch" type="search" placeholder="Filter runs by date or name" autocomplete="off">
+      <label class="check"><input id="hideEmpty" type="checkbox" checked> Hide empty files</label>
+      <div class="presets" role="group" aria-label="Runs in the time plot">
+        <span class="seg-label">Plot</span>
+        <button class="chip" type="button" data-preset="open" title="Just the run that is open">Open run</button>
+        <button class="chip" type="button" data-preset="day" title="Every run in the 24 hours up to the end of the open run">24 h</button>
+        <button class="chip" type="button" data-preset="week" title="Every run in the 7 days up to the end of the open run">7 days</button>
+        <button class="chip" type="button" data-preset="all" title="Every run with scans">All</button>
+      </div>
+      <p class="side-count" id="fileCount"></p>
+    </div>
+    <ul class="filelist" id="fileList"></ul>
+  </aside>
+
+  <main id="main">
+
+    <div class="empty" id="welcome">
+      <img class="welcome-logo" src="brand/logo.png" alt="CLAS12 Polarized ³He" width="160" height="158">
+      <h2>Choose a run</h2>
+      <p>Each event file is one run, and each line in it is one current scan with the
+         two-peak fit that was stored alongside it. Pick a run on the left to
+         plot its scans.</p>
+    </div>
+
+    <div id="workspace" hidden>
+
+      <section class="card">
+        <div class="card-head">
+          <div class="card-title">
+            <h3>Over time</h3>
+            <p class="subtitle" id="tlWhen"></p>
+          </div>
+          <div class="controls">
+            <label class="field">
+              <span>Show</span>
+              <select id="metric">
+                <option value="polarization" selected>Polarization</option>
+                <option value="peaks">Peak heights</option>
+                <option value="positions">Peak positions</option>
+                <option value="widths">Peak widths &sigma;</option>
+                <option value="lorentz">Peak widths &gamma; (Voigt)</option>
+                <option value="ratio">Peak height ratio</option>
+                <option value="rsq">Fit R&sup2;</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Against</span>
+              <select id="runX">
+                <option value="time">Time</option>
+                <option value="index">Scan number</option>
+              </select>
+            </label>
+            <label class="field" title="Which way the probe current was swept">
+              <span>Scans</span>
+              <select id="direction">
+                <option value="both">Both directions</option>
+                <option value="up">Low &rarr; high</option>
+                <option value="down">High &rarr; low</option>
+              </select>
+            </label>
+            <label class="check" title="Draw the one sigma uncertainty as whiskers">
+              <input id="showErr" type="checkbox" checked> Error bars
+            </label>
+            <button id="csvTimeline" class="ghost" type="button" title="The plotted scans, one row each">Plot CSV</button>
+          </div>
+        </div>
+        <p class="hint">Tick runs in the list to add them to this plot. Click a point to
+           open that scan below; the dashed rule marks the one open.
+           <span id="runNote" class="offscale"></span></p>
+        <p class="asym" id="asymNote"></p>
+        <div class="chart chart-run" id="runChart"></div>
+        <div class="fitbar">
+          <div class="seg" role="group" aria-label="What dragging on the plot does">
+            <span class="seg-label">Drag to</span>
+            <button id="dragZoom" class="ghost" type="button" aria-pressed="true">Zoom</button>
+            <button id="dragSelect" class="ghost" type="button" aria-pressed="false">Select for fit</button>
+          </div>
+          <span class="selinfo" id="selInfo"></span>
+          <div class="grow"></div>
+          <label class="field" title="Let the fit find where the polarization is heading, or hold it at zero for a relaxation">
+            <span>P<sub>&infin;</sub></span>
+            <select id="asymptote">
+              <option value="free">Free</option>
+              <option value="zero">Fixed at 0</option>
+            </select>
+          </label>
+          <button id="fitBtn" class="ghost primary" type="button" disabled>Fit exponential</button>
+          <button id="clearSel" class="ghost" type="button" disabled>Clear</button>
+        </div>
+        <div id="fitResults"></div>
+      </section>
+
+      <section class="runbar">
+        <div class="runtitle">
+          <h2 id="runName">&nbsp;</h2>
+          <p id="runWhen" class="muted"></p>
+        </div>
+        <div class="tiles" id="runTiles"></div>
+        <div class="runactions">
+          <a id="rawLink" class="ghost" href="#" download>Raw file</a>
+          <button id="csvRun" class="ghost" type="button">Run CSV</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h3 id="scanTitle">Scan</h3>
+          <div class="controls">
+            <button id="prevScan" class="ghost" type="button" title="Left arrow">&larr;</button>
+            <input id="scanSlider" type="range" min="0" max="0" value="0" title="Scan through the run">
+            <button id="nextScan" class="ghost" type="button" title="Right arrow">&rarr;</button>
+            <button id="csvScan" class="ghost" type="button">Scan CSV</button>
+          </div>
+        </div>
+        <p class="hint">Drag across a plot to zoom and double-click to reset, or switch
+           the drag to set the part of each scan that gets fit; click a name in the
+           legend to hide that trace.</p>
+        <div class="scanwrap">
+          <div class="scancharts">
+            <div class="chart chart-scan" id="scanChart"></div>
+            <div class="chart chart-resid" id="residChart"></div>
+            <div class="fitbar">
+              <div class="seg" role="group" aria-label="What dragging on the scan plot does">
+                <span class="seg-label">Drag to</span>
+                <button id="scanZoom" class="ghost" type="button" aria-pressed="true">Zoom</button>
+                <button id="scanRange" class="ghost" type="button" aria-pressed="false"
+                        title="Drag across the scan to refit every scan over just that range of x">Set fit range</button>
+              </div>
+              <span class="selinfo" id="rangeInfo"></span>
+              <div class="grow"></div>
+              <button id="fullRange" class="ghost" type="button" disabled
+                      title="Fit every point of each scan again">Fit whole scan</button>
+            </div>
+          </div>
+          <div class="fitpanel">
+            <h4>Fit</h4>
+            <div class="tiles tiles-col" id="fitTiles"></div>
+            <table class="params" id="paramTable">
+              <caption class="sr-only">Fitted parameters with one sigma uncertainties</caption>
+              <thead><tr><th scope="col">Parameter</th><th scope="col">Value</th><th scope="col">&plusmn;1&sigma;</th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <p class="note" id="fitNote"></p>
+          </div>
+        </div>
+      </section>
+
+      <details class="card datatable">
+        <summary><h3>Scan points</h3></summary>
+        <div class="tablewrap">
+          <table class="points" id="pointTable">
+            <thead><tr>
+              <th scope="col">#</th><th scope="col" id="thX">Current</th><th scope="col">Signal</th>
+              <th scope="col">Fit</th><th scope="col">Peak 1</th><th scope="col">Peak 2</th>
+              <th scope="col">Baseline</th><th scope="col">Residual</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
+
+    </div>
+  </main>
+</div>
+
+<dialog class="folderdlg" id="folderDlg" aria-labelledby="folderTitle">
+  <h3 id="folderTitle">Open a folder of event files</h3>
+  <p class="hint">Click a folder to look inside it, then open the one you want.
+     Each browser tab can have its own folder.</p>
+  <div class="folderpath">
+    <button id="folderUp" class="ghost" type="button" title="Parent folder">&uarr; Up</button>
+    <input id="folderPath" type="text" spellcheck="false" autocomplete="off"
+           aria-label="Folder path" placeholder="Type or paste a folder path">
+    <button id="folderGo" class="ghost" type="button" title="Show this folder (Enter)">Go</button>
+  </div>
+  <p class="side-count" id="folderInfo" aria-live="polite"></p>
+  <ul class="folderlist" id="folderList"></ul>
+  <div class="dlg-actions">
+    <button id="folderDefault" class="ghost" type="button" title="The folder in config.yaml, where the DAQ writes">Default folder</button>
+    <div class="grow"></div>
+    <button id="folderCancel" class="ghost" type="button">Cancel</button>
+    <button id="folderOpen" class="ghost primary" type="button">Open this folder</button>
+  </div>
+</dialog>
+
+<script src="vendor/uPlot.iife.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

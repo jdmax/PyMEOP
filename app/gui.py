@@ -10,17 +10,18 @@ import yaml
 import pytz
 import logging
 import json
-from PyQt5.QtWidgets import QMainWindow, QErrorMessage, QTabWidget, QLabel, QWidget, QLineEdit
+from PyQt5.QtWidgets import QMainWindow, QErrorMessage, QTabWidget, QLabel, QWidget, QLineEdit, QComboBox
 from PyQt5.QtGui import QIntValidator, QDoubleValidator, QValidator
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from logging.handlers import TimedRotatingFileHandler
 import numpy as np
-from scipy import optimize
 
 from app.gui_run_tab import RunTab
 from app.gui_find_tab import FindTab
 from app.classes import Event
 from app.instruments import ProbeLaser, WavelengthMeter, LockIn, SigGen
+from app import scanfit
+from app.scanfit import BASELINE_DEGREES, DEFAULT_BASELINE_DEGREE
 
 
 class MainWindow(QMainWindow):
@@ -123,6 +124,8 @@ class MainWindow(QMainWindow):
                 for key, entry in e.__dict__.items():
                     if isinstance(entry, QLineEdit):
                         saved_dict[k].update({key: entry.text()})
+                    elif isinstance(entry, QComboBox):
+                        saved_dict[k].update({key: entry.currentData()})
         with open('app/saved_session.yaml', 'w') as file:
             documents = yaml.dump(saved_dict, file)
 
@@ -134,6 +137,12 @@ class MainWindow(QMainWindow):
         try:
             for k, e in restore_dict.items():
                 for key, entry in e.items():
+                    widget = self.__dict__[k].__dict__.get(key)
+                    if isinstance(widget, QComboBox):  # a choice, restored only if still offered
+                        i = widget.findData(entry)
+                        if i >= 0:
+                            widget.setCurrentIndex(i)
+                        continue
                     try:
                         self.__dict__[k].__dict__[key].setText(entry)  # set line edit text for each
                     except Exception as ex:
@@ -146,7 +155,7 @@ class MainWindow(QMainWindow):
         '''Create new event instance'''
         self.event = Event(self)
 
-    def end_event(self, currs, waves, rs, times, params, bounds, extras=None):
+    def end_event(self, currs, waves, rs, times, seed=None, extras=None):
 
         self.event.currs = currs
         self.event.waves = waves
@@ -160,11 +169,12 @@ class MainWindow(QMainWindow):
 
         self.event.stop_time = datetime.datetime.now(tz=datetime.timezone.utc)
         self.event.stop_stamp = self.event.stop_time.timestamp()
+        self.event.set_profile(self.event.line_shape())  # picks up a switch made mid-scan
         self.previous_event = self.event  # set this as previous event
         self.new_event()  # start new event to accept next scan
 
         try:
-            self.anal_thread = AnalThread(self, self.previous_event, params, bounds)
+            self.anal_thread = AnalThread(self, self.previous_event, seed)
             self.anal_thread.finished.connect(self.finished_anal)
             self.anal_thread.start()
         except Exception as e:
@@ -194,10 +204,17 @@ class MainWindow(QMainWindow):
             self.eventfile.close()
             now = datetime.datetime.now(tz=datetime.timezone.utc)
             new = f'{self.eventfile_start}__{now.strftime("%Y-%m-%d_%H-%M-%S")}.txt'
-            os.rename(self.eventfile_name, os.path.join(self.config.settings["event_dir"], new))
+            for attempt in range(10):
+                try:
+                    os.rename(self.eventfile_name, os.path.join(self.config.settings["event_dir"], new))
+                    break
+                except PermissionError:  # Windows refuses while the data browser is reading the file
+                    if attempt == 9:
+                        raise
+                    time.sleep(0.05)
             logging.info(f"Closed eventfile and moved to {new}.")
-        except AttributeError:
-            logging.info(f"Error closing eventfile.")
+        except (AttributeError, OSError) as e:
+            logging.info(f"Error closing eventfile: {e}")
 
     def start_logger(self):
         '''Start logger
@@ -241,6 +258,14 @@ class Event():
         self.waves = []
         self.rs = []
         self.times = []
+        self.x_ref = 0.0  # baseline reference, set to mid-scan once there is data to fit
+
+        # Straight or curved baseline under the peaks. A curved baseline follows a
+        # sloping laser power envelope, but on a scan that is already flat the extra
+        # term is free to bend into the peaks, so a straight one is steadier there.
+        # Both are written with the baseline referenced to x_ref, see scanfit.parts().
+        self.base_deg = self.baseline_degree()
+        self.set_profile(self.line_shape())
 
         # Lock-in settings in force for this event. The peak shape depends on
         # the time constant and filter slope, so a scan is not interpretable
@@ -255,37 +280,110 @@ class Event():
             self.p1_zero = 0.1
             self.p2_zero = 0.1
 
-    def fit_scan(self, pars, bounds):
-        '''Fit Scan data with linear and two gaussians, using starting params passed'''
+    def baseline_degree(self):
+        '''Baseline polynomial degree from the config, falling back to quadratic.
 
-        if 'wave' in self.parent.settings['scan_x_axis'] and np.any(self.waves):
-            self.x_axis = self.waves
-        else:
-            if 'wave' in self.parent.settings['scan_x_axis']:
-                # scan_x_axis asks for wavelength but no wavelengths were
-                # recorded -- fitting a constant axis would silently produce
-                # nonsense, so fall back to current instead.
-                logging.warning("scan_x_axis is 'wavelength' but no wavelengths "
-                                "were recorded; fitting against current")
-            self.x_axis = self.currs
+        Returns:
+            1 for a straight baseline or 2 for a quadratic one
+        '''
 
-        X = np.array(self.x_axis)
-        Y = np.array(self.rs)
-        self.pf, self.pcov = optimize.curve_fit(self.peaks, X, Y, p0=pars, bounds=bounds)
-        self.pstd = np.sqrt(np.diag(self.pcov))
-        self.fit = self.peaks(X, *self.pf)
+        raw = self.settings.get('baseline_degree', DEFAULT_BASELINE_DEGREE)
+        try:
+            deg = int(raw)
+        except (TypeError, ValueError):
+            deg = None
+        if deg not in BASELINE_DEGREES:
+            logging.warning(f'baseline_degree {raw!r} is not one of {BASELINE_DEGREES}, '
+                            f'using {DEFAULT_BASELINE_DEGREE}.')
+            return DEFAULT_BASELINE_DEGREE
+        return deg
+
+    def line_shape(self):
+        '''Peak line shape picked on the run tab, gaussian until there is one'''
+
+        try:
+            return scanfit.check_profile(self.parent.run_tab.line_shape())
+        except AttributeError:  # the run tab is still being built
+            return scanfit.DEFAULT_PROFILE
+
+    def set_profile(self, profile):
+        '''Set the peak line shape this scan will be fit with, gauss or voigt'''
+
+        self.profile = scanfit.check_profile(profile)
+        self.n_pars = scanfit.n_peak_pars(self.profile) + self.base_deg + 1
+
+    def x_data(self):
+        '''Return the x axis to fit and plot against, per the scan_x_axis setting'''
+
+        if 'wave' in self.parent.settings['scan_x_axis']:
+            if np.any(self.waves):
+                return np.array(self.waves, dtype=float)
+            # Fitting a constant axis silently produces nonsense, and the swept
+            # run tab records no wavelengths at all.
+            logging.warning("scan_x_axis is 'wavelength' but no wavelengths "
+                            "were recorded; fitting against current")
+        return np.array(self.currs, dtype=float)
+
+    def fit_scan(self, seed=None):
+        '''Fit Scan data with two peaks on a straight or quadratic baseline.
+
+        The fit itself is in scanfit.ScanFitter, shared with the data browser.
+
+        Args:
+            seed: Parameter list from the last good fit, or None to only estimate
+        '''
+
+        X = self.x_data()
+        Y = np.array(self.rs, dtype=float)
+        self.x_axis = X.tolist()
+        self.fit_good = False
+        self.fit_message = ''
+
+        best = scanfit.ScanFitter(self.base_deg, self.profile).fit(X, Y, seed)
+        self.x_ref = best['x_ref']
+        self.fit_message = best['message']
+        if best['pf'] is None:
+            self.no_fit(X)
+            return
+
+        self.p0 = best['p0']
+        self.pf = best['pf']
+        self.pcov = best['pcov']
+        self.pstd = best['pstd']
+        self.fit_good = best['ok']
+        self.fit = scanfit.model(X, self.pf, self.x_ref, self.profile)
+        g1, g2, base = scanfit.parts(X, self.pf, self.x_ref, self.profile)
+        # the peaks are drawn sitting on the baseline rather than about zero, so the
+        # components stay in the range of the data instead of at the bottom of the plot
+        self.fit_g1, self.fit_g2, self.fit_base = g1 + base, g2 + base, base
+        self.rsq = best['rsq']
         self.peak1 = self.pf[2]
         self.peak2 = self.pf[5]
+        if not self.fit_good:
+            logging.warning(self.fit_message)
 
-        self.r = self.peak1 / self.peak2
-        self.r0 = self.p1_zero / self.p2_zero
-        self.pol = (self.r / self.r0 - 1) / (self.r / self.r0 + 1)
+        self.r = self.peak1 / self.peak2 if self.peak2 else np.nan
+        self.r0 = self.p1_zero / self.p2_zero if self.p2_zero else np.nan
+        ratio = self.r / self.r0 if self.r0 else np.nan
+        self.pol = (ratio - 1) / (ratio + 1) if np.isfinite(ratio) and ratio != -1 else np.nan
 
-    def peaks(self, x, *p):
-        g1 = p[2] * np.exp(-np.power((x - p[0]), 2) / (2 * np.power(p[1], 2)))
-        g2 = p[5] * np.exp(-np.power((x - p[3]), 2) / (2 * np.power(p[4], 2)))
-        lin = p[6] * x + p[7]
-        return g1 + g2 + lin
+    def no_fit(self, X):
+        '''Fill in placeholder results so a failed fit still plots and writes an event'''
+
+        self.x_axis = X.tolist()
+        self.fit_good = False
+        self.pf = list(getattr(self, 'p0', [0.0] * self.n_pars))
+        self.pstd = []
+        self.pcov = []
+        self.fit = []  # nothing to draw, rather than a fit curve that doesn't exist
+        self.fit_g1, self.fit_g2, self.fit_base = [], [], []
+        self.rsq = np.nan
+        self.peak1 = np.nan
+        self.peak2 = np.nan
+        self.r = np.nan
+        self.r0 = np.nan
+        self.pol = np.nan
+        logging.warning(self.fit_message)
 
     def print_event(self, eventfile):
         '''Print out all event attributes to eventfile, formatting to dict to write to json line.
@@ -308,6 +406,7 @@ class Event():
                 json_dict[key] = entry.tolist()
         json_record = json.dumps(json_dict)
         eventfile.write(json_record + '\n')  # write to file as json line
+        eventfile.flush()  # so the data browser sees each scan as soon as it is written
 
 
 class AnalThread(QThread):
@@ -315,12 +414,11 @@ class AnalThread(QThread):
     '''
     finished = pyqtSignal()  # finished signal
 
-    def __init__(self, parent, event, params, bounds):
+    def __init__(self, parent, event, seed=None):
         QThread.__init__(self)
         self.parent = parent
         self.event = event
-        self.params = params
-        self.bounds = bounds
+        self.seed = seed
 
     def __del__(self):
         self.wait()
@@ -328,5 +426,13 @@ class AnalThread(QThread):
     def run(self):
         '''Main scan loop
         '''
-        self.event.fit_scan(self.params, self.bounds)
+        try:
+            self.event.fit_scan(self.seed)
+        except Exception as e:  # never leave the run tab waiting on a signal that won't come
+            logging.exception('Exception fitting scan')
+            self.event.fit_message = f'Fit failed: {e}'
+            try:
+                self.event.no_fit(self.event.x_data())
+            except Exception:
+                self.event.fit_good = False
         self.finished.emit()

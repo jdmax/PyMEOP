@@ -9,9 +9,10 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt
 import pyqtgraph as pg
 import numpy as np
 
+from app import scanfit
 from app.sweep import SweepThread
-
-
+ 
+   
 class RunTab(QWidget):
     '''Creates run tab. Starts threads for run and to update plots'''
     def __init__(self, parent):
@@ -25,6 +26,10 @@ class RunTab(QWidget):
         self.run_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
         self.peak_pen = pg.mkPen(color=(0, 250, 0), width=3)
         self.fit_pen = pg.mkPen(color=(0, 0, 250), width=1.5)
+        # fit components, drawn part transparent so they read as underneath the fit
+        self.g1_pen = pg.mkPen(color=(250, 140, 0, 120), width=1.5)
+        self.g2_pen = pg.mkPen(color=(190, 0, 250, 120), width=1.5)
+        self.base_pen = pg.mkPen(color=(130, 130, 130, 120), width=1.5)
         self.pol_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
         pg.setConfigOption('background', 'w')
         pg.setConfigOption('foreground', 'k')
@@ -40,6 +45,7 @@ class RunTab(QWidget):
         self.times = []
         
         self.pol_hist = {}    # polarization history keyed on stop timestamp
+        self.last_good_pf = None    # parameters of last good fit, seeds the next scan's fit
         
         
         # Populate Run Tab
@@ -83,6 +89,23 @@ class RunTab(QWidget):
         self.anal_box.setLayout(QGridLayout())
         self.left.addWidget(self.anal_box)
         
+        # Gaussian lines suit low pressure, where Doppler broadening dominates; at
+        # around 100 mbar the collisional width is comparable and Voigt is needed
+        self.shape_label = QLabel("Line Shape:")
+        self.anal_box.layout().addWidget(self.shape_label, 0, 0)
+        self.shape_combo = QComboBox()
+        for key, name in scanfit.PROFILES.items():
+            self.shape_combo.addItem(name, key)
+        self.shape_combo.setToolTip("Peak shape for the fit, from the scan now running on. Gaussian for "
+                                    "Doppler broadened lines at low pressure, Voigt once pressure "
+                                    "broadening is comparable. Heights differ between the two, so "
+                                    "set the zero amplitudes again after switching.")
+        self.shape_combo.currentIndexChanged.connect(self.shape_changed)
+        self.anal_box.layout().addWidget(self.shape_combo, 0, 1)
+
+        self.fit_status = QLabel('')
+        self.anal_box.layout().addWidget(self.fit_status, 1, 0, 1, 5)
+        
         # self.pos_label = QLabel("Position:")
         # self.anal_box.layout().addWidget(self.pos_label, 4, 1)
         # self.sig_label = QLabel("Sigma:")
@@ -91,46 +114,60 @@ class RunTab(QWidget):
         # self.anal_box.layout().addWidget(self.hei_label, 4, 3)
         
         
-        self.g1_label = QLabel("Gaussian 1:")
-        self.anal_box.layout().addWidget(self.g1_label, 1, 0)
+        self.g1_label = QLabel("Peak 1:")
+        self.anal_box.layout().addWidget(self.g1_label, 2, 0)
         self.g1_pos_edit =  QLineEdit()
         self.g1_pos_edit.setEnabled(False)
         self.g1_pos_edit.setPlaceholderText("Position")
-        self.anal_box.layout().addWidget(self.g1_pos_edit, 1, 1)
+        self.anal_box.layout().addWidget(self.g1_pos_edit, 2, 1)
         self.g1_sig_edit =  QLineEdit()
         self.g1_sig_edit.setEnabled(False)
         self.g1_sig_edit.setPlaceholderText("Sigma")
-        self.anal_box.layout().addWidget(self.g1_sig_edit, 1, 2)
+        self.anal_box.layout().addWidget(self.g1_sig_edit, 2, 2)
         self.g1_hei_edit =  QLineEdit()
         self.g1_hei_edit.setEnabled(False)
         self.g1_hei_edit.setPlaceholderText("Height")
-        self.anal_box.layout().addWidget(self.g1_hei_edit, 1, 3)        
+        self.anal_box.layout().addWidget(self.g1_hei_edit, 2, 3)
+        self.g1_gam_edit =  QLineEdit()
+        self.g1_gam_edit.setEnabled(False)
+        self.anal_box.layout().addWidget(self.g1_gam_edit, 2, 4)
         
-        self.g2_label = QLabel("Gaussian 2:")
-        self.anal_box.layout().addWidget(self.g2_label, 2, 0)
+        self.g2_label = QLabel("Peak 2:")
+        self.anal_box.layout().addWidget(self.g2_label, 3, 0)
         self.g2_pos_edit =  QLineEdit()
         self.g2_pos_edit.setEnabled(False)
         self.g2_pos_edit.setPlaceholderText("Position")
-        self.anal_box.layout().addWidget(self.g2_pos_edit, 2, 1)
+        self.anal_box.layout().addWidget(self.g2_pos_edit, 3, 1)
         self.g2_sig_edit =  QLineEdit()
         self.g2_sig_edit.setEnabled(False)
         self.g2_sig_edit.setPlaceholderText("Sigma")
-        self.anal_box.layout().addWidget(self.g2_sig_edit, 2, 2)
+        self.anal_box.layout().addWidget(self.g2_sig_edit, 3, 2)
         self.g2_hei_edit =  QLineEdit()
         self.g2_hei_edit.setEnabled(False)
         self.g2_hei_edit.setPlaceholderText("Height")
-        self.anal_box.layout().addWidget(self.g2_hei_edit, 2, 3)        
+        self.anal_box.layout().addWidget(self.g2_hei_edit, 3, 3)
+        self.g2_gam_edit =  QLineEdit()
+        self.g2_gam_edit.setEnabled(False)
+        self.anal_box.layout().addWidget(self.g2_gam_edit, 3, 4)
         
-        self.slope_label = QLabel("Linear:")
-        self.anal_box.layout().addWidget(self.slope_label, 3, 0)
+        # a straight baseline has no curvature term, so say so rather than leaving
+        # an empty box that looks like a reading that failed to arrive
+        straight = str(self.parent.settings.get('baseline_degree', 2)) == '1'
+        self.slope_label = QLabel("Baseline:")
+        self.anal_box.layout().addWidget(self.slope_label, 4, 0)
+        self.quad_edit =  QLineEdit()
+        self.quad_edit.setEnabled(False)
+        self.quad_edit.setPlaceholderText("n/a, straight" if straight else "Curvature")
+        self.anal_box.layout().addWidget(self.quad_edit, 4, 1)
         self.slope_edit =  QLineEdit()
         self.slope_edit.setEnabled(False)
         self.slope_edit.setPlaceholderText("Slope")
-        self.anal_box.layout().addWidget(self.slope_edit, 3, 1)
+        self.anal_box.layout().addWidget(self.slope_edit, 4, 2)
         self.int_edit =  QLineEdit()
         self.int_edit.setEnabled(False)
-        self.int_edit.setPlaceholderText("Intercept")
-        self.anal_box.layout().addWidget(self.int_edit, 3, 2)       
+        self.int_edit.setPlaceholderText("Offset")
+        self.anal_box.layout().addWidget(self.int_edit, 4, 3)
+        self.show_gamma_boxes()
 
 
         # Populate Results box
@@ -238,8 +275,12 @@ class RunTab(QWidget):
         self.peak_wid = pg.PlotWidget(title='Probe Peaks')
         self.peak_wid.showGrid(True,True)
         self.peak_wid.addLegend(offset=(0.5, 0))
-        self.peak_plot = self.peak_wid.plot([], [], pen=self.peak_pen)   
-        self.fit_plot = self.peak_wid.plot([], [], pen=self.fit_pen)   
+        # components first, so the scan and the total fit draw on top of them
+        self.base_plot = self.peak_wid.plot([], [], pen=self.base_pen, name='Background')
+        self.g1_plot = self.peak_wid.plot([], [], pen=self.g1_pen, name='Peak 1')
+        self.g2_plot = self.peak_wid.plot([], [], pen=self.g2_pen, name='Peak 2')
+        self.peak_plot = self.peak_wid.plot([], [], pen=self.peak_pen, name='Scan')
+        self.fit_plot = self.peak_wid.plot([], [], pen=self.fit_pen, name='Fit')
         self.right.addWidget(self.peak_wid) 
         
         self.pol_wid = pg.PlotWidget()
@@ -251,6 +292,26 @@ class RunTab(QWidget):
         self.pol_wid.addLegend(offset=(0.5, 0))
         self.pol_plot = self.pol_wid.plot([], [], pen=self.peak_pen)   
         self.right.addWidget(self.pol_wid)
+
+    def line_shape(self):
+        '''The peak line shape picked, gauss or voigt'''
+        return self.shape_combo.currentData()
+
+    def show_gamma_boxes(self):
+        '''Label the Lorentzian width boxes, which only a Voigt fit fills'''
+        voigt = self.line_shape() == 'voigt'
+        for edit in (self.g1_gam_edit, self.g2_gam_edit):
+            edit.setPlaceholderText("Gamma" if voigt else "n/a, Gaussian")
+            if not voigt:
+                edit.setText("")
+
+    def shape_changed(self):
+        '''New line shape: the scan now running is the first one fit with it'''
+        self.last_good_pf = None    # a fit of the other shape has the wrong parameters to seed from
+        self.show_gamma_boxes()
+        self.fit_status.setText(f"{self.shape_combo.currentText()} fit from the scan now running. "
+                                "Set the zero amplitudes again under this shape.")
+        self.fit_status.setStyleSheet("color: #aa6600")
 
     def scan_pushed(self):
         '''Start main loop if conditions met'''
@@ -294,27 +355,6 @@ class RunTab(QWidget):
         except Exception as e:
             print('Exception starting run thread, lost connection: '+str(e))
 
-    def fit_seed(self, currs):
-        '''Starting parameters and bounds for the two-Gaussian fit.
-
-        Seeded from the scan's own current range rather than the rolling
-        display buffer, which can span more than one scan.
-        '''
-        try:
-            curr_max = max(currs)
-            curr_min = min(currs)
-            p0 = curr_min + (curr_max - curr_min)*0.333
-            p4 = curr_min + (curr_max - curr_min)*0.666
-            mid = curr_min + (curr_max - curr_min)/2
-            params =  [p0, 2, 1, p4, 2, 1, 0.1, 0.1]
-            bounds = ((0, 0, 0, mid-1, 0, 0, -np.inf, -np.inf),
-                      (mid+1, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf))
-        except ValueError:
-            params = [0, 0, 0, 0, 0, 0, 0, 0]
-            bounds = ((-np.inf, -np.inf, -np.inf, -np.inf, -np.inf,-np.inf, -np.inf, -np.inf),
-                      (np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf))
-        return params, bounds
-
     def build_sweep(self, result):
         '''Take one completed hardware sweep and turn it into an event.'''
         currs = np.asarray(result['currs'], dtype=float)
@@ -338,9 +378,10 @@ class RunTab(QWidget):
             self.times.pop(0)
         self.update_run_plot()
 
-        params, bounds = self.fit_seed(currs)
+        # Same seeding as the stepped path: the event estimates its own start
+        # parameters, helped by the last good fit since the peaks drift slowly.
         self.parent.end_event(currs.tolist(), waves.tolist(), rs.tolist(),
-                              times.tolist(), params, bounds,
+                              times.tolist(), self.last_good_pf,
                               extras={'errs': np.asarray(result['errs']).tolist(),
                                       'counts': np.asarray(result['counts']).tolist(),
                                       'direction': result['direction'],
@@ -374,19 +415,10 @@ class RunTab(QWidget):
         '''
         curr, wave, r, time, status = tup     
         if 'done' in status:     # got last part of scan, reset and send to event
-            params, bounds = self.fit_seed(self.scan_currs)
-            # try:
-            #     params =  [float(self.g1_pos_edit.text()),
-            #         float(self.g1_sig_edit.text()),
-            #         float(self.g1_hei_edit.text()),
-            #         float(self.g2_pos_edit.text()),
-            #         float(self.g2_sig_edit.text()),
-            #         float(self.g2_hei_edit.text()),
-            #         float(self.slope_edit.text()),
-            #         float(self.int_edit.text())]
-            # except ValueError:
-            #     params = [0, 0, 0, 0, 0, 0, 0, 0]
-            self.parent.end_event(self.scan_currs, self.scan_waves, self.scan_rs, self.scan_times, params, bounds)
+            # starting parameters are estimated from the scan data by the event itself,
+            # seeded with the last good fit since the peaks drift slowly during a run
+            self.parent.end_event(self.scan_currs, self.scan_waves, self.scan_rs, self.scan_times,
+                                  self.last_good_pf)
             self.scan_currs = []
             self.scan_waves = []
             self.scan_rs = []
@@ -416,28 +448,50 @@ class RunTab(QWidget):
     def update_scan_plot(self):
         '''Update tab with new data
         '''
-        self.pol_hist[self.parent.previous_event.stop_stamp] = self.parent.previous_event.pol*100
+        event = self.parent.previous_event
+
+        if len(event.x_axis) == len(event.rs):
+            self.peak_plot.setData(event.x_axis, event.rs)
+        for curve, ys in ((self.fit_plot, event.fit), (self.g1_plot, event.fit_g1),
+                          (self.g2_plot, event.fit_g2), (self.base_plot, event.fit_base)):
+            if len(ys) == len(event.x_axis):
+                curve.setData(event.x_axis, ys)
+            else:
+                curve.setData([], [])    # no fit curve to show
+
+        if not event.fit_good:    # show the scan, but don't seed from a bad fit or record its polarization
+            self.fit_status.setText(event.fit_message)
+            self.fit_status.setStyleSheet("color: #aa0000")
+            return
+
+        self.fit_status.setText(f"{scanfit.PROFILES[event.profile]} fit good, R2 = {event.rsq:.4f}")
+        self.fit_status.setStyleSheet("color: #007700")
+        self.last_good_pf = list(event.pf)    # starting point for the next scan's fit
+
+        self.g1_pos_edit.setText(f"{event.pf[0]:.4f}")
+        self.g1_sig_edit.setText(f"{event.pf[1]:.4f}")
+        self.g1_hei_edit.setText(f"{event.pf[2]:.4f}")
+        self.g2_pos_edit.setText(f"{event.pf[3]:.4f}")
+        self.g2_sig_edit.setText(f"{event.pf[4]:.4f}")
+        self.g2_hei_edit.setText(f"{event.pf[5]:.4f}")
+        voigt = event.profile == 'voigt'
+        self.g1_gam_edit.setText(f"{event.pf[6]:.4f}" if voigt else "")
+        self.g2_gam_edit.setText(f"{event.pf[7]:.4f}" if voigt else "")
+        # baseline coefficients, highest power first, referenced to mid-scan; there
+        # is no curvature term at all when the baseline is set to straight
+        coef = list(event.pf[scanfit.n_peak_pars(event.profile):])
+        self.quad_edit.setText(f"{coef[0]:.3e}" if len(coef) > 2 else "")
+        self.slope_edit.setText(f"{coef[-2]:.4f}")
+        self.int_edit.setText(f"{coef[-1]:.4f}")
+
+        self.peak1_edit.setText(f"{event.pf[2]:.4f}")
+        self.peak2_edit.setText(f"{event.pf[5]:.4f}")
+
+        self.pol_hist[event.stop_stamp] = event.pol*100
         time_list = list(self.pol_hist.keys())
         pol_list = [self.pol_hist[k] for k in self.pol_hist.keys()]
-        
-        self.peak_plot.setData(self.parent.previous_event.x_axis, self.parent.previous_event.rs)
-        self.fit_plot.setData(self.parent.previous_event.x_axis, self.parent.previous_event.fit)
         self.pol_plot.setData(time_list, pol_list)
-
-        if float(self.curr_lo_edit.text()) < self.parent.previous_event.pf[0] < float(self.curr_up_edit.text()):
-            self.g1_pos_edit.setText(f"{self.parent.previous_event.pf[0]:.4f}")
-            self.g1_sig_edit.setText(f"{self.parent.previous_event.pf[1]:.4f}")
-            self.g1_hei_edit.setText(f"{self.parent.previous_event.pf[2]:.4f}")
-            self.g2_pos_edit.setText(f"{self.parent.previous_event.pf[3]:.4f}")
-            self.g2_sig_edit.setText(f"{self.parent.previous_event.pf[4]:.4f}")
-            self.g2_hei_edit.setText(f"{self.parent.previous_event.pf[5]:.4f}")
-            self.slope_edit.setText(f"{self.parent.previous_event.pf[6]:.4f}")
-            self.int_edit.setText(f"{self.parent.previous_event.pf[7]:.4f}")
-        
-        self.peak1_edit.setText(f"{self.parent.previous_event.pf[2]:.4f}")
-        self.peak2_edit.setText(f"{self.parent.previous_event.pf[5]:.4f}")
-        
-        self.pol_value.setText(f"{self.parent.previous_event.pol*100:.2f}%")
+        self.pol_value.setText(f"{event.pol*100:.2f}%")
 
     def finish_scans(self):
         #if not self.relax_thread.isRunning():

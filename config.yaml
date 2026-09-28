@@ -34,6 +34,8 @@ settings:
     sweep_alternate: True       # flip ramp direction each sweep (no flyback discontinuity)
     sweep_settle_frac: 0.02     # discard this fraction at the start of each ramp
     sweep_bins: 100             # number of binned points handed to the fit
+                                # keep >= scanfit.MIN_FIT_POINTS (25), below which
+                                # the fitter reports the amplitude ratio as biased
     sweep_smooth: 0.02          # zero-phase smoothing window, seconds (0 disables)
     sweep_sync: 'software'      # 'software' = start capture then start ramp
                                 # 'trigger'  = arm capture on SR860 trigger input,
@@ -55,3 +57,6 @@ settings:
     # defaults in LockIn.CAPTURE_CMDS. Only list the ones that need changing:
     #   lockin_capture_cmds:
     #     ratemax: 'CAPTUREMAXRATE?'
+
+    # ---- Fitting -----------------------------------------------------------
+    baseline_degree: 2          # Baseline under the peaks: 1 straight, 2 quadratic
