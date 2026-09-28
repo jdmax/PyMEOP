@@ -1,15 +1,21 @@
 """Read-only access to the PyMEOP event files under the data directory.
 
 Event files are written by Event.print_event() as one JSON object per line, so a
-file is a run and each line in it is one scan. Files are parsed lazily and cached
-on modification time, since a long run is a few hundred scans of a hundred points
-and reparsing it on every request is wasteful.
+file is a run and each line in it is one scan. The file list comes from a quick
+look at each file, its line count and its first and last scans; a file is only
+parsed in full when it is opened or plotted. Parsed files are cached on
+modification time, since a long run is a few hundred scans of a hundred points
+and reparsing it on every request is wasteful, but only the most recently used
+few are kept, so browsing a big archive does not hold all of it in memory.
 """
 
+import collections
+import copy
 import hashlib
 import json
 import os
 import re
+import sys
 import threading
 
 import numpy as np
@@ -23,6 +29,9 @@ NAME_STAMP = re.compile(r'(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})')
 
 
 EVENT_EXTS = ('.txt', '.json', '.jsonl')
+
+# fully parsed files kept in memory at once; the least recently used goes first
+MAX_PARSED_RUNS = 24
 
 # set by the server from its command line; None falls through to config.yaml
 DEFAULT_DIR = None
@@ -150,26 +159,107 @@ def name_stamp(name):
     return ((((y * 100 + mo) * 100 + d) * 100 + h) * 100 + mi) * 100 + s
 
 
+# Peak line shapes, as app/scanfit.py names them. A Voigt fit has a Lorentzian
+# width for each peak after the six gaussian parameters, then the baseline.
+PROFILES = ('gauss', 'voigt')
 N_GAUSS_PARS = 6  # two gaussians, each a position, a sigma and a height
+N_VOIGT_PARS = 8
+
+# what the browser can show: each scan's fit as the DAQ stored it, or every scan
+# in one shape, refitting the ones stored in the other
+SHAPES = ('recorded',) + PROFILES
+
+# Baseline polynomial degrees a refit can use, straight or quadratic, as in
+# app/scanfit.py's BASELINE_DEGREES; repeated here so parsing needs no scipy
+BASELINES = (1, 2)
 
 
-def fit_parts(x, pf, x_ref, referenced):
-    '''The two gaussians and the baseline of a fit, each evaluated on x.
+def baseline_choice(base):
+    '''The baseline degree asked for, or None to keep each scan's own.
 
-    The parameters after the six gaussian ones are the baseline polynomial
+    Args:
+        base: 1 or 2, as an int or a string; None, '' or 'recorded' for the
+            degree each scan was stored with
+    Raises:
+        ValueError for anything else
+    '''
+
+    if base is None or base in ('', 'recorded'):
+        return None
+    try:
+        deg = int(base)
+    except (TypeError, ValueError):
+        deg = None
+    if deg not in BASELINES:
+        raise ValueError('Unknown baseline degree %r, expected one of %s'
+                         % (base, ', '.join(str(d) for d in BASELINES)))
+    return deg
+
+
+def range_choice(xrange):
+    '''The x range to fit over, or None for every point of each scan.
+
+    Args:
+        xrange: (lo, hi), or a 'lo,hi' string, in the scans' x units; None or
+            '' for the whole scan
+    Returns:
+        (lo, hi) floats with lo < hi, or None
+    Raises:
+        ValueError for anything that is not two finite numbers in order
+    '''
+
+    if xrange is None or xrange == '':
+        return None
+    try:
+        parts = xrange.split(',') if isinstance(xrange, str) else list(xrange)
+        lo, hi = (float(v) for v in parts)
+    except (TypeError, ValueError):
+        raise ValueError('Fit range %r should be two numbers, lo,hi' % (xrange,))
+    if not (np.isfinite(lo) and np.isfinite(hi) and lo < hi):
+        raise ValueError('Fit range %r should run from a lower to a higher x' % (xrange,))
+    return lo, hi
+
+
+# A single scan fit usually takes 20 to 150 ms. One still going after this long
+# has wandered off and is given up as a failed fit, so it cannot hold up a refit.
+REFIT_TIME_LIMIT = 2.0  # seconds
+
+
+def n_peak_pars(profile):
+    return N_VOIGT_PARS if profile == 'voigt' else N_GAUSS_PARS
+
+
+def scanfit():
+    '''The DAQ's own fitting module, imported only when a Voigt or a refit is
+    needed, since it brings in scipy and a browser of gaussian fits can do
+    without it'''
+
+    if ROOT not in sys.path:
+        sys.path.insert(0, ROOT)
+    from app import scanfit as module
+    return module
+
+
+def fit_parts(x, pf, x_ref, referenced, profile='gauss'):
+    '''The two peaks and the baseline of a fit, each evaluated on x.
+
+    The parameters after the peak ones are the baseline polynomial
     coefficients, highest power first, so one or two of them is a straight
     baseline or a quadratic without any further special casing.
 
     Args:
         x: Scan x axis values
-        pf: Fit parameter list, gaussians first
+        pf: Fit parameter list, peaks first
         x_ref: Baseline reference, the mid scan x
         referenced: True if the baseline is about x_ref rather than raw x
+        profile: 'gauss' or 'voigt'
     Returns:
-        (g1, g2, base) arrays, the gaussians about zero and the baseline
+        (g1, g2, base) arrays, the peaks about zero and the baseline
     '''
 
     x = np.asarray(x, dtype=float)
+    if profile == 'voigt':
+        return scanfit().parts(x, pf, x_ref if referenced else 0.0, 'voigt')
     g1 = pf[2] * np.exp(-np.power(x - pf[0], 2) / (2 * np.power(pf[1], 2)))
     g2 = pf[5] * np.exp(-np.power(x - pf[3], 2) / (2 * np.power(pf[4], 2)))
     base = np.polyval(pf[N_GAUSS_PARS:], x - x_ref if referenced else x)
@@ -206,6 +296,67 @@ def finite_list(seq):
     return [finite(v) for v in (seq if seq is not None else [])]
 
 
+def x_key_of(waves):
+    '''The scan's x axis: wavelength when the wavemeter was actually read, else
+    current, as in current scans the wavelength column sits at zero'''
+
+    return 'wavelength' if np.any(np.asarray(waves, dtype=float) != 0) else 'current'
+
+
+def _scan_line(line):
+    '''One line of an event file as a dict, or None if it is not one'''
+
+    try:
+        raw = json.loads(line)
+    except (ValueError, TypeError):
+        return None
+    return raw if isinstance(raw, dict) else None
+
+
+def quick_info(path):
+    '''The file list row for an event file, without parsing it in full.
+
+    Counts the scans by their lines and reads only the first and last of them,
+    for when the run started and stopped and its x axis. The scans are written
+    in time order, so those two give the same span as reading them all. A last
+    line that does not parse and has no newline after it is a scan still being
+    written, and is not counted. Unreadable lines elsewhere are counted as
+    scans, as only a full parse finds them, so bad_lines is None here.
+    '''
+
+    stat = os.stat(path)
+    row = {'name': os.path.basename(path), 'size': stat.st_size, 'mtime': stat.st_mtime,
+           'n_events': 0, 'bad_lines': None, 'error': None, 'start_stamp': None,
+           'stop_stamp': None, 'duration': None, 'x_key': 'current'}
+    try:
+        with open(path, 'rb') as f:
+            data = f.read()
+    except OSError as e:
+        row['error'] = str(e)
+        return row
+    lines = [line for line in data.split(b'\n') if line.strip()]
+    first = last = None
+    for line in lines:
+        first = _scan_line(line)
+        if first is not None:
+            break
+    j = len(lines)
+    for j in range(len(lines) - 1, -1, -1):
+        last = _scan_line(lines[j])
+        if last is not None:
+            break
+    if lines and j < len(lines) - 1 and not data.endswith(b'\n'):
+        lines.pop()  # the scan being written
+    row['n_events'] = len(lines)
+    if first is None:
+        return row
+    start, stop = finite(first.get('start_stamp')), finite(last.get('stop_stamp'))
+    row.update({'start_stamp': start, 'stop_stamp': stop,
+                'duration': finite(stop - start) if start and stop else None,
+                'x_key': x_key_of(first.get('waves') or [])})
+    return row
+
+
 def recorded_r0(raw):
     '''The zero polarization height ratio the DAQ used for a scan, or None.
 
@@ -233,12 +384,20 @@ class Event:
         self.times = np.array(raw.get('times') or [], dtype=float)
         self.pf = list(raw.get('pf') or [])
         self.pstd = list(raw.get('pstd') or [])
+        self.pcov = raw.get('pcov') or []
+        self.profile = raw.get('profile') if raw.get('profile') in PROFILES else 'gauss'
+        self.n_peak = n_peak_pars(self.profile)
+        self.refit = False  # True once the fit is the browser's own rather than the DAQ's
+        self.stored = None  # for a refit, the shape and baseline degree the DAQ fit with
+        self.fit_range = None  # for a refit over part of the scan, the (lo, hi) x it used
+        self.fit_ok = raw.get('fit_good')  # not in the oldest files
+        self.fit_message = raw.get('fit_message')
         self.start_stamp = raw.get('start_stamp')
         self.stop_stamp = raw.get('stop_stamp')
 
         # wavelength is only the x axis when the wavemeter was actually read;
         # in current scans the column sits at zero and current is the axis
-        self.x_key = 'wavelength' if np.any(self.waves != 0) else 'current'
+        self.x_key = x_key_of(self.waves)
         self.x = self.waves if self.x_key == 'wavelength' else self.currs
 
         # which way the sweep ran, from where it ended against where it started
@@ -262,19 +421,67 @@ class Event:
             self.x_ref = 0.0
 
         self.base_deg = raw.get('base_deg')
-        if self.base_deg is None and len(self.pf) > N_GAUSS_PARS:
-            self.base_deg = len(self.pf) - N_GAUSS_PARS - 1
+        if self.base_deg is None and len(self.pf) > self.n_peak:
+            self.base_deg = len(self.pf) - self.n_peak - 1
 
-        self.fit = np.array(raw.get('fit') or [], dtype=float)
-        self.g1 = self.g2 = self.base = np.array([])
-        if len(self.pf) >= 8 and len(self.x):
-            self.g1, self.g2, self.base = fit_parts(
-                self.x, self.pf, self.x_ref, self.referenced)
-            if len(self.fit) != len(self.x):
-                self.fit = self.g1 + self.g2 + self.base
-
-        self.rsq = r_squared(self.rs, self.fit) if len(self.fit) == len(self.rs) else None
+        self.components(np.array(raw.get('fit') or [], dtype=float))
         self.r0 = recorded_r0(raw)
+        # the point lists live on as the arrays above; keeping them twice would
+        # double what a parsed run holds
+        for k in ('currs', 'waves', 'rs', 'times', 'fit'):
+            raw.pop(k, None)
+
+    def components(self, fit):
+        '''Rebuild the fit curve, its parts and R² from pf.
+
+        Args:
+            fit: The fit curve as stored, used when it matches the scan
+        '''
+
+        self.fit = fit
+        self.g1 = self.g2 = self.base = np.array([])
+        if len(self.pf) >= self.n_peak + 2 and len(self.x):
+            try:
+                self.g1, self.g2, self.base = fit_parts(
+                    self.x, self.pf, self.x_ref, self.referenced, self.profile)
+            except ImportError:  # a Voigt fit to draw, and no scipy to draw it with
+                pass
+            else:
+                if len(self.fit) != len(self.x):
+                    self.fit = self.g1 + self.g2 + self.base
+        if self.fit_range is not None:
+            # a fit over part of the scan says nothing about the rest, so the
+            # curves stop at the ends of its range and R² counts only what it saw
+            out = ~self.in_range(self.fit_range)
+            self.fit, self.g1, self.g2, self.base = (
+                np.where(out, np.nan, a) if len(a) == len(self.x) else a
+                for a in (self.fit, self.g1, self.g2, self.base))
+        self.rsq = r_squared(self.rs, self.fit) if len(self.fit) == len(self.rs) else None
+
+    def in_range(self, xrange):
+        '''Mask of the scan points with x inside (lo, hi), ends included'''
+
+        return (self.x >= xrange[0]) & (self.x <= xrange[1])
+
+    def with_fit(self, res):
+        '''A copy of this scan carrying a refit in place of the stored fit.
+
+        Args:
+            res: One scan's entry from refit_run()
+        '''
+
+        e = copy.copy(self)
+        e.stored = {'profile': self.profile, 'base_deg': self.base_deg}
+        e.profile, e.n_peak, e.refit = res['profile'], n_peak_pars(res['profile']), True
+        e.fit_ok, e.fit_message = res['ok'], res['message']
+        e.base_deg = res['base_deg']
+        e.referenced, e.x_ref = True, res['x_ref']
+        e.pf = [] if res['pf'] is None else list(res['pf'])
+        e.pstd = [] if res['pstd'] is None else list(res['pstd'])
+        e.pcov = [] if res['pcov'] is None else res['pcov']
+        e.fit_range = res['range']
+        e.components(np.array([]))
+        return e
 
     def peak(self, i):
         '''Fitted height of peak 1 or 2, or None if the fit is missing'''
@@ -301,6 +508,11 @@ class Event:
             'pf': finite_list(self.pf),
             'pstd': finite_list(self.pstd),
             'rsq': self.rsq,
+            'profile': self.profile,
+            'refit': self.refit,
+            'fit_range': list(self.fit_range) if self.fit_range else None,
+            'fit_ok': self.fit_ok,
+            'fit_message': self.fit_message,
             'peak1': self.peak(1),
             'peak2': self.peak(2),
             'r0': self.r0,
@@ -313,19 +525,21 @@ class Event:
         d.update({
             'x_ref': finite(self.x_ref),
             'baseline': {'degree': self.base_deg, 'referenced': self.referenced},
+            'stored': self.stored,
+            'n_peak': self.n_peak,
             'x': finite_list(self.x),
             'currs': finite_list(self.currs),
             'waves': finite_list(self.waves),
             'times': finite_list(self.times),
             'signal': finite_list(self.rs),
             'fit': finite_list(self.fit),
-            # the gaussians are drawn sitting on the baseline, as the run tab draws
+            # the peaks are drawn sitting on the baseline, as the run tab draws
             # them, so the components stay in the range of the data
             'g1': finite_list(self.g1 + self.base) if len(self.g1) else [],
             'g2': finite_list(self.g2 + self.base) if len(self.g2) else [],
             'base': finite_list(self.base),
             'residual': finite_list(self.rs - self.fit) if len(self.fit) == len(self.rs) else [],
-            'pcov': [finite_list(row) for row in (self.raw.get('pcov') or [])],
+            'pcov': [finite_list(row) for row in self.pcov],
             'settings': self.raw.get('settings') or {},
         })
         return d
@@ -343,6 +557,7 @@ class Run:
         self.events = []
         self.bad_lines = 0
         self.error = None
+        self._views = {}
         self._parse()
 
     def _parse(self):
@@ -384,13 +599,133 @@ class Run:
             'x_key': self.events[0].x_key if self.events else 'current',
         }
 
-    def detail(self):
+    def view(self, shape='recorded', base=None, xrange=None):
+        '''The scans with their fits in one shape and baseline, over one x range.
+
+        Args:
+            shape: 'recorded' for each scan's peak shape as the DAQ stored it,
+                or 'gauss' or 'voigt' for every scan in that shape
+            base: None for each scan's baseline degree as stored, or 1 or 2
+                for every scan on a straight or quadratic baseline
+            xrange: None to fit every point of each scan, or (lo, hi) or
+                'lo,hi' to fit only the points with x in that range
+        Returns:
+            List of Event, with any scan stored some other way refit; refit
+            ones are copies of the stored ones
+        Raises:
+            ValueError for an unknown shape, baseline or range
+        '''
+
+        if shape not in SHAPES:
+            raise ValueError('Unknown line shape %r, expected one of %s' % (shape, ', '.join(SHAPES)))
+        base = baseline_choice(base)
+        xrange = range_choice(xrange)
+        if shape == 'recorded' and base is None and xrange is None:
+            return self.events
+        key = (shape, base, xrange)
+        if key not in self._views:
+            results = refit_run(self, None if shape == 'recorded' else shape, base, xrange)
+            self._views[key] = [e if r is None else e.with_fit(r)
+                                for e, r in zip(self.events, results)]
+        return self._views[key]
+
+    def detail(self, shape='recorded', base=None, xrange=None):
         '''The file list row plus a summary of every scan in the file'''
 
         d = self.info()
         d['settings'] = self.events[0].raw.get('settings') if self.events else {}
-        d['events'] = [e.summary() for e in self.events]
+        d['shape'] = shape
+        d['base'] = baseline_choice(base)
+        xrange = range_choice(xrange)
+        d['range'] = list(xrange) if xrange else None
+        d['events'] = [e.summary() for e in self.view(shape, base, xrange)]
         return d
+
+
+# Refits, kept apart from the parsed runs: a live run is parsed again each time
+# it grows, and the scans already refit should not be fit again with it.
+_refits = {}        # (run start, shape, base, range) -> [(scan start stamp, result or None, seed after)]
+_refit_locks = {}   # the same keys, so two requests for one run fit it only once
+_refit_progress = {}  # the same keys -> how far a refit under way has got
+_refit_guard = threading.Lock()
+
+
+def refit_run(run, profile, base=None, xrange=None):
+    '''Fit every scan of a run whose stored fit is not in the given shape and
+    baseline, or that has points outside the given x range.
+
+    The scans are fit in order, each seeded from the last good fit before it as
+    the DAQ does. Scans already stored the wanted way keep their fit and seed the
+    next one. A seed of another shape or baseline degree goes unused, and the
+    fitter estimates that scan from scratch. A fit still going after
+    REFIT_TIME_LIMIT is given up and the scan marked as a failed fit.
+
+    Args:
+        run: The Run
+        profile: 'gauss' or 'voigt', or None to keep each scan's own
+        base: Baseline degree 1 or 2, or None to keep each scan's own
+        xrange: (lo, hi) to fit only the points with x in that range, or None
+    Returns:
+        One entry per scan: None to keep the stored fit, or a dict of pf, pstd,
+        pcov, ok, message, x_ref, base_deg, profile and range (pf None if no fit
+        converged)
+    '''
+
+    fitting = scanfit()
+    stamp = NAME_STAMP.search(run.name)
+    key = (stamp.group(0) if stamp else run.path, profile, base, xrange)
+    with _refit_guard:
+        lock = _refit_locks.setdefault(key, threading.Lock())
+    with lock:
+        done = _refits.get(key, [])
+        n = 0  # scans already fit, as long as the file still starts with them
+        while (n < len(done) and n < len(run.events)
+               and done[n][0] == run.events[n].start_stamp):
+            n += 1
+        out = done[:n]
+        seed = out[-1][2] if out else None
+        prog = {'name': run.name, 'profile': profile, 'base': base,
+                'range': list(xrange) if xrange else None,
+                'done': 0, 'total': len(run.events) - n}
+        if prog['total']:
+            with _refit_guard:
+                _refit_progress[key] = prog
+        try:
+            for ev in run.events[n:]:
+                res = None
+                inside = ev.in_range(xrange) if xrange else None
+                if ((profile is None or ev.profile == profile)
+                        and (base is None or ev.base_deg == base)
+                        and (inside is None or inside.all())
+                        and len(ev.pf) >= ev.n_peak + 2):
+                    if ev.fit_ok is not False:
+                        seed = list(ev.pf)
+                else:
+                    shape = profile or ev.profile
+                    base_deg = base or (ev.base_deg if ev.base_deg in fitting.BASELINE_DEGREES
+                                        else fitting.DEFAULT_BASELINE_DEGREE)
+                    x, y = (ev.x, ev.rs) if inside is None else (ev.x[inside], ev.rs[inside])
+                    b = fitting.ScanFitter(base_deg, shape, REFIT_TIME_LIMIT).fit(x, y, seed)
+                    res = {'pf': b['pf'], 'pstd': b.get('pstd'), 'pcov': b.get('pcov'),
+                           'ok': b['ok'], 'message': b['message'], 'x_ref': b['x_ref'],
+                           'base_deg': base_deg, 'profile': shape, 'range': xrange}
+                    if b['ok']:
+                        seed = list(b['pf'])
+                out.append((ev.start_stamp, res, seed))
+                prog['done'] += 1
+        finally:
+            with _refit_guard:
+                _refit_progress.pop(key, None)
+        _refits[key] = out
+        return [r for _, r, _ in out]
+
+
+def refit_progress():
+    '''The refits under way, each with its file name, shape, baseline, range
+    and how many of its scans are done out of how many'''
+
+    with _refit_guard:
+        return [dict(p) for p in _refit_progress.values()]
 
 
 class Library:
@@ -402,7 +737,8 @@ class Library:
     '''
 
     def __init__(self):
-        self._runs = {}
+        self._runs = collections.OrderedDict()   # path -> (key, Run), least recently used first
+        self._rows = {}   # path -> (key, file list row), from quick_info()
         self._lock = threading.Lock()
         self._index_locks = {}   # directory -> lock, one index pass per folder at a time
         self._progress = {}      # directory -> progress of the index pass under way
@@ -431,16 +767,45 @@ class Library:
         with self._lock:
             hit = self._runs.get(path)
             if hit and hit[0] == key:
+                self._runs.move_to_end(path)
                 return hit[1]
         run = Run(path)
         with self._lock:
             self._runs[path] = (key, run)
+            self._runs.move_to_end(path)
+            while len(self._runs) > MAX_PARSED_RUNS:
+                self._runs.popitem(last=False)
         return run
+
+    def row(self, name, base):
+        '''File list row for a file name, or None if it is not an event file.
+
+        From the parsed run when that is in memory and current, as it has the
+        exact scan and bad line counts, and otherwise from quick_info(), cached
+        on size and modification time like the runs.
+        '''
+
+        path = safe_path(name, base)
+        if not path:
+            return None
+        stat = os.stat(path)
+        key = (path, stat.st_size, stat.st_mtime)
+        with self._lock:
+            hit = self._runs.get(path)
+            if hit and hit[0] == key:
+                return hit[1].info()
+            hit = self._rows.get(path)
+            if hit and hit[0] == key:
+                return hit[1]
+        row = quick_info(path)
+        with self._lock:
+            self._rows[path] = (key, row)
+        return row
 
     def index(self, base):
         '''File list rows for a whole data directory.
 
-        The first pass over a large folder parses every file in it, which takes a
+        The first pass over a large folder reads every file in it, which takes a
         while, so its progress is kept for progress() to report. Only one pass
         runs per folder at a time: a second request waits for the first and then
         finds everything cached.
@@ -463,9 +828,12 @@ class Library:
             rows = []
             try:
                 for name, size in zip(names, sizes):
-                    run = self.run(name, base)
-                    if run:
-                        rows.append(run.info())
+                    try:
+                        row = self.row(name, base)
+                    except OSError:
+                        row = None  # renamed by the DAQ since the listing
+                    if row:
+                        rows.append(row)
                     prog['done'] += 1
                     prog['bytes_done'] += size
             finally:
@@ -475,9 +843,10 @@ class Library:
             # paths in this folder that are gone rather than holding every old name
             live = {os.path.join(base, r['name']) for r in rows}
             with self._lock:
-                for path in [p for p in self._runs
-                             if os.path.dirname(p) == base and p not in live]:
-                    del self._runs[path]
+                for cache in (self._runs, self._rows):
+                    for path in [p for p in cache
+                                 if os.path.dirname(p) == base and p not in live]:
+                        del cache[path]
             return rows
 
     def progress(self, base):

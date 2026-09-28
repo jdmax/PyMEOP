@@ -12,7 +12,12 @@ const state = {
   run: null,          // detail for the selected file
   event: null,        // detail for the selected scan
   eventIdx: 0,
-  r0: null,          // r0 typed in the top bar, overriding the recorded one; null uses the file's
+  r0: null,          // r0 set in the top bar, overriding the recorded one; null uses the file's
+  r0Source: null,    // how that r0 was set: 'typed', or 'fit' to zero a fit's P∞
+  shape: 'recorded',  // peak shape shown: the DAQ's own fits, or every scan as 'gauss' or 'voigt'
+  base: 'recorded',   // baseline shown: each scan's own, or every scan on '1' straight or '2' quadratic
+  range: null,        // [lo, hi] x of each scan to fit, or null for every point
+  scanDragRange: false,  // dragging on the scan plot sets the fit range instead of zooming
   runCursorIdx: null,
   version: null,      // data directory fingerprint the page was last drawn from
   updatedAt: null,    // when a live update last changed what is on screen
@@ -25,10 +30,16 @@ const charts = { run: null, scan: null, resid: null };
 
 const el = (id) => document.getElementById(id);
 
-/* An API address in the folder this tab is looking at */
+/* An API address in the folder this tab is looking at, for the fit shape,
+   baseline and range shown */
 function api(path) {
-  if (!state.dir) return 'api/' + path;
-  return 'api/' + path + (path.indexOf('?') < 0 ? '?' : '&') + 'dir=' + encodeURIComponent(state.dir);
+  const q = [];
+  if (state.dir) q.push('dir=' + encodeURIComponent(state.dir));
+  if (state.shape !== 'recorded') q.push('shape=' + state.shape);
+  if (state.base !== 'recorded') q.push('base=' + state.base);
+  if (state.range) q.push('range=' + state.range.join(','));
+  if (!q.length) return 'api/' + path;
+  return 'api/' + path + (path.indexOf('?') < 0 ? '?' : '&') + q.join('&');
 }
 
 /* ---------------- formatting ---------------- */
@@ -100,19 +111,32 @@ function palette() {
 
 /* ---------------- fit helpers ---------------- */
 
-const GAUSS_PARAM_NAMES = [
-  'Peak 1 position', 'Peak 1 σ', 'Peak 1 height',
-  'Peak 2 position', 'Peak 2 σ', 'Peak 2 height',
-];
+/* Peak parameters in the order the fit stores them. The first six are the same
+   in either shape; a Voigt fit adds each peak's Lorentzian half width γ. */
+const PEAK_PARAM_NAMES = {
+  gauss: ['Peak 1 position', 'Peak 1 σ', 'Peak 1 height',
+          'Peak 2 position', 'Peak 2 σ', 'Peak 2 height'],
+};
+PEAK_PARAM_NAMES.voigt = PEAK_PARAM_NAMES.gauss.concat(['Peak 1 γ', 'Peak 2 γ']);
 
-/* Names for the baseline coefficients, which are the parameters after the six
-   gaussian ones, highest power first. A straight baseline has two of them and a
+const SHAPE_NAMES = { gauss: 'Gaussian', voigt: 'Voigt' };
+const BASE_NAMES = { 1: 'straight', 2: 'quadratic' };  // baseline polynomial degrees
+
+/* Names for the baseline coefficients, which are the parameters after the peak
+   ones, highest power first. A straight baseline has two of them and a
    quadratic three, so the names are taken from the end. */
 const BASELINE_PARAM_NAMES = ['Baseline curvature', 'Baseline slope', 'Baseline offset'];
 
-function paramNames(pf) {
-  const nBase = Math.max(0, (pf ? pf.length : 0) - GAUSS_PARAM_NAMES.length);
-  return GAUSS_PARAM_NAMES.concat(BASELINE_PARAM_NAMES.slice(-nBase || undefined));
+function peakNames(ev) {
+  return PEAK_PARAM_NAMES[ev && ev.profile === 'voigt' ? 'voigt' : 'gauss'];
+}
+
+/* A name for every parameter of a scan's fit, in stored order; none without a fit */
+function paramNames(ev) {
+  if (!ev || !ev.pf || !ev.pf.length) return [];
+  const peaks = peakNames(ev);
+  const nBase = Math.max(0, ev.pf.length - peaks.length);
+  return peaks.concat(nBase ? BASELINE_PARAM_NAMES.slice(-nBase) : []);
 }
 
 /* Polarization from the two fitted peak heights.
@@ -128,11 +152,36 @@ function r0For(e) {
 
 /* How the r0 behind a set of scans is described next to their polarization */
 function r0Label(events) {
-  if (state.r0 !== null) return 'r₀ = ' + state.r0 + ' (typed)';
+  if (state.r0 !== null) {
+    return 'r₀ = ' + state.r0 + (state.r0Source === 'fit' ? ' (set for P∞ = 0)' : ' (typed)');
+  }
   const seen = new Set(events.map((e) => (e.r0 ? e.r0.toFixed(4) : 'none')));
   if (seen.size > 1) return 'r₀ as recorded, per scan';
   const only = seen.values().next().value;
   return only === 'none' || only === undefined ? 'r₀ = 1, none recorded' : 'r₀ = ' + only + ' (recorded)';
+}
+
+/* The one r0 behind every one of these scans' polarization, or null if they
+   were read off different recorded values */
+function commonR0(events) {
+  const seen = new Set(events.map(r0For));
+  return seen.size === 1 ? seen.values().next().value : null;
+}
+
+/* Use r0 for every scan, or null to go back to each scan's recorded one. The
+   fits are cleared, as they were made with the old r0. */
+function setR0(v, source) {
+  state.r0 = v;
+  state.r0Source = v === null ? null : source;
+  const box = el('r0');
+  if (source !== 'typed') box.value = v === null ? '' : String(v);
+  el('r0Reset').disabled = v === null;
+  if (!state.run) return;
+  renderRunBar();
+  tl.fits = [];
+  renderFits();
+  if (el('metric').value === 'polarization') drawTimeline({ keepZoom: true });
+  if (state.event) renderFitPanel();
 }
 
 function polOf(e) {
@@ -277,7 +326,7 @@ function peakLabels(ev, p) {
 
 /* Baseline of the stored fit evaluated at one x, for placing the apex labels. */
 function baselineAt(ev, x) {
-  const coef = ev.pf.slice(GAUSS_PARAM_NAMES.length);
+  const coef = ev.pf.slice(peakNames(ev).length);
   if (!coef.length) return 0;
   const referenced = ev.baseline ? ev.baseline.referenced : ev.pf.length >= 9;
   const xv = referenced ? x - (ev.x_ref || 0) : x;
@@ -427,6 +476,16 @@ const METRICS = {
       { name: 'Peak 2 σ', pick: (e) => e.pf[4], err: (e) => e.pstd[4], color: 's4' },
     ],
   },
+  // only a Voigt fit has these; gaussian scans leave gaps
+  lorentz: {
+    axis: (x_key) => 'Peak width γ' + (x_key === 'wavelength' ? '' : ' (A)'),
+    series: [
+      { name: 'Peak 1 γ', pick: (e) => (e.profile === 'voigt' ? e.pf[6] : null),
+        err: (e) => e.pstd[6], color: 's3' },
+      { name: 'Peak 2 γ', pick: (e) => (e.profile === 'voigt' ? e.pf[7] : null),
+        err: (e) => e.pstd[7], color: 's4' },
+    ],
+  },
   polarization: {
     axis: () => 'Polarization (%)',
     unit: ' %',
@@ -512,6 +571,11 @@ async function loadTimeline() {
 async function setTimeline(stamps) {
   tl.stamps = stamps;
   tl.fits = [];
+  if (!state.run) {
+    // the plot is hidden until a run is open, so open the newest one ticked
+    const f = state.files.find((r) => r.n_events > 0 && stamps.has(runStamp(r.name)));
+    if (f) { await selectFile(f.name, 0, 'keep'); return; }
+  }
   renderFileList();
   if (await loadTimeline()) drawTimeline();
   renderFits();
@@ -980,7 +1044,8 @@ async function doFit() {
       const pts = g.events
         .map((e) => ({ t: e.start_stamp, y: polPercent(e), s: polarizationErr(e) }))
         .filter((q) => q.y !== null);
-      const base = { key: g.key, label: g.label, n: pts.length, r0: r0Label(g.events) };
+      const base = { key: g.key, label: g.label, n: pts.length, r0: r0Label(g.events),
+                     r0Used: commonR0(g.events.filter((e) => polOf(e) !== null)) };
       try {
         const sig = pts.every((q) => q.s !== null && q.s > 0) ? pts.map((q) => q.s) : null;
         const r = await postJSON('api/fit/exp', {
@@ -1000,6 +1065,35 @@ async function doFit() {
   if (charts.run) charts.run.redraw();
 }
 
+/* The r0 that puts a fit's P∞ at zero, with its 1σ, or null if there is none
+   to give. P∞ is where the height ratio r settles, read through the r0 the fit
+   was made with; that r is the r0 which reads it as zero. From
+   P = (q-1)/(q+1) with q = r/r0, r∞ = r0 (1+P∞)/(1-P∞). */
+function r0ForZero(f) {
+  if (f.error || f.asymptote_fixed || !f.r0Used) return null;
+  const p = f.p_inf / 100;
+  if (!isFinite(p) || Math.abs(p) >= 1) return null;
+  const r0 = f.r0Used * (1 + p) / (1 - p);
+  const err = f.p_inf_err === null || f.p_inf_err === undefined ? null
+    : Math.abs(f.r0Used * 2 / ((1 - p) * (1 - p)) * f.p_inf_err / 100);
+  return isFinite(r0) && r0 > 0 ? { r0: r0, err: err } : null;
+}
+
+/* Set r0 so that the given fit's P∞ is zero, refitting until it is. P is not
+   linear in r0, so one step leaves the refitted P∞ a little off zero; a few
+   more take it there. */
+async function zeroPInf(key) {
+  for (let i = 0; i < 6; i++) {
+    const f = tl.fits.find((q) => q.key === key);
+    if (!f || f.error) return;
+    if (i > 0 && Math.abs(f.p_inf) < 1e-3) return;
+    const z = r0ForZero(f);
+    if (!z) return;
+    setR0(parseFloat(z.r0.toPrecision(7)), 'fit');
+    await doFit();
+  }
+}
+
 function renderFits() {
   const host = el('fitResults');
   if (!tl.fits.length) { host.innerHTML = ''; return; }
@@ -1008,7 +1102,15 @@ function renderFits() {
   const loose = (f) => f.tau_unbounded || (f.tau_err !== null && f.tau_err > 0.5 * f.tau);
   const rows = tl.fits.map((f) => {
     const head = '<td>' + swatch(fitColour(f.key, p)) + f.label + '</td>';
-    if (f.error) return '<tr>' + head + '<td colspan="6" class="warn">' + f.error + '</td></tr>';
+    if (f.error) return '<tr>' + head + '<td colspan="7" class="warn">' + f.error + '</td></tr>';
+    const z = r0ForZero(f);
+    const zeroCell = z
+      ? '<button class="ghost small" type="button" data-zero="' + f.key + '" title="Use r₀ = ' +
+        fmtPM(z.r0, z.err) + ' for every scan, so that the P∞ of this fit is zero, and refit">' +
+        fmt(z.r0, 5) + '</button>'
+      : '<span class="muted" title="' + (f.asymptote_fixed ? 'P∞ is held at zero'
+          : 'The selected scans were read off different recorded r₀ values; set one first') +
+        '">' + DASH + '</span>';
     return '<tr>' + head +
       '<td>' + f.n + '</td>' +
       '<td>' + f.kind + '</td>' +
@@ -1016,7 +1118,8 @@ function renderFits() {
         fmtTau(f.tau, f.tau_err) + '</td>' +
       '<td>' + fmtPM(f.p_0, f.p_0_err) + '</td>' +
       '<td>' + (f.asymptote_fixed ? '0 (fixed)' : fmtPM(f.p_inf, f.p_inf_err)) + '</td>' +
-      '<td>' + fmt(f.redchi2, 3) + '</td></tr>';
+      '<td>' + fmt(f.redchi2, 3) + '</td>' +
+      '<td>' + zeroCell + '</td></tr>';
   }).join('');
 
   const ok = tl.fits.filter((f) => !f.error);
@@ -1038,7 +1141,9 @@ function renderFits() {
     '<caption class="sr-only">Exponential fits to the selected polarization</caption>' +
     '<thead><tr><th scope="col">Scans</th><th scope="col">N</th><th scope="col">Type</th>' +
     '<th scope="col">τ</th><th scope="col">P<sub>0</sub> (%)</th>' +
-    '<th scope="col">P<sub>∞</sub> (%)</th><th scope="col">χ²<sub>ν</sub></th></tr></thead>' +
+    '<th scope="col">P<sub>∞</sub> (%)</th><th scope="col">χ²<sub>ν</sub></th>' +
+    '<th scope="col" title="The r₀ that would put P∞ at zero; click to use it">r<sub>0</sub> for P<sub>∞</sub> = 0</th>' +
+    '</tr></thead>' +
     '<tbody>' + rows + '</tbody></table>' + notes.join('');
 }
 
@@ -1116,17 +1221,19 @@ function drawScanChart() {
 
   const sync = uPlot.sync('scan');
 
+  const drag = { x: true, y: false, setScale: !state.scanDragRange };
   charts.scan = makePlot(node, {
-    cursor: { drag: { x: true, y: false }, points: { size: 8 }, sync: { key: sync.key } },
+    cursor: { drag: drag, points: { size: 8 }, sync: { key: sync.key } },
     legend: { live: true },
     axes: [axisOpts(p, xLabel, true), axisOpts(p, 'Lock-in R', false)],
     series: series,
-    plugins: hasFit ? [peakLabels(ev, p)] : [],
+    hooks: { setSelect: [onScanSelect] },
+    plugins: [outsideRange(ev, p)].concat(hasFit ? [peakLabels(ev, p)] : []),
   }, cols);
 
   if (ev.residual && ev.residual.length) {
     charts.resid = makePlot(rnode, {
-      cursor: { drag: { x: true, y: false }, points: { size: 8 }, sync: { key: sync.key } },
+      cursor: { drag: drag, points: { size: 8 }, sync: { key: sync.key } },
       legend: { show: false },   // one series, already named by the axis
       axes: [axisOpts(p, '', true), axisOpts(p, 'Signal − fit', false)],
       series: [
@@ -1137,12 +1244,66 @@ function drawScanChart() {
           value: (u, v) => fmt(v, 5),
         },
       ],
-      plugins: [zeroLine(p)],
+      hooks: { setSelect: [onScanSelect] },
+      plugins: [outsideRange(ev, p), zeroLine(p)],
     }, [x, reorder(ev.residual, order)]);
   } else {
     rnode.innerHTML = '';
     charts.resid = null;
   }
+}
+
+/* Grey out the parts of a scan left out of its fit, so the range shows even on
+   a scan whose own fit covers all of it */
+function outsideRange(ev, p) {
+  return {
+    hooks: {
+      drawClear: (u) => {
+        const r = ev.fit_range || state.range;
+        if (!r) return;
+        const left = u.bbox.left, right = u.bbox.left + u.bbox.width;
+        const x0 = Math.min(right, Math.max(left, u.valToPos(r[0], 'x', true)));
+        const x1 = Math.min(right, Math.max(left, u.valToPos(r[1], 'x', true)));
+        const ctx = u.ctx;
+        ctx.save();
+        ctx.globalAlpha = 0.14;
+        ctx.fillStyle = p.muted;
+        if (x0 > left) ctx.fillRect(left, u.bbox.top, x0 - left, u.bbox.height);
+        if (x1 < right) ctx.fillRect(x1, u.bbox.top, right - x1, u.bbox.height);
+        ctx.restore();
+      },
+    },
+  };
+}
+
+/* A drag in fit range mode sets the part of every scan that gets fit. It is
+   kept in x, so it holds from scan to scan and run to run. */
+function onScanSelect(u) {
+  if (!state.scanDragRange || u.select.width < 3) return;
+  const lo = Number(u.posToVal(u.select.left, 'x').toPrecision(6));
+  const hi = Number(u.posToVal(u.select.left + u.select.width, 'x').toPrecision(6));
+  u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
+  // the scan and residual plots share a cursor, so one drag can land here twice
+  const same = state.range && state.range[0] === lo && state.range[1] === hi;
+  if (hi > lo && !same) setRange([lo, hi]).catch(showError);
+}
+
+function updateRangeBar() {
+  el('scanZoom').setAttribute('aria-pressed', String(!state.scanDragRange));
+  el('scanRange').setAttribute('aria-pressed', String(state.scanDragRange));
+  el('fullRange').disabled = !state.range;
+  let text = '';
+  if (state.range) {
+    text = 'Fitting ' + fmt(state.range[0], 6) + ' to ' + fmt(state.range[1], 6) + ' of every scan';
+    const ev = state.event;
+    if (ev && ev.x) {
+      const n = ev.x.filter((v) => v !== null && v >= state.range[0] && v <= state.range[1]).length;
+      text += '  ·  ' + n + ' of ' + ev.x.length + ' points in this one';
+    }
+  } else if (state.scanDragRange) {
+    text = 'Drag across the scan to pick the part to fit.';
+  }
+  el('rangeInfo').textContent = text;
 }
 
 /* ---------------- panels ---------------- */
@@ -1205,18 +1366,25 @@ function renderRunBar() {
          run.x_key === 'wavelength' ? 'wavelength' : 'probe current (A)') +
     (run.bad_lines ? tile('Unreadable lines', run.bad_lines, 'skipped', 'warn') : '');
 
+  const rec = new Set(run.events.map((e) => (e.r0 ? e.r0.toFixed(4) : 'none')));
+  const only = rec.size === 1 ? rec.values().next().value : null;
+  el('r0').placeholder = rec.size > 1 ? 'per scan' : only && only !== 'none' ? only : '1 (none)';
+
   el('rawLink').href = api('file/' + encodeURIComponent(run.name) + '/raw');
   el('rawLink').setAttribute('download', run.name);
 }
 
 function renderFitPanel() {
   const ev = state.event;
-  const names = paramNames(ev.pf);
+  const names = paramNames(ev);
   const r = heightRatio(ev);
   const pol = polOf(ev);
 
+  // a fit over part of the scan is judged on the points it saw
+  const nFit = ev.fit_range && ev.fit ? ev.fit.filter((v) => v !== null).length : ev.n_points;
   el('fitTiles').innerHTML =
-    tile('R²', fmt(ev.rsq, 5), ev.n_points + ' points',
+    tile('R²', fmt(ev.rsq, 5), nFit < ev.n_points ? nFit + ' of ' + ev.n_points + ' points'
+                                                   : ev.n_points + ' points',
          ev.rsq === null ? '' : (ev.rsq > 0.99 ? 'good' : 'warn')) +
     tile('Height ratio r', fmt(r, 5), 'peak 1 / peak 2') +
     tile('Polarization', pol === null ? DASH : (pol * 100).toFixed(2) + ' %',
@@ -1224,29 +1392,53 @@ function renderFitPanel() {
 
   const swatch = (c) => '<span class="swatch" style="background:' + c + '"></span>';
   const p = palette();
-  const rows = names.map((n, i) => {
-    const colour = i < 3 ? p.s3 : (i < 6 ? p.s4 : p.base);
-    const sep = (i === 3 || i === 6) ? ' class="sep"' : '';
-    return '<tr' + sep + '><td>' + (i % 3 === 0 || i >= 6 ? swatch(colour) : '') +
-      n + '</td><td>' + fmt(ev.pf[i], 6) + '</td><td>' +
+  // grouped by peak, so a Voigt's γ sits with its own peak rather than after both
+  const group = (n) => (n.indexOf('Peak 1') === 0 ? 1 : n.indexOf('Peak 2') === 0 ? 2 : 3);
+  const order = names.map((n, i) => i).sort((a, b) => group(names[a]) - group(names[b]) || a - b);
+  const rows = order.map((i, k) => {
+    const g = group(names[i]);
+    const first = k === 0 || group(names[order[k - 1]]) !== g;
+    const colour = g === 1 ? p.s3 : (g === 2 ? p.s4 : p.base);
+    return '<tr' + (first && k ? ' class="sep"' : '') + '><td>' +
+      (first || g === 3 ? swatch(colour) : '') +
+      names[i] + '</td><td>' + fmt(ev.pf[i], 6) + '</td><td>' +
       (ev.pstd && ev.pstd[i] !== undefined ? fmt(ev.pstd[i], 3) : DASH) + '</td></tr>';
   }).join('');
   el('paramTable').querySelector('tbody').innerHTML = rows ||
     '<tr><td colspan="3">No fit stored for this scan.</td></tr>';
 
   const note = el('fitNote');
-  const nBase = ev.pf.length - GAUSS_PARAM_NAMES.length;
+  const nBase = ev.pf.length - peakNames(ev).length;
   const referenced = ev.baseline ? ev.baseline.referenced : ev.pf.length >= 9;
+  const failed = ev.fit_ok === false;
+  let text;
   if (!ev.pf.length) {
-    note.textContent = 'This scan has no stored fit.';
-    note.className = 'note warn';
+    text = ev.refit ? 'The ' + SHAPE_NAMES[ev.profile] + ' refit did not converge: ' + ev.fit_message
+      : 'This scan has no stored fit.';
   } else {
-    const shape = nBase > 2 ? 'a quadratic baseline' : 'a straight baseline';
-    note.textContent = 'Two gaussians on ' + shape + (referenced
-      ? ' referenced to mid scan.'
-      : ' in raw current (written before the baseline was referenced to mid scan).');
-    note.className = 'note';
+    const base = nBase > 2 ? 'a quadratic baseline' : 'a straight baseline';
+    text = (ev.profile === 'voigt' ? 'Two Voigt profiles on ' : 'Two gaussians on ') + base +
+      (referenced ? ' referenced to mid scan.'
+        : ' in raw current (written before the baseline was referenced to mid scan).');
+    if (ev.refit) {
+      const was = ev.stored || {};
+      const wasBase = BASE_NAMES[was.base_deg];
+      text += ' Refit here: the DAQ stored ' +
+        (was.profile === 'voigt' ? 'two Voigt profiles' : 'two gaussians') +
+        (wasBase ? ' on a ' + wasBase + ' baseline' : '') + ' for this scan.';
+      if (state.r0 === null && ev.r0) {
+        text += ' Its recorded r₀ comes from heights under the DAQ\'s fit; type an r₀ taken ' +
+          'under this one to correct P.';
+      }
+    }
+    if (ev.fit_range) {
+      text += ' Fit over ' + fmt(ev.fit_range[0], 6) + ' to ' + fmt(ev.fit_range[1], 6) +
+        ' only; the grey ends were left out.';
+    }
+    if (failed && ev.fit_message) text += ' The fit failed its checks: ' + ev.fit_message;
   }
+  note.textContent = text;
+  note.className = !ev.pf.length || failed ? 'note warn' : 'note';
 }
 
 function renderPointTable() {
@@ -1282,6 +1474,7 @@ function renderScan() {
   renderScanNav();
   renderFitPanel();
   drawScanChart();
+  updateRangeBar();
   // move the open-scan rule. Not straight away: a plot uPlot has only just built
   // sets its scales up in a microtask, and a redraw before then leaves the x
   // scale empty and the plot blank, which is what a theme switch used to do
@@ -1349,7 +1542,14 @@ function readHash() {
   const file = h.get('file');
   const scan = parseInt(h.get('scan'), 10);
   const plot = (h.get('plot') || '').split(',').filter((v) => v);
-  return { dir: h.get('dir'), file: file || null, scan: isFinite(scan) ? scan - 1 : 0, plot: plot };
+  return { dir: h.get('dir'), file: file || null, scan: isFinite(scan) ? scan - 1 : 0, plot: plot,
+           shape: h.get('shape'), base: h.get('base'), range: parseRange(h.get('range')) };
+}
+
+/* A fit range from the address bar, 'lo,hi', or null if it is not one */
+function parseRange(text) {
+  const v = (text || '').split(',').map(Number);
+  return v.length === 2 && isFinite(v[0]) && isFinite(v[1]) && v[0] < v[1] ? v : null;
 }
 
 function dirHash() {
@@ -1361,6 +1561,9 @@ function writeHash() {
   let h = (state.dir ? dirHash() + '&' : '') +
     'file=' + encodeURIComponent(state.run.name) + '&scan=' + (state.eventIdx + 1);
   if (tl.stamps.size > 1) h += '&plot=' + Array.from(tl.stamps).sort().join(',');
+  if (state.shape !== 'recorded') h += '&shape=' + state.shape;
+  if (state.base !== 'recorded') h += '&base=' + state.base;
+  if (state.range) h += '&range=' + state.range.join(',');
   if (location.hash.replace(/^#/, '') !== h) {
     history.replaceState(null, '', '#' + h);
   }
@@ -1368,11 +1571,64 @@ function writeHash() {
 
 /* ---------------- loading ---------------- */
 
+/* Requests for a fit shape or baseline may be refitting a run on the server,
+   which can take a while for a long run. While any is outstanding the page asks
+   the server how far its refits have got and shows a bar under the top bar.
+   The bar waits for the first answer, so a refit already in memory, which comes
+   back at once, does not flash it. */
+let refitting = 0;
+let refitTimer = null;
+
+function describeRefits(refits) {
+  if (!refits.length) return 'Refitting' + '…';
+  const done = refits.reduce((a, r) => a + r.done, 0);
+  const total = refits.reduce((a, r) => a + r.total, 0);
+  const count = done + ' of ' + total + ' scans';
+  if (refits.length > 1) return 'Refitting ' + refits.length + ' runs · ' + count;
+  const r = refits[0];
+  const how = [r.profile ? SHAPE_NAMES[r.profile] : null,
+               r.base ? BASE_NAMES[r.base] + ' baseline' : null,
+               r.range ? 'x ' + fmt(r.range[0], 6) + ' to ' + fmt(r.range[1], 6) : null]
+    .filter((v) => v).join(', ');
+  return 'Refitting ' + r.name + (how ? ' (' + how + ')' : '') + ' · ' + count;
+}
+
+async function pollRefits() {
+  let refits = [];
+  try {
+    refits = (await getJSON('api/refitting')).refits || [];
+  } catch (e) { /* the refit request itself will report any trouble */ }
+  if (!refitting) return;
+  const total = refits.reduce((a, r) => a + r.total, 0);
+  const bar = el('refitProgress');
+  if (total) bar.value = refits.reduce((a, r) => a + r.done, 0) / total;
+  else bar.removeAttribute('value');  // indeterminate until the server has a count
+  el('refitText').textContent = describeRefits(refits);
+  el('refitBar').hidden = false;
+}
+
+function refitStarted() {
+  if (refitting++ === 0) refitTimer = setInterval(pollRefits, 250);
+}
+
+function refitEnded() {
+  if (--refitting > 0) return;
+  clearInterval(refitTimer);
+  refitTimer = null;
+  el('refitBar').hidden = true;
+}
+
 async function getJSON(url) {
-  const res = await fetch(url);
-  const body = await res.json();
-  if (!res.ok) throw new Error(body.error || res.statusText);
-  return body;
+  const refit = /[?&](shape|base|range)=/.test(url);
+  if (refit) refitStarted();
+  try {
+    const res = await fetch(url);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    return body;
+  } finally {
+    if (refit) refitEnded();
+  }
 }
 
 const WELCOME = el('welcome').innerHTML;
@@ -1395,7 +1651,7 @@ function showLoading(p) {
       '<p class="dirline"></p>' +
       '<progress max="1" aria-label="Reading event files"></progress>' +
       '<p class="progress-text"></p>' +
-      '<p class="muted">Each file is read once; after that the list comes from memory.</p></div>';
+      '<p class="muted">Scans are only loaded when a file is opened; the list is kept after this.</p></div>';
     box = el('welcome').querySelector('.loading');
   }
   box.querySelector('.dirline').textContent = state.dir || state.dirPath;
@@ -1468,12 +1724,14 @@ async function loadFiles() {
   renderFileList();
   const want = readHash();
   const known = want.file && state.files.some((f) => f.name === want.file);
-  const first = state.files.find((f) => f.n_events > 0);
+  const anyScans = state.files.some((f) => f.n_events > 0);
   if (want.plot.length) tl.stamps = new Set(want.plot);
+  // nothing opens by itself: the welcome stays up until a run is picked, bar
+  // one named in the address, as after a reload or from a bookmark
   if (known) {
     await selectFile(want.file, want.scan);
-  } else if (first) {
-    await selectFile(first.name);
+  } else if (anyScans) {
+    history.replaceState(null, '', '#' + dirHash());
   } else {
     el('welcome').innerHTML = '<h2>No scans here</h2><p>' +
       (state.files.length
@@ -1594,9 +1852,7 @@ async function refresh() {
 
   const run = state.run;
   if (!run) {
-    renderFileList();
-    const first = newestWithScans(state.files);
-    if (first) await selectFile(first);
+    renderFileList();   // nothing open to follow until a run is picked
     return;
   }
 
@@ -1743,10 +1999,19 @@ function exportScan() {
            lines.join('\n'));
 }
 
+/* Every parameter name any scan in a run has, peaks first, so a run with both
+   gaussian and Voigt fits in it still lines up in one set of columns. */
+function runParamNames(events) {
+  const seen = new Set();
+  events.forEach((e) => paramNames(e).forEach((n) => seen.add(n)));
+  const all = PEAK_PARAM_NAMES.voigt.concat(BASELINE_PARAM_NAMES);
+  return all.filter((n) => seen.has(n));
+}
+
 function exportRun() {
   const run = state.run;
   if (!run) return;
-  const names = paramNames(run.events[0].pf);
+  const names = runParamNames(run.events);
   const head = ['scan', 'start_stamp', 'start_time', 'elapsed_s', 'n_points', 'rsq',
                 'height_ratio', 'polarization_pct']
     .concat(names.map((n) => n.toLowerCase().replace(/[^a-z0-9]+/g, '_')))
@@ -1755,12 +2020,15 @@ function exportRun() {
   const lines = [head.join(',')];
   run.events.forEach((e, i) => {
     const pol = polOf(e);
+    const at = {};
+    paramNames(e).forEach((n, j) => { at[n] = j; });
+    const val = (arr, n) => (at[n] === undefined || !arr ? null : arr[at[n]]);
     const row = [i + 1, e.start_stamp, JSON.stringify(e.start_time || ''),
                  (e.start_stamp || 0) - t0, e.n_points, e.rsq,
                  heightRatio(e), pol === null ? null : pol * 100]
       .map((v) => (typeof v === 'string' ? v : csvCell(v)))
-      .concat(names.map((n, j) => csvCell(e.pf[j])))
-      .concat(names.map((n, j) => csvCell(e.pstd[j])));
+      .concat(names.map((n) => csvCell(val(e.pf, n))))
+      .concat(names.map((n) => csvCell(val(e.pstd, n))));
     lines.push(row.join(','));
   });
   download(run.name.replace(/\.\w+$/, '') + '_run.csv', lines.join('\n'));
@@ -1838,14 +2106,19 @@ function wire() {
 
   el('r0').addEventListener('input', () => {
     const v = parseFloat(el('r0').value);
-    state.r0 = isFinite(v) && v !== 0 ? v : null;   // cleared: back to the recorded r0
-    if (!state.run) return;
-    renderRunBar();
-    tl.fits = [];
-    renderFits();
-    if (el('metric').value === 'polarization') drawTimeline({ keepZoom: true });
-    if (state.event) renderFitPanel();
+    setR0(isFinite(v) && v !== 0 ? v : null, 'typed');   // cleared: back to the recorded r0
   });
+  el('r0Reset').addEventListener('click', () => setR0(null));
+  el('fitResults').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-zero]');
+    if (btn) zeroPInf(btn.dataset.zero).catch(showError);
+  });
+
+  el('shape').addEventListener('change', () => setFit(el('shape').value, state.base).catch(showError));
+  el('base').addEventListener('change', () => setFit(state.shape, el('base').value).catch(showError));
+  el('scanZoom').addEventListener('click', () => { state.scanDragRange = false; drawScanChart(); updateRangeBar(); });
+  el('scanRange').addEventListener('click', () => { state.scanDragRange = true; drawScanChart(); updateRangeBar(); });
+  el('fullRange').addEventListener('click', () => setRange(null).catch(showError));
 
   el('dataDir').addEventListener('click', openPicker);
   el('folderList').addEventListener('click', (e) => {
@@ -1912,6 +2185,57 @@ function showError(err) {
     String(err.message || err) + '</p>';
 }
 
+/* Show every scan's fit in another shape or on another baseline. The server
+   refits whatever the DAQ stored some other way, which is slow the first time
+   for a long run, so say so while it works. Everything fetched for the old
+   choice is dropped. */
+async function setFit(shape, base) {
+  showFit(shape, base);
+  try {
+    localStorage.setItem('pymeop-shape', state.shape);
+    localStorage.setItem('pymeop-base', state.base);
+  } catch (e) { /* private mode */ }
+  await refetchFits();
+}
+
+/* Fit only part of every scan, or all of it again with null. Not remembered
+   by the browser, only in the address bar: a range left over from another day
+   would quietly change every fit. */
+async function setRange(range) {
+  state.range = range;
+  updateRangeBar();
+  await refetchFits();
+}
+
+async function refetchFits() {
+  tl.cache = {};
+  tl.fits = [];
+  renderFits();
+  if (!state.run) return;
+  await selectFile(state.run.name, state.eventIdx, 'keep');
+  if (await loadTimeline()) drawTimeline({ keepZoom: true });
+}
+
+/* Set the shape and baseline choices, anything unknown meaning as recorded */
+function showFit(shape, base) {
+  state.shape = SHAPE_NAMES[shape] ? shape : 'recorded';
+  state.base = BASE_NAMES[base] ? String(base) : 'recorded';
+  el('shape').value = state.shape;
+  el('base').value = state.base;
+}
+
+function initFit() {
+  const hash = readHash();
+  let shape = hash.shape;
+  let base = hash.base;
+  try {
+    if (!shape) shape = localStorage.getItem('pymeop-shape');
+    if (!base) base = localStorage.getItem('pymeop-base');
+  } catch (e) { /* private mode */ }
+  showFit(shape, base);
+  state.range = hash.range;
+}
+
 /* The folder comes from the address bar if it names one, else the one this
    browser used last. A remembered folder that has since gone falls back to the
    default rather than leaving the page on an error. */
@@ -1930,5 +2254,6 @@ async function start() {
 }
 
 initTheme();
+initFit();
 wire();
 start().catch(showError).then(initLive);

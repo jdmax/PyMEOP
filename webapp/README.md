@@ -19,7 +19,9 @@ It serves on <http://localhost:8000> and opens a browser. Useful flags:
 | `--data-dir DIR` | open this folder by default instead of `event_dir` from `config.yaml` |
 
 No new dependencies: the server is Python standard library, and `dataset.py` uses
-`numpy` and `PyYAML`, which the DAQ application already needs. The chart library
+`numpy` and `PyYAML`, which the DAQ application already needs. Refitting scans and
+drawing Voigt fits also need `scipy`, again already a DAQ requirement; it is only
+imported when one of those is asked for. The chart library
 is vendored in `static/vendor/`, so the app works with no network connection.
 
 The default event directory comes from `event_dir` in `config.yaml`, so the
@@ -45,13 +47,20 @@ inside the default data directory.
 
 ## Loading
 
-The first time a folder is opened the server reads and parses every event file in
-it, which takes a while for a big archive (roughly 15 MB a second). While it
-works, the page shows a progress bar with the files and megabytes read so far.
-Parsed files are kept in memory, so opening the same folder again, or reloading
-the page, is quick; only files that have changed are read again. The server
-starts reading the default folder as soon as it starts, so by the time a browser
-asks for it, part of the work is done.
+The file list comes from a quick look at each event file: its lines are counted
+and only its first and last scans are read, for when the run started and
+stopped. A file's scans and their points are only parsed when it is opened from
+the list or ticked for the time plot. Listing a folder reads the files but does
+not parse them, so it is quick even for a big archive; while it works, the page
+shows a progress bar with the files and megabytes read so far. The list rows are
+kept, so opening the same folder again, or reloading the page, only reads the
+files that have changed. The server starts listing the default folder as soon as
+it starts.
+
+The server keeps the 24 most recently used parsed files in memory
+(`MAX_PARSED_RUNS` in `dataset.py`) and drops the oldest past that. Until a file
+has been opened, its row in the list counts any unreadable lines as scans, since
+only a full parse finds them.
 
 ## Watching a run live
 
@@ -74,12 +83,13 @@ comparing against a scan that would otherwise scroll away.
 
 ## What it shows
 
-Pick a run in the left sidebar. Files with no scans in them are hidden by default
+Pick a run in the left sidebar; nothing opens until you do, unless the address
+names one (a reload or a bookmark reopens the run it was on). Files with no scans in them are hidden by default
 — of the files in `data/` most are empty, written when a run started and stopped
 without recording anything.
 
 **Over time** is polarization against time, across as many runs as you like. It
-opens on the newest run. Tick runs in the file list to add them (shift-click ticks
+starts on the run you open. Tick runs in the file list to add them (shift-click ticks
 a range), or use the buttons above the list: **Open run**, **24 h** and **7 days**
 (each counted back from the end of the run that is open), or **All**. Clicking a
 run's name opens it and, if it is not already plotted, plots just that run. Runs
@@ -144,15 +154,67 @@ the 2nd to 98th percentile of the scans instead, the outliers run off the plot,
 and a note in red says how many did. Switching to Fit R² is usually the quickest
 way to find them; the off-scale points stay clickable.
 
-**Scan** plots one scan: the measured lock-in R against probe current, the stored
-fit, the two gaussian components drawn sitting on the baseline, and the baseline
-itself. Underneath is the residual, sharing the cursor with the plot above. The
+**Scan** plots one scan: the measured lock-in R against probe current, the fit,
+the two peak components drawn sitting on the baseline, and the baseline itself. Underneath is the residual, sharing the cursor with the plot above. The
 fit panel lists every parameter with its ±1σ and flags R² in red when it drops
 below 0.99. Arrow keys step through the scans.
 
 Drag across a plot to zoom, double-click to reset, and click a name in the legend
 to hide that trace — useful when a failed fit has a component running far off the
 scale of the data.
+
+## Gaussian or Voigt
+
+The DAQ fits each scan with two gaussians or two Voigt profiles, whichever is set
+on its run tab, and records which in the scan (`profile`). Gaussians suit low
+pressure, where the lines are Doppler broadened; at around 100 mbar the pressure
+broadening is comparable and a gaussian biases the heights, and so the
+polarization.
+
+**Fit** in the top bar picks what the browser shows:
+
+- **As recorded**, the default: each scan's fit as the DAQ stored it.
+- **Gaussian** or **Voigt**: every scan in that shape. Scans the DAQ already fit
+  that way keep their stored fit; the rest are refit on the server with the DAQ's
+  own fitting code (`app/scanfit.py`), in order, each seeded from the last good
+  fit as the DAQ does. A Voigt refit takes about 30 ms a scan, so the first look
+  at a long run in the other shape takes a few seconds. Meanwhile a bar under
+  the top bar shows the run being refit and how many of its scans are done.
+  Refits are kept in memory, and a live run only refits its new scans.
+
+The fit panel says when a scan's fit is a refit, and names the checks a fit
+failed. **Show → Peak widths γ** plots the Lorentzian widths of Voigt fits. The
+choice rides along in the address bar (`&shape=voigt`) and is remembered by the
+browser.
+
+**Baseline** beside it does the same for the polynomial under the peaks:
+
+- **As recorded**, the default: each scan's baseline as the DAQ fit it.
+- **Straight** or **Quadratic**: every scan on that baseline, refitting the scans
+  the DAQ fit on the other in the same way. It combines with **Fit**, so
+  *Voigt* on *Quadratic* refits any scan not already stored exactly that way.
+  It rides along as `&base=1` or `&base=2`.
+
+**Fit range** limits the fit to part of each scan. Below the scan plot, set
+**Drag to** to **Set fit range** and drag across the scan: every scan is refit
+using only the points with x in that range, in the chosen shape and baseline. The
+parts left out are greyed on the scan and residual plots, the fit curves and
+residuals stop at the range, and R² counts only the points fitted. The range is
+in x, so it holds from scan to scan and across every run in the time plot; a run
+swept over other currents may have too few points inside it to fit. A scan lying
+entirely inside the range keeps its stored fit. **Fit whole scan** goes back to
+every point. The range rides along in the address bar (`&range=114.8,126`) but,
+unlike the other choices, is not remembered by the browser, so a range from
+another day cannot quietly change every fit.
+
+A single refit usually takes 20 to 150 ms. One still going after 2 s is given up
+and the scan marked as a failed fit ("Fit gave up after 2 s."), so one bad scan
+cannot hold up a run. The limit is `REFIT_TIME_LIMIT` in `dataset.py`; the DAQ's
+own fits run without one.
+
+Refitting changes the peak heights but not the r₀ recorded with each scan, which
+came from heights under the DAQ's own fit. To read polarization off a refit, type
+an r₀ measured with the same shape, baseline and range.
 
 ## Polarization and r₀
 
@@ -171,8 +233,18 @@ showed at the time. The P tiles say which r₀ they used.
 The **r₀** box in the top bar is an override. Left empty, as it starts, each scan
 uses its recorded r₀. A value typed there is used for every scan instead, which is
 how to apply a zero measured later, or to give one to the older files that predate
-the recorded zero and otherwise fall back to r₀ = 1. Clear the box to go back to
-the recorded values.
+the recorded zero and otherwise fall back to r₀ = 1. When the box is empty it shows
+the run's recorded r₀ in grey. Clear the box, or click **Recorded r₀**, to go back
+to the recorded values.
+
+A relaxation that settles at a P∞ other than zero means the recorded r₀ is off.
+Each fit with P∞ free has an **r₀ for P∞ = 0** column: the r₀ that would read
+the fitted asymptote as zero, r₀ (1 + P∞)/(1 − P∞), with its 1σ from P∞ in the
+tooltip. Click it to use that r₀ for every scan. The fits are then redone on the
+same selection, and since P is not linear in r₀, the step is repeated until P∞
+is zero to within 0.001 % (two or three steps). The P tiles and the fit note then
+say r₀ was set for P∞ = 0. The column is empty when P∞ is held at zero, or when
+the selected scans were read off different recorded r₀ values.
 
 The earliest files with zero readings (before about 16:53 on 7 Jan 2022) have a
 stored `pol` of 1.0 for every scan, from a bug in the DAQ at the time. The browser
@@ -181,11 +253,13 @@ the right value.
 
 ## Baseline conventions
 
-The DAQ fits two gaussians on a polynomial baseline, and `baseline_degree` in
+The DAQ fits two peaks on a polynomial baseline, and `baseline_degree` in
 `config.yaml` chooses the baseline: `1` for a straight one, `2` for a quadratic.
-The parameters after the six gaussian ones are that polynomial's coefficients,
-highest power first, so a straight baseline records eight parameters in total and
-a quadratic nine.
+The peak parameters come first: position, σ and height for peak 1, then peak 2,
+and for a Voigt fit each peak's Lorentzian half width γ after those six. The
+baseline polynomial's coefficients follow, highest power first, so a gaussian fit
+records eight or nine parameters and a Voigt fit ten or eleven. The height is the
+peak's height at its centre in either shape.
 
 Three forms are therefore readable, and the browser tells them apart by what the
 event file records rather than by counting parameters:
@@ -196,8 +270,8 @@ event file records rather than by counting parameters:
 | after mid-scan referencing, before the flag | `x_ref`, no `base_deg` | degree from the coefficient count, referenced to mid scan |
 | the original archive | neither | straight, in raw current |
 
-The distinction matters: a new eight parameter fit and an old one have the same
-shape but different baselines, one about mid scan and one about zero. The fit
+The distinction matters: a new eight parameter gaussian fit and an old one have
+the same shape but different baselines, one about mid scan and one about zero. The fit
 panel names the convention for whichever scan is open. Everything in `data/`
 today is the original archive form.
 
@@ -219,6 +293,7 @@ webapp/
   server.py            HTTP server and JSON API
   dataset.py           reads and caches the event files, rebuilds fit components
   fitting.py           exponential fits for build-up and relaxation times
+../app/scanfit.py      the DAQ's peak fits, used here to refit scans
   static/
     index.html         the page
     app.js             charts, panels, CSV export
@@ -229,12 +304,17 @@ webapp/
 The API, should anything else want it:
 
 Every `GET` route but `/api/folders` takes `?dir=<folder>` to work in a folder other
-than the default.
+than the default. The two scan routes also take `?shape=gauss` or `?shape=voigt` to
+return every scan's fit in that shape, `?base=1` or `?base=2` for every scan on a
+straight or quadratic baseline, and `?range=lo,hi` for fits over only the points
+with x in that range, refitting as needed; left off, or `recorded`, they return
+the fits as stored.
 
 | Route | Returns |
 |---|---|
 | `GET /api/files` | every event file with scan count, duration and size |
 | `GET /api/progress` | how far the server has got reading the folder: `loading`, `done`/`total` files and `bytes_done`/`bytes_total` |
+| `GET /api/refitting` | the refits under way, each with its file `name`, `profile`, `base`, `range` and `done`/`total` scans |
 | `GET /api/folders?path=<folder>` | a folder's subfolders, each with its event file count, for the picker |
 | `GET /api/version` | a fingerprint of the data directory that changes on any write; cheap enough to poll |
 | `GET /api/file/<name>` | the file plus a summary of each scan |

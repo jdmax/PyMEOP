@@ -100,6 +100,10 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(dict(LIBRARY.progress(base), path=base))
             return
 
+        if parts == ['refitting']:
+            self.send_json({'refits': dataset.refit_progress()})
+            return
+
         if parts == ['version']:
             self.send_json({'version': LIBRARY.fingerprint(base)})
             return
@@ -109,7 +113,8 @@ class Handler(SimpleHTTPRequestHandler):
             if not run:
                 self.send_json({'error': 'No such event file'}, status=404)
                 return
-            self.send_json(run.detail())
+            self.send_json(run.detail(query.get('shape') or 'recorded', query.get('base'),
+                                      query.get('range')))
             return
 
         if len(parts) == 4 and parts[0] == 'file' and parts[2] == 'event':
@@ -117,8 +122,9 @@ class Handler(SimpleHTTPRequestHandler):
             if not run:
                 self.send_json({'error': 'No such event file'}, status=404)
                 return
+            events = run.view(query.get('shape') or 'recorded', query.get('base'), query.get('range'))
             try:
-                event = run.events[int(parts[3])]
+                event = events[int(parts[3])]
             except (ValueError, IndexError):
                 self.send_json({'error': 'No such scan in this file'}, status=404)
                 return

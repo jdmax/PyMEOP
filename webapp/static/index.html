@@ -25,12 +25,35 @@
     <span class="livedot" aria-hidden="true"></span> Live
     <span class="livestatus" id="liveStatus" aria-live="polite"></span>
   </label>
-  <label class="field" title="Ratio of the two peak heights at zero polarization, used to scale P. Left empty, each scan uses the r0 the DAQ recorded with it; a value typed here is used for every scan instead.">
-    <span>r<sub>0</sub></span>
-    <input id="r0" type="number" step="0.001" placeholder="from file" inputmode="decimal">
+  <label class="field" title="Peak shape of the fits shown. As recorded is each scan's fit as the DAQ stored it. Gaussian or Voigt shows every scan in that shape, refitting here any scan the DAQ fit in the other; the first refit of a run takes a few seconds.">
+    <span>Fit</span>
+    <select id="shape">
+      <option value="recorded">As recorded</option>
+      <option value="gauss">Gaussian</option>
+      <option value="voigt">Voigt</option>
+    </select>
   </label>
+  <label class="field" title="Baseline under the peaks. As recorded is each scan's baseline as the DAQ fit it. Straight or Quadratic shows every scan on that baseline, refitting here any scan the DAQ fit on the other.">
+    <span>Baseline</span>
+    <select id="base">
+      <option value="recorded">As recorded</option>
+      <option value="1">Straight</option>
+      <option value="2">Quadratic</option>
+    </select>
+  </label>
+  <label class="field" title="Ratio of the two peak heights at zero polarization, used to scale P. Left empty, each scan uses the r0 the DAQ recorded with it; a value typed here, or set from a relaxation fit with its r0 for P-infinity = 0 button, is used for every scan instead.">
+    <span>r<sub>0</sub></span>
+    <input id="r0" type="number" step="any" placeholder="from file" inputmode="decimal">
+  </label>
+  <button id="r0Reset" class="ghost" type="button" disabled
+          title="Clear the r0 set here and go back to the r0 recorded with each scan">Recorded r<sub>0</sub></button>
   <button id="themeBtn" class="ghost" type="button" title="Switch light and dark">Theme</button>
 </header>
+
+<div class="refitbar" id="refitBar" role="status" hidden>
+  <span class="refit-text" id="refitText"></span>
+  <progress id="refitProgress" max="1" aria-label="Refitting scans"></progress>
+</div>
 
 <div class="layout">
 
@@ -56,7 +79,7 @@
       <img class="welcome-logo" src="brand/logo.png" alt="CLAS12 Polarized ³He" width="160" height="158">
       <h2>Choose a run</h2>
       <p>Each event file is one run, and each line in it is one current scan with the
-         two-gaussian fit that was stored alongside it. Pick a run on the left to
+         two-peak fit that was stored alongside it. Pick a run on the left to
          plot its scans.</p>
     </div>
 
@@ -75,7 +98,8 @@
                 <option value="polarization" selected>Polarization</option>
                 <option value="peaks">Peak heights</option>
                 <option value="positions">Peak positions</option>
-                <option value="widths">Peak widths</option>
+                <option value="widths">Peak widths &sigma;</option>
+                <option value="lorentz">Peak widths &gamma; (Voigt)</option>
                 <option value="ratio">Peak height ratio</option>
                 <option value="rsq">Fit R&sup2;</option>
               </select>
@@ -149,12 +173,25 @@
             <button id="csvScan" class="ghost" type="button">Scan CSV</button>
           </div>
         </div>
-        <p class="hint">Drag across a plot to zoom and double-click to reset; click a
-           name in the legend to hide that trace.</p>
+        <p class="hint">Drag across a plot to zoom and double-click to reset, or switch
+           the drag to set the part of each scan that gets fit; click a name in the
+           legend to hide that trace.</p>
         <div class="scanwrap">
           <div class="scancharts">
             <div class="chart chart-scan" id="scanChart"></div>
             <div class="chart chart-resid" id="residChart"></div>
+            <div class="fitbar">
+              <div class="seg" role="group" aria-label="What dragging on the scan plot does">
+                <span class="seg-label">Drag to</span>
+                <button id="scanZoom" class="ghost" type="button" aria-pressed="true">Zoom</button>
+                <button id="scanRange" class="ghost" type="button" aria-pressed="false"
+                        title="Drag across the scan to refit every scan over just that range of x">Set fit range</button>
+              </div>
+              <span class="selinfo" id="rangeInfo"></span>
+              <div class="grow"></div>
+              <button id="fullRange" class="ghost" type="button" disabled
+                      title="Fit every point of each scan again">Fit whole scan</button>
+            </div>
           </div>
           <div class="fitpanel">
             <h4>Fit</h4>
