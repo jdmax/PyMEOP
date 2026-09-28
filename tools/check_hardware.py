@@ -103,6 +103,19 @@ def check_lockin(settings):
     print(f"  X  mean {x.mean():+.6e} V   rms {x.std():.3e}")
     print(f"  Y  mean {y.mean():+.6e} V   rms {y.std():.3e}")
 
+    # The Run tab fits X, so any signal sitting in Y is thrown away. Report
+    # the phase here rather than leaving it to be discovered as poor SNR.
+    r = float(np.hypot(x.mean(), y.mean()))
+    theta = float(np.degrees(np.arctan2(y.mean(), x.mean())))
+    in_x = abs(np.cos(np.radians(theta)))
+    print(f"  R  mean {r:+.6e} V   theta {theta:+.1f} deg")
+    print(f"  fraction of R landing in X: {in_x:.2f}")
+    if in_x < 0.95:
+        print(f"  NOTE: {100 * (1 - in_x):.0f}% of the signal amplitude is in "
+              f"Y. Run auto-phase with the laser on a peak; the height ratio "
+              f"survives a constant phase error but the signal to noise does "
+              f"not.")
+
     if not np.all(np.isfinite(data)):
         print("  FAIL: non-finite values -- byte order or block framing is wrong.")
         return None
