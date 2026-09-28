@@ -171,12 +171,25 @@
             <button id="csvScan" class="ghost" type="button">Scan CSV</button>
           </div>
         </div>
-        <p class="hint">Drag across a plot to zoom and double-click to reset; click a
-           name in the legend to hide that trace.</p>
+        <p class="hint">Drag across a plot to zoom and double-click to reset, or switch
+           the drag to set the part of each scan that gets fit; click a name in the
+           legend to hide that trace.</p>
         <div class="scanwrap">
           <div class="scancharts">
             <div class="chart chart-scan" id="scanChart"></div>
             <div class="chart chart-resid" id="residChart"></div>
+            <div class="fitbar">
+              <div class="seg" role="group" aria-label="What dragging on the scan plot does">
+                <span class="seg-label">Drag to</span>
+                <button id="scanZoom" class="ghost" type="button" aria-pressed="true">Zoom</button>
+                <button id="scanRange" class="ghost" type="button" aria-pressed="false"
+                        title="Drag across the scan to refit every scan over just that range of x">Set fit range</button>
+              </div>
+              <span class="selinfo" id="rangeInfo"></span>
+              <div class="grow"></div>
+              <button id="fullRange" class="ghost" type="button" disabled
+                      title="Fit every point of each scan again">Fit whole scan</button>
+            </div>
           </div>
           <div class="fitpanel">
             <h4>Fit</h4>

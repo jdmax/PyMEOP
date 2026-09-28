@@ -189,6 +189,35 @@ def baseline_choice(base):
     return deg
 
 
+def range_choice(xrange):
+    '''The x range to fit over, or None for every point of each scan.
+
+    Args:
+        xrange: (lo, hi), or a 'lo,hi' string, in the scans' x units; None or
+            '' for the whole scan
+    Returns:
+        (lo, hi) floats with lo < hi, or None
+    Raises:
+        ValueError for anything that is not two finite numbers in order
+    '''
+
+    if xrange is None or xrange == '':
+        return None
+    try:
+        parts = xrange.split(',') if isinstance(xrange, str) else list(xrange)
+        lo, hi = (float(v) for v in parts)
+    except (TypeError, ValueError):
+        raise ValueError('Fit range %r should be two numbers, lo,hi' % (xrange,))
+    if not (np.isfinite(lo) and np.isfinite(hi) and lo < hi):
+        raise ValueError('Fit range %r should run from a lower to a higher x' % (xrange,))
+    return lo, hi
+
+
+# A single scan fit usually takes 20 to 150 ms. One still going after this long
+# has wandered off and is given up as a failed fit, so it cannot hold up a refit.
+REFIT_TIME_LIMIT = 2.0  # seconds
+
+
 def n_peak_pars(profile):
     return N_VOIGT_PARS if profile == 'voigt' else N_GAUSS_PARS
 
@@ -292,6 +321,7 @@ class Event:
         self.n_peak = n_peak_pars(self.profile)
         self.refit = False  # True once the fit is the browser's own rather than the DAQ's
         self.stored = None  # for a refit, the shape and baseline degree the DAQ fit with
+        self.fit_range = None  # for a refit over part of the scan, the (lo, hi) x it used
         self.fit_ok = raw.get('fit_good')  # not in the oldest files
         self.fit_message = raw.get('fit_message')
         self.start_stamp = raw.get('start_stamp')
@@ -347,7 +377,19 @@ class Event:
             else:
                 if len(self.fit) != len(self.x):
                     self.fit = self.g1 + self.g2 + self.base
+        if self.fit_range is not None:
+            # a fit over part of the scan says nothing about the rest, so the
+            # curves stop at the ends of its range and R² counts only what it saw
+            out = ~self.in_range(self.fit_range)
+            self.fit, self.g1, self.g2, self.base = (
+                np.where(out, np.nan, a) if len(a) == len(self.x) else a
+                for a in (self.fit, self.g1, self.g2, self.base))
         self.rsq = r_squared(self.rs, self.fit) if len(self.fit) == len(self.rs) else None
+
+    def in_range(self, xrange):
+        '''Mask of the scan points with x inside (lo, hi), ends included'''
+
+        return (self.x >= xrange[0]) & (self.x <= xrange[1])
 
     def with_fit(self, res):
         '''A copy of this scan carrying a refit in place of the stored fit.
@@ -365,6 +407,7 @@ class Event:
         e.pf = [] if res['pf'] is None else list(res['pf'])
         e.pstd = [] if res['pstd'] is None else list(res['pstd'])
         e.pcov = [] if res['pcov'] is None else res['pcov']
+        e.fit_range = res['range']
         e.components(np.array([]))
         return e
 
@@ -395,6 +438,7 @@ class Event:
             'rsq': self.rsq,
             'profile': self.profile,
             'refit': self.refit,
+            'fit_range': list(self.fit_range) if self.fit_range else None,
             'fit_ok': self.fit_ok,
             'fit_message': self.fit_message,
             'peak1': self.peak(1),
@@ -483,72 +527,81 @@ class Run:
             'x_key': self.events[0].x_key if self.events else 'current',
         }
 
-    def view(self, shape='recorded', base=None):
-        '''The scans with their fits in one shape and baseline.
+    def view(self, shape='recorded', base=None, xrange=None):
+        '''The scans with their fits in one shape and baseline, over one x range.
 
         Args:
             shape: 'recorded' for each scan's peak shape as the DAQ stored it,
                 or 'gauss' or 'voigt' for every scan in that shape
             base: None for each scan's baseline degree as stored, or 1 or 2
                 for every scan on a straight or quadratic baseline
+            xrange: None to fit every point of each scan, or (lo, hi) or
+                'lo,hi' to fit only the points with x in that range
         Returns:
             List of Event, with any scan stored some other way refit; refit
             ones are copies of the stored ones
         Raises:
-            ValueError for an unknown shape or baseline
+            ValueError for an unknown shape, baseline or range
         '''
 
         if shape not in SHAPES:
             raise ValueError('Unknown line shape %r, expected one of %s' % (shape, ', '.join(SHAPES)))
         base = baseline_choice(base)
-        if shape == 'recorded' and base is None:
+        xrange = range_choice(xrange)
+        if shape == 'recorded' and base is None and xrange is None:
             return self.events
-        key = (shape, base)
+        key = (shape, base, xrange)
         if key not in self._views:
-            results = refit_run(self, None if shape == 'recorded' else shape, base)
+            results = refit_run(self, None if shape == 'recorded' else shape, base, xrange)
             self._views[key] = [e if r is None else e.with_fit(r)
                                 for e, r in zip(self.events, results)]
         return self._views[key]
 
-    def detail(self, shape='recorded', base=None):
+    def detail(self, shape='recorded', base=None, xrange=None):
         '''The file list row plus a summary of every scan in the file'''
 
         d = self.info()
         d['settings'] = self.events[0].raw.get('settings') if self.events else {}
         d['shape'] = shape
         d['base'] = baseline_choice(base)
-        d['events'] = [e.summary() for e in self.view(shape, base)]
+        xrange = range_choice(xrange)
+        d['range'] = list(xrange) if xrange else None
+        d['events'] = [e.summary() for e in self.view(shape, base, xrange)]
         return d
 
 
 # Refits, kept apart from the parsed runs: a live run is parsed again each time
 # it grows, and the scans already refit should not be fit again with it.
-_refits = {}        # (run start, shape, base) -> [(scan start stamp, result or None, seed after)]
+_refits = {}        # (run start, shape, base, range) -> [(scan start stamp, result or None, seed after)]
 _refit_locks = {}   # the same keys, so two requests for one run fit it only once
 _refit_progress = {}  # the same keys -> how far a refit under way has got
 _refit_guard = threading.Lock()
 
 
-def refit_run(run, profile, base=None):
-    '''Fit every scan of a run whose stored fit is not in the given shape and baseline.
+def refit_run(run, profile, base=None, xrange=None):
+    '''Fit every scan of a run whose stored fit is not in the given shape and
+    baseline, or that has points outside the given x range.
 
     The scans are fit in order, each seeded from the last good fit before it as
     the DAQ does. Scans already stored the wanted way keep their fit and seed the
     next one. A seed of another shape or baseline degree goes unused, and the
-    fitter estimates that scan from scratch.
+    fitter estimates that scan from scratch. A fit still going after
+    REFIT_TIME_LIMIT is given up and the scan marked as a failed fit.
 
     Args:
         run: The Run
         profile: 'gauss' or 'voigt', or None to keep each scan's own
         base: Baseline degree 1 or 2, or None to keep each scan's own
+        xrange: (lo, hi) to fit only the points with x in that range, or None
     Returns:
         One entry per scan: None to keep the stored fit, or a dict of pf, pstd,
-        pcov, ok, message, x_ref, base_deg and profile (pf None if no fit converged)
+        pcov, ok, message, x_ref, base_deg, profile and range (pf None if no fit
+        converged)
     '''
 
     fitting = scanfit()
     stamp = NAME_STAMP.search(run.name)
-    key = (stamp.group(0) if stamp else run.path, profile, base)
+    key = (stamp.group(0) if stamp else run.path, profile, base, xrange)
     with _refit_guard:
         lock = _refit_locks.setdefault(key, threading.Lock())
     with lock:
@@ -560,6 +613,7 @@ def refit_run(run, profile, base=None):
         out = done[:n]
         seed = out[-1][2] if out else None
         prog = {'name': run.name, 'profile': profile, 'base': base,
+                'range': list(xrange) if xrange else None,
                 'done': 0, 'total': len(run.events) - n}
         if prog['total']:
             with _refit_guard:
@@ -567,8 +621,10 @@ def refit_run(run, profile, base=None):
         try:
             for ev in run.events[n:]:
                 res = None
+                inside = ev.in_range(xrange) if xrange else None
                 if ((profile is None or ev.profile == profile)
                         and (base is None or ev.base_deg == base)
+                        and (inside is None or inside.all())
                         and len(ev.pf) >= ev.n_peak + 2):
                     if ev.fit_ok is not False:
                         seed = list(ev.pf)
@@ -576,10 +632,11 @@ def refit_run(run, profile, base=None):
                     shape = profile or ev.profile
                     base_deg = base or (ev.base_deg if ev.base_deg in fitting.BASELINE_DEGREES
                                         else fitting.DEFAULT_BASELINE_DEGREE)
-                    b = fitting.ScanFitter(base_deg, shape).fit(ev.x, ev.rs, seed)
+                    x, y = (ev.x, ev.rs) if inside is None else (ev.x[inside], ev.rs[inside])
+                    b = fitting.ScanFitter(base_deg, shape, REFIT_TIME_LIMIT).fit(x, y, seed)
                     res = {'pf': b['pf'], 'pstd': b.get('pstd'), 'pcov': b.get('pcov'),
                            'ok': b['ok'], 'message': b['message'], 'x_ref': b['x_ref'],
-                           'base_deg': base_deg, 'profile': shape}
+                           'base_deg': base_deg, 'profile': shape, 'range': xrange}
                     if b['ok']:
                         seed = list(b['pf'])
                 out.append((ev.start_stamp, res, seed))
@@ -592,8 +649,8 @@ def refit_run(run, profile, base=None):
 
 
 def refit_progress():
-    '''The refits under way, each with its file name, shape, baseline and how
-    many of its scans are done out of how many'''
+    '''The refits under way, each with its file name, shape, baseline, range
+    and how many of its scans are done out of how many'''
 
     with _refit_guard:
         return [dict(p) for p in _refit_progress.values()]

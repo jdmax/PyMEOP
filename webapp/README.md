@@ -187,9 +187,26 @@ browser.
   *Voigt* on *Quadratic* refits any scan not already stored exactly that way.
   It rides along as `&base=1` or `&base=2`.
 
+**Fit range** limits the fit to part of each scan. Below the scan plot, set
+**Drag to** to **Set fit range** and drag across the scan: every scan is refit
+using only the points with x in that range, in the chosen shape and baseline. The
+parts left out are greyed on the scan and residual plots, the fit curves and
+residuals stop at the range, and R² counts only the points fitted. The range is
+in x, so it holds from scan to scan and across every run in the time plot; a run
+swept over other currents may have too few points inside it to fit. A scan lying
+entirely inside the range keeps its stored fit. **Fit whole scan** goes back to
+every point. The range rides along in the address bar (`&range=114.8,126`) but,
+unlike the other choices, is not remembered by the browser, so a range from
+another day cannot quietly change every fit.
+
+A single refit usually takes 20 to 150 ms. One still going after 2 s is given up
+and the scan marked as a failed fit ("Fit gave up after 2 s."), so one bad scan
+cannot hold up a run. The limit is `REFIT_TIME_LIMIT` in `dataset.py`; the DAQ's
+own fits run without one.
+
 Refitting changes the peak heights but not the r₀ recorded with each scan, which
 came from heights under the DAQ's own fit. To read polarization off a refit, type
-an r₀ measured with the same shape and baseline.
+an r₀ measured with the same shape, baseline and range.
 
 ## Polarization and r₀
 
@@ -270,15 +287,16 @@ The API, should anything else want it:
 
 Every `GET` route but `/api/folders` takes `?dir=<folder>` to work in a folder other
 than the default. The two scan routes also take `?shape=gauss` or `?shape=voigt` to
-return every scan's fit in that shape, and `?base=1` or `?base=2` for every scan
-on a straight or quadratic baseline, refitting as needed; left off, or
-`recorded`, they return the fits as stored.
+return every scan's fit in that shape, `?base=1` or `?base=2` for every scan on a
+straight or quadratic baseline, and `?range=lo,hi` for fits over only the points
+with x in that range, refitting as needed; left off, or `recorded`, they return
+the fits as stored.
 
 | Route | Returns |
 |---|---|
 | `GET /api/files` | every event file with scan count, duration and size |
 | `GET /api/progress` | how far the server has got reading the folder: `loading`, `done`/`total` files and `bytes_done`/`bytes_total` |
-| `GET /api/refitting` | the refits under way, each with its file `name`, `profile`, `base` and `done`/`total` scans |
+| `GET /api/refitting` | the refits under way, each with its file `name`, `profile`, `base`, `range` and `done`/`total` scans |
 | `GET /api/folders?path=<folder>` | a folder's subfolders, each with its event file count, for the picker |
 | `GET /api/version` | a fingerprint of the data directory that changes on any write; cheap enough to poll |
 | `GET /api/file/<name>` | the file plus a summary of each scan |

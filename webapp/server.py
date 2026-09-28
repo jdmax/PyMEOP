@@ -113,7 +113,8 @@ class Handler(SimpleHTTPRequestHandler):
             if not run:
                 self.send_json({'error': 'No such event file'}, status=404)
                 return
-            self.send_json(run.detail(query.get('shape') or 'recorded', query.get('base')))
+            self.send_json(run.detail(query.get('shape') or 'recorded', query.get('base'),
+                                      query.get('range')))
             return
 
         if len(parts) == 4 and parts[0] == 'file' and parts[2] == 'event':
@@ -121,7 +122,7 @@ class Handler(SimpleHTTPRequestHandler):
             if not run:
                 self.send_json({'error': 'No such event file'}, status=404)
                 return
-            events = run.view(query.get('shape') or 'recorded', query.get('base'))
+            events = run.view(query.get('shape') or 'recorded', query.get('base'), query.get('range'))
             try:
                 event = events[int(parts[3])]
             except (ValueError, IndexError):

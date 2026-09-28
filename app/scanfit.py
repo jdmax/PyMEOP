@@ -20,6 +20,7 @@ Nothing here touches Qt, so the data browser can refit scans with it.
 '''
 
 import logging
+import time
 import numpy as np
 from scipy import optimize
 from scipy.signal import find_peaks, peak_widths
@@ -118,21 +119,30 @@ def r_squared(y, fit):
     return float(1 - np.sum((y - fit) ** 2) / ss_tot)
 
 
+class FitTimeout(Exception):
+    '''Raised from inside the model when a scan's fit has run past its time limit'''
+
+
 class ScanFitter():
     '''Fits one scan at a time with a fixed baseline degree and line shape.
 
     Args:
         base_deg: Baseline polynomial degree, 1 or 2
         profile: 'gauss' or 'voigt'
+        time_limit: Seconds one scan's fit may take, over all its starting
+            points, before it gives up; None for no limit
     '''
 
-    def __init__(self, base_deg=DEFAULT_BASELINE_DEGREE, profile=DEFAULT_PROFILE):
+    def __init__(self, base_deg=DEFAULT_BASELINE_DEGREE, profile=DEFAULT_PROFILE,
+                 time_limit=None):
         self.base_deg = base_deg
         self.profile = check_profile(profile)
         self.voigt = self.profile == 'voigt'
         self.n_peak = n_peak_pars(self.profile)
         self.n_pars = self.n_peak + base_deg + 1
         self.x_ref = 0.0
+        self.time_limit = time_limit
+        self.deadline = None
 
     def fit(self, X, Y, seed=None):
         '''Fit scan data with two peaks on a straight or quadratic baseline.
@@ -174,14 +184,25 @@ class ScanFitter():
             # it moves with laser power, independently of where the lines sit
             starts.insert(0, list(seed[:self.n_peak]) + list(est[self.n_peak:]))
 
+        # a fit that runs past the time limit is abandoned, keeping whatever an
+        # earlier starting point already gave
+        self.deadline = (time.monotonic() + self.time_limit
+                         if self.time_limit is not None else None)
         best = None
+        timed_out = False
         for start in starts:
-            trial = self.try_fit(x, y, start, span, dx)
+            try:
+                trial = self.try_fit(x, y, start, span, dx)
+            except FitTimeout:
+                timed_out = True
+                break
             if trial and (best is None or self.better_fit(trial, best)):
                 best = trial
+        self.deadline = None
         if best is None:
-            return {'x_ref': self.x_ref, 'pf': None, 'ok': False,
-                    'message': 'Fit did not converge from any starting point.'}
+            message = (f'Fit gave up after {self.time_limit:g} s.' if timed_out
+                       else 'Fit did not converge from any starting point.')
+            return {'x_ref': self.x_ref, 'pf': None, 'ok': False, 'message': message}
 
         best['x_ref'] = self.x_ref
         best['rsq'] = r_squared(y, self.peaks(x, *best['pf']))
@@ -198,14 +219,16 @@ class ScanFitter():
             dx: Typical step between scan points
         Returns:
             Dict of fit results, or None if the fit did not converge
+        Raises:
+            FitTimeout if the fit runs past the deadline set by fit()
         '''
 
         lower, upper = self.fit_bounds(start, x, span, dx)
         p0 = [float(np.clip(v, lo, hi)) for v, lo, hi in zip(start, lower, upper)]
         try:
             pf, pcov = optimize.curve_fit(  # x_scale='jac' since positions, widths and
-                self.peaks, x, y, p0=p0, bounds=(lower, upper),  # amplitudes differ by
-                x_scale='jac', max_nfev=2000)                    # orders of magnitude
+                self.timed_peaks, x, y, p0=p0, bounds=(lower, upper),  # amplitudes differ
+                x_scale='jac', max_nfev=2000)                  # by orders of magnitude
         except (RuntimeError, ValueError) as e:
             logging.info(f'Fit from {p0} did not converge: {e}')
             return None
@@ -410,6 +433,14 @@ class ScanFitter():
         '''The model that gets fit, in the form curve_fit calls it'''
 
         return model(x, p, self.x_ref, self.profile)
+
+    def timed_peaks(self, x, *p):
+        '''The model, checking the time limit on every call so a fit that has
+        run too long stops at its next evaluation'''
+
+        if self.deadline is not None and time.monotonic() > self.deadline:
+            raise FitTimeout
+        return self.peaks(x, *p)
 
     def baseline_guess(self, x, y, deg, within=None):
         '''Robust polynomial baseline: fit, drop whatever stands above it, refit.

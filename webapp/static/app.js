@@ -15,6 +15,8 @@ const state = {
   r0: null,          // r0 typed in the top bar, overriding the recorded one; null uses the file's
   shape: 'recorded',  // peak shape shown: the DAQ's own fits, or every scan as 'gauss' or 'voigt'
   base: 'recorded',   // baseline shown: each scan's own, or every scan on '1' straight or '2' quadratic
+  range: null,        // [lo, hi] x of each scan to fit, or null for every point
+  scanDragRange: false,  // dragging on the scan plot sets the fit range instead of zooming
   runCursorIdx: null,
   version: null,      // data directory fingerprint the page was last drawn from
   updatedAt: null,    // when a live update last changed what is on screen
@@ -27,12 +29,14 @@ const charts = { run: null, scan: null, resid: null };
 
 const el = (id) => document.getElementById(id);
 
-/* An API address in the folder this tab is looking at, for the fit shape and baseline shown */
+/* An API address in the folder this tab is looking at, for the fit shape,
+   baseline and range shown */
 function api(path) {
   const q = [];
   if (state.dir) q.push('dir=' + encodeURIComponent(state.dir));
   if (state.shape !== 'recorded') q.push('shape=' + state.shape);
   if (state.base !== 'recorded') q.push('base=' + state.base);
+  if (state.range) q.push('range=' + state.range.join(','));
   if (!q.length) return 'api/' + path;
   return 'api/' + path + (path.indexOf('?') < 0 ? '?' : '&') + q.join('&');
 }
@@ -1145,17 +1149,19 @@ function drawScanChart() {
 
   const sync = uPlot.sync('scan');
 
+  const drag = { x: true, y: false, setScale: !state.scanDragRange };
   charts.scan = makePlot(node, {
-    cursor: { drag: { x: true, y: false }, points: { size: 8 }, sync: { key: sync.key } },
+    cursor: { drag: drag, points: { size: 8 }, sync: { key: sync.key } },
     legend: { live: true },
     axes: [axisOpts(p, xLabel, true), axisOpts(p, 'Lock-in R', false)],
     series: series,
-    plugins: hasFit ? [peakLabels(ev, p)] : [],
+    hooks: { setSelect: [onScanSelect] },
+    plugins: [outsideRange(ev, p)].concat(hasFit ? [peakLabels(ev, p)] : []),
   }, cols);
 
   if (ev.residual && ev.residual.length) {
     charts.resid = makePlot(rnode, {
-      cursor: { drag: { x: true, y: false }, points: { size: 8 }, sync: { key: sync.key } },
+      cursor: { drag: drag, points: { size: 8 }, sync: { key: sync.key } },
       legend: { show: false },   // one series, already named by the axis
       axes: [axisOpts(p, '', true), axisOpts(p, 'Signal − fit', false)],
       series: [
@@ -1166,12 +1172,66 @@ function drawScanChart() {
           value: (u, v) => fmt(v, 5),
         },
       ],
-      plugins: [zeroLine(p)],
+      hooks: { setSelect: [onScanSelect] },
+      plugins: [outsideRange(ev, p), zeroLine(p)],
     }, [x, reorder(ev.residual, order)]);
   } else {
     rnode.innerHTML = '';
     charts.resid = null;
   }
+}
+
+/* Grey out the parts of a scan left out of its fit, so the range shows even on
+   a scan whose own fit covers all of it */
+function outsideRange(ev, p) {
+  return {
+    hooks: {
+      drawClear: (u) => {
+        const r = ev.fit_range || state.range;
+        if (!r) return;
+        const left = u.bbox.left, right = u.bbox.left + u.bbox.width;
+        const x0 = Math.min(right, Math.max(left, u.valToPos(r[0], 'x', true)));
+        const x1 = Math.min(right, Math.max(left, u.valToPos(r[1], 'x', true)));
+        const ctx = u.ctx;
+        ctx.save();
+        ctx.globalAlpha = 0.14;
+        ctx.fillStyle = p.muted;
+        if (x0 > left) ctx.fillRect(left, u.bbox.top, x0 - left, u.bbox.height);
+        if (x1 < right) ctx.fillRect(x1, u.bbox.top, right - x1, u.bbox.height);
+        ctx.restore();
+      },
+    },
+  };
+}
+
+/* A drag in fit range mode sets the part of every scan that gets fit. It is
+   kept in x, so it holds from scan to scan and run to run. */
+function onScanSelect(u) {
+  if (!state.scanDragRange || u.select.width < 3) return;
+  const lo = Number(u.posToVal(u.select.left, 'x').toPrecision(6));
+  const hi = Number(u.posToVal(u.select.left + u.select.width, 'x').toPrecision(6));
+  u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
+  // the scan and residual plots share a cursor, so one drag can land here twice
+  const same = state.range && state.range[0] === lo && state.range[1] === hi;
+  if (hi > lo && !same) setRange([lo, hi]).catch(showError);
+}
+
+function updateRangeBar() {
+  el('scanZoom').setAttribute('aria-pressed', String(!state.scanDragRange));
+  el('scanRange').setAttribute('aria-pressed', String(state.scanDragRange));
+  el('fullRange').disabled = !state.range;
+  let text = '';
+  if (state.range) {
+    text = 'Fitting ' + fmt(state.range[0], 6) + ' to ' + fmt(state.range[1], 6) + ' of every scan';
+    const ev = state.event;
+    if (ev && ev.x) {
+      const n = ev.x.filter((v) => v !== null && v >= state.range[0] && v <= state.range[1]).length;
+      text += '  ·  ' + n + ' of ' + ev.x.length + ' points in this one';
+    }
+  } else if (state.scanDragRange) {
+    text = 'Drag across the scan to pick the part to fit.';
+  }
+  el('rangeInfo').textContent = text;
 }
 
 /* ---------------- panels ---------------- */
@@ -1244,8 +1304,11 @@ function renderFitPanel() {
   const r = heightRatio(ev);
   const pol = polOf(ev);
 
+  // a fit over part of the scan is judged on the points it saw
+  const nFit = ev.fit_range && ev.fit ? ev.fit.filter((v) => v !== null).length : ev.n_points;
   el('fitTiles').innerHTML =
-    tile('R²', fmt(ev.rsq, 5), ev.n_points + ' points',
+    tile('R²', fmt(ev.rsq, 5), nFit < ev.n_points ? nFit + ' of ' + ev.n_points + ' points'
+                                                   : ev.n_points + ' points',
          ev.rsq === null ? '' : (ev.rsq > 0.99 ? 'good' : 'warn')) +
     tile('Height ratio r', fmt(r, 5), 'peak 1 / peak 2') +
     tile('Polarization', pol === null ? DASH : (pol * 100).toFixed(2) + ' %',
@@ -1292,6 +1355,10 @@ function renderFitPanel() {
           'under this one to correct P.';
       }
     }
+    if (ev.fit_range) {
+      text += ' Fit over ' + fmt(ev.fit_range[0], 6) + ' to ' + fmt(ev.fit_range[1], 6) +
+        ' only; the grey ends were left out.';
+    }
     if (failed && ev.fit_message) text += ' The fit failed its checks: ' + ev.fit_message;
   }
   note.textContent = text;
@@ -1331,6 +1398,7 @@ function renderScan() {
   renderScanNav();
   renderFitPanel();
   drawScanChart();
+  updateRangeBar();
   // move the open-scan rule. Not straight away: a plot uPlot has only just built
   // sets its scales up in a microtask, and a redraw before then leaves the x
   // scale empty and the plot blank, which is what a theme switch used to do
@@ -1399,7 +1467,13 @@ function readHash() {
   const scan = parseInt(h.get('scan'), 10);
   const plot = (h.get('plot') || '').split(',').filter((v) => v);
   return { dir: h.get('dir'), file: file || null, scan: isFinite(scan) ? scan - 1 : 0, plot: plot,
-           shape: h.get('shape'), base: h.get('base') };
+           shape: h.get('shape'), base: h.get('base'), range: parseRange(h.get('range')) };
+}
+
+/* A fit range from the address bar, 'lo,hi', or null if it is not one */
+function parseRange(text) {
+  const v = (text || '').split(',').map(Number);
+  return v.length === 2 && isFinite(v[0]) && isFinite(v[1]) && v[0] < v[1] ? v : null;
 }
 
 function dirHash() {
@@ -1413,6 +1487,7 @@ function writeHash() {
   if (tl.stamps.size > 1) h += '&plot=' + Array.from(tl.stamps).sort().join(',');
   if (state.shape !== 'recorded') h += '&shape=' + state.shape;
   if (state.base !== 'recorded') h += '&base=' + state.base;
+  if (state.range) h += '&range=' + state.range.join(',');
   if (location.hash.replace(/^#/, '') !== h) {
     history.replaceState(null, '', '#' + h);
   }
@@ -1436,7 +1511,9 @@ function describeRefits(refits) {
   if (refits.length > 1) return 'Refitting ' + refits.length + ' runs · ' + count;
   const r = refits[0];
   const how = [r.profile ? SHAPE_NAMES[r.profile] : null,
-               r.base ? BASE_NAMES[r.base] + ' baseline' : null].filter((v) => v).join(', ');
+               r.base ? BASE_NAMES[r.base] + ' baseline' : null,
+               r.range ? 'x ' + fmt(r.range[0], 6) + ' to ' + fmt(r.range[1], 6) : null]
+    .filter((v) => v).join(', ');
   return 'Refitting ' + r.name + (how ? ' (' + how + ')' : '') + ' · ' + count;
 }
 
@@ -1466,7 +1543,7 @@ function refitEnded() {
 }
 
 async function getJSON(url) {
-  const refit = /[?&](shape|base)=/.test(url);
+  const refit = /[?&](shape|base|range)=/.test(url);
   if (refit) refitStarted();
   try {
     const res = await fetch(url);
@@ -1964,6 +2041,9 @@ function wire() {
 
   el('shape').addEventListener('change', () => setFit(el('shape').value, state.base).catch(showError));
   el('base').addEventListener('change', () => setFit(state.shape, el('base').value).catch(showError));
+  el('scanZoom').addEventListener('click', () => { state.scanDragRange = false; drawScanChart(); updateRangeBar(); });
+  el('scanRange').addEventListener('click', () => { state.scanDragRange = true; drawScanChart(); updateRangeBar(); });
+  el('fullRange').addEventListener('click', () => setRange(null).catch(showError));
 
   el('dataDir').addEventListener('click', openPicker);
   el('folderList').addEventListener('click', (e) => {
@@ -2040,6 +2120,19 @@ async function setFit(shape, base) {
     localStorage.setItem('pymeop-shape', state.shape);
     localStorage.setItem('pymeop-base', state.base);
   } catch (e) { /* private mode */ }
+  await refetchFits();
+}
+
+/* Fit only part of every scan, or all of it again with null. Not remembered
+   by the browser, only in the address bar: a range left over from another day
+   would quietly change every fit. */
+async function setRange(range) {
+  state.range = range;
+  updateRangeBar();
+  await refetchFits();
+}
+
+async function refetchFits() {
   tl.cache = {};
   tl.fits = [];
   renderFits();
@@ -2065,6 +2158,7 @@ function initFit() {
     if (!base) base = localStorage.getItem('pymeop-base');
   } catch (e) { /* private mode */ }
   showFit(shape, base);
+  state.range = hash.range;
 }
 
 /* The folder comes from the address bar if it names one, else the one this
