@@ -347,13 +347,17 @@ class LockIn():
         the values that were requested.
         """
         signal = self.lockin.signal
+        # The settings are descriptors: reading one off the instance gives the
+        # instrument's value, so the table of allowed values has to come from
+        # the class.
+        allowed = type(signal)
         if tc is not None:
-            choice = self._nearest(tc, list(signal.time_constant.set_dict.keys()))
+            choice = self._nearest(tc, allowed.time_constant.set_dict)
             signal.time_constant = choice
             if abs(choice - tc) / float(tc) > 0.01:
                 print(f"Lock-in TC {tc} s not available, using {choice} s")
         if slope is not None:
-            choice = self._nearest(slope, list(signal.filter_slope.set_dict.keys()))
+            choice = self._nearest(slope, allowed.filter_slope.set_dict)
             signal.filter_slope = choice
             if choice != slope:
                 print(f"Lock-in slope {slope} dB/oct not available, "
