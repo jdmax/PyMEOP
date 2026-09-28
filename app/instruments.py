@@ -244,6 +244,25 @@ class WavelengthMeter():
 
 
 
+TERMINATORS = {'CR': bytes([13]), 'LF': bytes([10]), 'CRLF': bytes([13, 10])}
+
+
+def _term_bytes(name):
+    """Terminator bytes for a config name: CR, LF or CRLF.
+
+    Named rather than escaped because a backslash escape survives neither
+    YAML quoting nor a trip through the shell reliably, and silently sending
+    the wrong terminator looks like a dead instrument.
+    """
+    if isinstance(name, bytes):
+        return name
+    key = str(name).strip().upper()
+    if key in TERMINATORS:
+        return TERMINATORS[key]
+    raise ValueError(f"lockin_term must be one of {sorted(TERMINATORS)}, "
+                     f"got {name!r}")
+
+
 class LockIn():
     """SR860 lock-in, driven through Stanford Research Systems' own package.
 
@@ -280,6 +299,12 @@ class LockIn():
                 self.lockin.connect('vxi11', self.ip)
             else:
                 self.lockin.connect('tcpip', self.ip, self.port)
+                # srsgui terminates with LF, but the SR860's telnet terminator
+                # is set on its front panel and this unit answers CR. A
+                # mismatch is silent: the connection banner still appears and
+                # then every command is ignored until the query times out.
+                self.lockin.comm.set_term_char(_term_bytes(
+                    settings.get('lockin_term', 'CR')))
         except Exception as e:
             print(f"Lock-in connection failed on {self.ip}: {e}")
             self.lockin = None

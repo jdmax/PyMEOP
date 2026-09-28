@@ -53,6 +53,11 @@ settings:
     #   'vxi11'  the transport in SRS's own Ethernet example; try this if
     #            the capture transfer misbehaves on tcpip
     lockin_interface: 'tcpip'
+    # Command terminator for tcpip only. srsgui defaults to LF, but the
+    # SR860's TELNET terminator is a front-panel setting and this unit
+    # answers CR. A mismatch is silent: the banner appears on connect and
+    # then every command is ignored until the query times out.
+    lockin_term: 'CR'           # CR, LF or CRLF
 
     # ---- Fitting -----------------------------------------------------------
     baseline_degree: 2          # Baseline under the peaks: 1 straight, 2 quadratic
