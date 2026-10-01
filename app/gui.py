@@ -189,7 +189,7 @@ class MainWindow(QMainWindow):
             new = f'{self.eventfile_start}__{now.strftime("%Y-%m-%d_%H-%M-%S")}.txt'
             for attempt in range(10):
                 try:
-                    os.rename(self.eventfile_name, os.path.join(self.config.settings["event_dir"], new))
+                    os.rename(self.eventfile_name, os.path.join(self.settings["event_dir"], new))
                     break
                 except PermissionError:  # Windows refuses while the data browser is reading the file
                     if attempt == 9:
@@ -223,6 +223,7 @@ class MainWindow(QMainWindow):
         '''Things to do on close of window ("events" here are not related to nmr data events)
         '''
         self.save_session()
+        self.close_eventfile()  # so the last file of a run is renamed with its stop time too
         event.accept()
 
 
