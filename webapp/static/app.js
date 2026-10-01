@@ -1824,10 +1824,10 @@ async function selectEvent(idx) {
    nothing more, and only fetches the files again when it has. A run the DAQ
    is writing then grows on screen scan by scan.
 
-   Sitting on the last scan of the newest run means following it, like tail -f:
-   each new scan opens as it arrives, and when the DAQ rolls over to a new file
-   the page moves to it. Anywhere else the scan on screen stays put and only the
-   run chart and the scan count grow. */
+   With the newest run open, a new file from the DAQ opens as soon as it has a
+   scan in it, at its latest scan. Sitting on the last scan of that run also
+   follows it scan by scan, like tail -f; on an earlier scan the scan on screen
+   stays put and only the run chart and the scan count grow. */
 
 const POLL_MS = 2000;
 let polling = false;
@@ -1858,10 +1858,12 @@ async function refresh() {
     return;
   }
 
-  const tailing = state.eventIdx >= run.events.length - 1 &&
-    runStamp(newestWithScans(before) || '') === runStamp(run.name);
+  // with the newest run open, a new file from the DAQ takes over whichever scan
+  // is on screen; within a run, new scans only open from its last one
+  const onNewest = runStamp(newestWithScans(before) || '') === runStamp(run.name);
+  const tailing = onNewest && state.eventIdx >= run.events.length - 1;
   const newest = newestWithScans(state.files);
-  if (tailing && newest && runStamp(newest) !== runStamp(run.name)) {
+  if (onNewest && newest && runStamp(newest) !== runStamp(run.name)) {
     const row = state.files.find((f) => f.name === newest);
     await selectFile(newest, row.n_events - 1, 'extend');
     return;
