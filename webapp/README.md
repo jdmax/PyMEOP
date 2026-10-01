@@ -66,8 +66,9 @@ deploy/start_server.sh /srv/pymeop/data [PORT]    # starts it in screen session 
 deploy/stop_server.sh                             # stops it
 ```
 
-The server runs in a detached `screen` session, on port 8000 unless another is
-given, and is started again if it stops on an error. `screen -r pymeop-web`
+Set `DEFAULT_DATA_DIR` and `DEFAULT_PORT` at the top of `start_server.sh` to
+start it with no arguments; arguments given still take precedence. The server
+runs in a detached `screen` session and is started again if it stops on an error. `screen -r pymeop-web`
 looks in on it (Ctrl-a d to leave it running); its output is also kept in
 `log/webapp.screen.log`. Live updates work as they do locally, a minute or so
 behind the DAQ, as often as cron mirrors.

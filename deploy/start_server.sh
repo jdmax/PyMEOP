@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Start the PyMEOP data browser in a detached screen session, for a server.
 #
-#   start_server.sh DATA_DIR [PORT]
+#   start_server.sh [DATA_DIR [PORT]]
 #
-# DATA_DIR is the folder mirror_data.sh copies into; PORT defaults to 8000. The
+# DATA_DIR is the folder mirror_data.sh copies into. Either can be left off the
+# command line to use DEFAULT_DATA_DIR and DEFAULT_PORT below, so set those once
+# for the server and start it with no arguments. The
 # server listens on every interface, so keep the firewall limited to the lab
 # subnet (see webapp/README.md). If it stops on an error it is started again
 # after 5 s. Look in on it with `screen -r pymeop-web` (detach again with
@@ -12,14 +14,20 @@
 
 set -u
 
+# used when not given on the command line; leave DEFAULT_DATA_DIR empty to
+# always require it
+DEFAULT_DATA_DIR=""
+DEFAULT_PORT=8008
+
 SESSION=pymeop-web
 
-if [ $# -lt 1 ]; then
-    echo "usage: $(basename "$0") DATA_DIR [PORT]" >&2
+data_dir=${1:-$DEFAULT_DATA_DIR}
+port=${2:-$DEFAULT_PORT}
+if [ -z "$data_dir" ]; then
+    echo "usage: $(basename "$0") [DATA_DIR [PORT]]  (or set DEFAULT_DATA_DIR in the script)" >&2
     exit 2
 fi
-data_dir=$(realpath "$1")
-port=${2:-8000}
+data_dir=$(realpath "$data_dir")
 
 if [ ! -d "$data_dir" ]; then
     echo "No such folder: $data_dir" >&2
