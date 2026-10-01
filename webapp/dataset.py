@@ -488,5 +488,8 @@ class Event:
             'residual': finite_list(self.rs - self.fit) if len(self.fit) == len(self.rs) else [],
             'pcov': [finite_list(row) for row in self.pcov],
             'settings': self.raw.get('settings') or {},
+            # the polarization the DAQ wrote at the time, as a fraction, which the
+            # browser's own P is recomputed alongside rather than read from
+            'pol_recorded': finite(self.raw.get('pol')),
         })
         return d

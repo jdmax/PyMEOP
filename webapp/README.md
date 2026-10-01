@@ -317,7 +317,8 @@ the selected scans were read off different recorded r₀ values.
 The earliest files with zero readings (before about 16:53 on 7 Jan 2022) have a
 stored `pol` of 1.0 for every scan, from a bug in the DAQ at the time. The browser
 recomputes P from the peak heights rather than reading `pol`, so those scans show
-the right value.
+the right value. The scan panel still shows the stored `pol` beside it as
+**Recorded P**, so the two can be compared.
 
 ## Baseline conventions
 

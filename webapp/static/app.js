@@ -1388,7 +1388,9 @@ function renderFitPanel() {
          ev.rsq === null ? '' : (ev.rsq > 0.99 ? 'good' : 'warn')) +
     tile('Height ratio r', fmt(r, 5), 'peak 1 / peak 2') +
     tile('Polarization', pol === null ? DASH : (pol * 100).toFixed(2) + ' %',
-         r0Label([ev]));
+         r0Label([ev])) +
+    tile('Recorded P', ev.pol_recorded == null ? DASH : (ev.pol_recorded * 100).toFixed(2) + ' %',
+         ev.pol_recorded == null ? 'none in this scan' : 'as the DAQ wrote it');
 
   const swatch = (c) => '<span class="swatch" style="background:' + c + '"></span>';
   const p = palette();
