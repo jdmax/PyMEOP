@@ -6,7 +6,11 @@ event files in the data directory. Built on the standard library so it runs in
 the same environment as the DAQ application with nothing extra installed.
 
     python webapp/server.py [--port 8000] [--host 127.0.0.1] [--no-browser]
-                            [--data-dir DIR]
+                            [--data-dir DIR] [--db FILE] [--fit-workers N]
+
+What it reads from the files, and every refit it makes, goes into a cache
+database (store.py), so a file is read once and a fit made once. The default
+folder is kept up to date in the background, so the page finds it ready.
 """
 
 import argparse
@@ -16,6 +20,7 @@ import os
 import posixpath
 import sys
 import threading
+import time
 import webbrowser
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from socketserver import ThreadingMixIn
@@ -23,11 +28,17 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from webapp import dataset, fitting
+from webapp import dataset, fitting, store
 
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
 
-LIBRARY = dataset.Library()
+DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cache', 'pymeop.sqlite')
+
+# seconds between background passes over the default folder, which read new scans
+# into the cache whether or not anyone has the page open
+REFRESH = 10
+
+LIBRARY = None   # store.Library, made in main()
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -101,7 +112,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         if parts == ['refitting']:
-            self.send_json({'refits': dataset.refit_progress()})
+            self.send_json({'refits': LIBRARY.store.refit_progress()})
             return
 
         if parts == ['version']:
@@ -122,13 +133,15 @@ class Handler(SimpleHTTPRequestHandler):
             if not run:
                 self.send_json({'error': 'No such event file'}, status=404)
                 return
-            events = run.view(query.get('shape') or 'recorded', query.get('base'), query.get('range'))
             try:
-                event = events[int(parts[3])]
-            except (ValueError, IndexError):
+                i = int(parts[3])
+            except ValueError:
+                i = -1
+            event = run.event(i, query.get('shape') or 'recorded', query.get('base'), query.get('range'))
+            if event is None:
                 self.send_json({'error': 'No such scan in this file'}, status=404)
                 return
-            self.send_json(event.detail())
+            self.send_json(event)
             return
 
         if len(parts) == 3 and parts[0] == 'file' and parts[2] == 'raw':
@@ -192,6 +205,9 @@ def main():
     parser.add_argument('--port', type=int, default=8000, help='port to listen on')
     parser.add_argument('--no-browser', action='store_true', help='do not open a browser window')
     parser.add_argument('--data-dir', help='folder to open first, default event_dir in config.yaml')
+    parser.add_argument('--db', default=DEFAULT_DB, help='cache database file, default webapp/cache/pymeop.sqlite')
+    parser.add_argument('--fit-workers', type=int, default=2,
+                        help='processes refitting scans side by side, default 2; 0 fits in the server itself')
     args = parser.parse_args()
 
     if args.data_dir:
@@ -203,6 +219,16 @@ def main():
     if args.host not in ('127.0.0.1', 'localhost', '::1'):
         dataset.FOLDER_LIMIT = dataset.data_dir()
 
+    # the cache keeps what it works out from each scan, and Voigt fits need scipy
+    # to draw; without it they would be cached incomplete
+    try:
+        dataset.scanfit()
+    except ImportError as e:
+        parser.error('scipy is needed (%s): pip install scipy' % e)
+
+    global LIBRARY
+    LIBRARY = store.Library(store.Store(args.db, args.fit_workers))
+
     server = Server((args.host, args.port), Handler)
     url = 'http://%s:%d/' % ('localhost' if args.host in ('127.0.0.1', '0.0.0.0') else args.host,
                              server.server_address[1])
@@ -212,10 +238,12 @@ def main():
     print('  data   %s (%d event files)' % (base, n))
     if dataset.FOLDER_LIMIT:
         print('  other folders limited to ones inside it, as the server is reachable off this machine')
+    print('  cache  %s' % LIBRARY.store.path)
     print('  serving %s   (ctrl-c to stop)' % url)
-    # start reading the default folder now, so the page has less to wait for; the
-    # page's own request joins this pass and shows its progress
-    threading.Thread(target=LIBRARY.index, args=(base,), daemon=True).start()
+    # read the default folder into the cache now, and new scans as they land, so
+    # the page has less to wait for; the page's own request joins a pass under
+    # way and shows its progress
+    threading.Thread(target=keep_current, args=(base,), daemon=True).start()
     if not args.no_browser:
         threading.Timer(0.5, webbrowser.open, [url]).start()
     try:
@@ -224,6 +252,18 @@ def main():
         print('\nstopped')
     finally:
         server.server_close()
+        LIBRARY.store.close()
+
+
+def keep_current(base):
+    '''Read the default folder into the cache, then keep reading in new scans'''
+
+    while True:
+        try:
+            LIBRARY.index(base)
+        except Exception as e:
+            print('  background read of %s failed: %s' % (base, e))
+        time.sleep(REFRESH)
 
 
 if __name__ == '__main__':

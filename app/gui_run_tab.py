@@ -555,6 +555,15 @@ class RunTab(QWidget):
             self.parent.status_bar.showMessage(f"Failed to set signal generator frequency: {e}")
             print(f"Failed to set signal generator frequency: {e}")
 
+    def read_siggen(self):
+        '''Fill the signal generator boxes with the frequency and amplitude it is set to'''
+        try:
+            self.sg_freq_edit.setText(f"{self.parent.siggen.read_freq():.6f}")
+            self.sg_amp_edit.setText(f"{self.parent.siggen.read_amp():.4f}")
+        except Exception as e:
+            self.parent.status_bar.showMessage(f"Failed to read signal generator settings: {e}")
+            print(f"Failed to read signal generator settings: {e}")
+
     def set_amp_pushed(self):
         '''Send amplitude from edit box to signal generator'''
         try:

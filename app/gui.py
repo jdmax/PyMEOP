@@ -84,6 +84,7 @@ class MainWindow(QMainWindow):
         try:
             self.siggen = SigGen(self.settings)
             self.status_bar.showMessage(f"Connected to signal generator at {self.settings['siggen_ip']}")
+            self.run_tab.read_siggen()
         except Exception as e:
             print(f"Unable to connect to Signal Generator at {self.settings['siggen_ip']}, {e}")
 

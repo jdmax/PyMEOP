@@ -4,6 +4,7 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt
 # from labjack import ljm
 from telnetlib3 import Telnet    # stdlib telnetlib removed in Python 3.13
 import time
+import math
 
             
 class ProbeLaser():      
@@ -225,6 +226,22 @@ class SigGen():
     def set_amp(self, amp):
         '''Set amplitude in volt peak to peak'''
         self.tn.write(bytes(f"AMPR {amp} Vpp\r", 'ascii'))
+
+    def query(self, command):
+        '''Send a query, return the reply as a string'''
+        self.tn.read_very_eager()    # drop anything left unread
+        self.tn.write(bytes(f"{command}\r", 'ascii'))
+        return self.tn.read_until(bytes("\n", 'ascii'), 2).decode('ascii').strip()
+
+    def read_freq(self):
+        '''Read RF frequency in MHz'''
+        return float(self.query("FREQ?")) / 1e6    # replies in Hz
+
+    def read_amp(self):
+        '''Read type N amplitude in volt peak to peak, into 50 ohm'''
+        dbm = float(self.query("AMPR?"))    # replies in dBm
+        vrms = math.sqrt(50 * 1e-3 * 10**(dbm / 10))
+        return 2 * math.sqrt(2) * vrms
 
     def enable_n(self, on):
         """Turn on or off type N output"""
