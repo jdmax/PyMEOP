@@ -43,6 +43,13 @@ fi
 root=$(cd "$(dirname "$0")/.." && pwd)
 python="$root/.venv/bin/python"
 [ -x "$python" ] || python=python3
+
+# a missing package would only fail inside the restart loop below, every 5 s
+if ! "$python" -c 'import numpy, scipy, yaml' 2> /dev/null; then
+    echo "$python cannot import numpy, scipy and yaml. Make the virtual environment:" >&2
+    echo "  cd '$root' && python3 -m venv .venv && .venv/bin/pip install numpy scipy pyyaml" >&2
+    exit 1
+fi
 mkdir -p "$root/log"
 
 # restart if it stops on an error or is killed; Ctrl-C stops it cleanly with exit 0

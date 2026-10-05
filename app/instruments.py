@@ -248,6 +248,31 @@ class SigGen():
         b = 1 if on else 0
         self.tn.write(bytes(f"ENBR {b}\r", 'ascii'))
 
+    def read_modulation(self):
+        '''Read modulation settings, to put back with restore_modulation()'''
+        return {cmd: self.query(f"{cmd}?") for cmd in ("TYPE", "MFNC", "RATE", "MODL")}
+
+    def restore_modulation(self, saved):
+        '''Put back modulation settings from read_modulation(); type first, since
+        function and rate apply to the type set'''
+        for cmd in ("TYPE", "MFNC", "RATE", "MODL"):
+            self.tn.write(bytes(f"{cmd} {saved[cmd]}\r", 'ascii'))
+
+    def set_fm(self, dev, rate, wave=1):
+        '''Frequency modulate, sweeping the carrier by dev either side of it
+        Arguments:
+            dev: deviation in kHz
+            rate: sweeps per second, Hz
+            wave: modulation function, 1 ramp or 2 triangle
+        Returns the deviation set in kHz, which the SG380 limits by carrier frequency
+        '''
+        self.tn.write(bytes(f"TYPE 1\r", 'ascii'))             # FM
+        self.tn.write(bytes(f"MFNC {wave}\r", 'ascii'))        # 1 ramp, 2 triangle
+        self.tn.write(bytes(f"FDEV {dev} kHz\r", 'ascii'))
+        self.tn.write(bytes(f"RATE {rate} Hz\r", 'ascii'))
+        self.tn.write(bytes(f"MODL 1\r", 'ascii'))             # modulation on
+        return float(self.query("FDEV?")) / 1e3                # replies in Hz
+
 class Keopsys():
     '''Controls for Keopsys pump laser'''
 
