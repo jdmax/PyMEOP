@@ -32,7 +32,7 @@ data and log directories.
 
 ## Using it
 
-The window has two tabs.
+The window has three tabs.
 
 **Find Peaks** sweeps the probe laser's temperature or current over a wide range
 to locate the absorption lines and choose the scan range.
@@ -57,12 +57,31 @@ controls the discharge signal generator, including:
 - a **discharge-off relaxation** cycle, which switches the discharge off and on for
   set times to measure relaxation.
 
+**Slow Controls** shows EPICS process variables listed under `epics: pvs:` in
+`config.yaml`, grouped by their `group`, colored by alarm severity and greyed when
+disconnected. A PV marked `control: true` gets a setpoint box and Set button, and
+must have `limits`; a value outside them is refused. A `readback` PV can be shown
+beside a control's setpoint. If the IOCs aren't reached by broadcast, set
+`ca_addr_list`. This uses `pyepics`, which brings its own Channel Access libraries.
+
 ## Data
 
 Each scan is written as one JSON line to an event file in `data/`, holding the raw
-scan, the fit parameters and uncertainties, and the polarization. The file in use
-is named `current_<start>.txt` and is renamed to `<start>__<end>.txt` when closed
-(times in UTC). Logs go to `log/`.
+scan, the fit parameters and uncertainties, the polarization, and under `pvs` the
+last value of every slow controls PV when the scan ended (null if disconnected).
+The file in use is named `current_<start>.txt` and is renamed to
+`<start>__<end>.txt` when closed (times in UTC). Logs go to `log/`.
+
+Slow controls are also logged on their own, in `slowlog/` (`slow_dir`), named the
+same way with a new file each UTC day. Each line is a JSON record with a `kind`:
+
+- `snapshot`: every PV's last value, IOC timestamp and alarm severity, every
+  `log_interval` seconds;
+- `set`: a value changed from PyMEOP, with the old and new value and its `source`
+  (`user`, `scan`, `larmor`, `relaxation`, `range`). This covers EPICS controls and
+  PyMEOP's own settings: `siggen.freq`, `siggen.amp`, `siggen.output`, `siggen.fm`
+  and `zero`;
+- `connect` / `disconnect`: a PV came or went.
 
 ## Data browser
 

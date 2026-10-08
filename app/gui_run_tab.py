@@ -438,7 +438,7 @@ class RunTab(QWidget):
         curr_list = np.linspace(start, stop, int(self.step_edit.text()))
         
         try:
-            self.turn_on_discharge()
+            self.turn_on_discharge('scan')
             self.scan_thread = RunThread(self, curr_list, float(self.temp_edit.text()))
             self.scan_thread.finished.connect(self.finish_scans)
             self.scan_thread.reply.connect(self.build_scan)
@@ -557,6 +557,7 @@ class RunTab(QWidget):
         '''Use these peak amplitudes as the zero, from the scan now running on'''
         self.parent.event.p1_zero = p1
         self.parent.event.p2_zero = p2
+        self.parent.slowlog.set('zero', [p1, p2], 'range' if self.range_button.isChecked() else 'user')
         self.zero1_edit.setText(f"{p1:.4f}")
         self.zero2_edit.setText(f"{p2:.4f}")
 
@@ -646,19 +647,22 @@ class RunTab(QWidget):
             print('Exception starting relax thread: '+str(e))
 
 
-    def turn_off_discharge(self):
+    def turn_off_discharge(self, source='user'):
         '''Turn off signal generator'''
         self.parent.siggen.enable_n(False)
+        self.parent.slowlog.set('siggen.output', False, source, changed_only=True)
 
-    def turn_on_discharge(self):
+    def turn_on_discharge(self, source='user'):
         '''Turn on signal generator'''
         self.parent.siggen.enable_n(True)
+        self.parent.slowlog.set('siggen.output', True, source, changed_only=True)
 
     def set_freq_pushed(self):
         '''Send frequency from edit box to signal generator'''
         try:
             freq = float(self.sg_freq_edit.text())
             self.parent.siggen.set_freq(freq)
+            self.parent.slowlog.set('siggen.freq', freq, 'user')
             self.parent.status_bar.showMessage(f"Set signal generator frequency to {freq} MHz")
         except Exception as e:
             self.parent.status_bar.showMessage(f"Failed to set signal generator frequency: {e}")
@@ -667,8 +671,11 @@ class RunTab(QWidget):
     def read_siggen(self):
         '''Fill the signal generator boxes with the frequency and amplitude it is set to'''
         try:
-            self.sg_freq_edit.setText(f"{self.parent.siggen.read_freq():.6f}")
-            self.sg_amp_edit.setText(f"{self.parent.siggen.read_amp():.4f}")
+            freq, amp = self.parent.siggen.read_freq(), self.parent.siggen.read_amp()
+            self.sg_freq_edit.setText(f"{freq:.6f}")
+            self.sg_amp_edit.setText(f"{amp:.4f}")
+            self.parent.slowlog.known('siggen.freq', freq)
+            self.parent.slowlog.known('siggen.amp', amp)
         except Exception as e:
             self.parent.status_bar.showMessage(f"Failed to read signal generator settings: {e}")
             print(f"Failed to read signal generator settings: {e}")
@@ -678,6 +685,7 @@ class RunTab(QWidget):
         try:
             amp = float(self.sg_amp_edit.text())
             self.parent.siggen.set_amp(amp)
+            self.parent.slowlog.set('siggen.amp', amp, 'user')
             self.parent.status_bar.showMessage(f"Set signal generator amplitude to {amp} Vpp")
         except Exception as e:
             self.parent.status_bar.showMessage(f"Failed to set signal generator amplitude: {e}")
@@ -885,7 +893,7 @@ class RelaxThread(QThread):
                     self.parent.dis_label.setText(f"Waiting for scan to finish.")
                     time.sleep(0.5)
                 self.parent.scan_button.setText("Waiting...")
-                self.parent.turn_off_discharge()
+                self.parent.turn_off_discharge('relaxation')
             else:
                 start = time.time()
                 while time.time() - start < self.off_time:
@@ -894,7 +902,7 @@ class RelaxThread(QThread):
                     self.parent.dis_label.setText(f"Running discharge off for {int(left)} more seconds.")
                 self.parent.scan_button.setChecked(True)
                 self.parent.scan_button.setText("Running Relaxation")
-                self.parent.turn_on_discharge()
+                self.parent.turn_on_discharge('relaxation')
                 self.parent.start_scan()
 
         self.finished.emit()
@@ -936,6 +944,7 @@ class LarmorThread(QThread):
         '''Stop discharge, drive at Larmor, restore discharge settings
         '''
         siggen = self.parent.parent.siggen
+        log = self.parent.parent.slowlog
         saved_mod = None    # modulation settings to put back after an FM sweep
         try:
             if self.restart:
@@ -944,17 +953,22 @@ class LarmorThread(QThread):
                     time.sleep(0.1)
 
             siggen.enable_n(False)
+            log.set('siggen.output', False, 'larmor', changed_only=True)
             siggen.set_freq(self.freq)
+            log.set('siggen.freq', self.freq, 'larmor')
             siggen.set_amp(self.drive_amp)
+            log.set('siggen.amp', self.drive_amp, 'larmor')
             what = f"{self.freq:.6f} MHz"
             if self.dev > 0:
                 saved_mod = siggen.read_modulation()
                 dev = siggen.set_fm(self.dev, self.rate, self.wave)
+                log.set('siggen.fm', {'dev_khz': dev, 'rate_hz': self.rate, 'wave': self.wave}, 'larmor')
                 shape = "ramp" if self.wave == 1 else "triangle"
                 what += f" ± {dev:g} kHz, {shape} at {self.rate:g} Hz"
                 if abs(dev - self.dev) > 1e-6 * self.dev:
                     what += f" (asked for {self.dev:g} kHz; the SG380 set {dev:g})"
             siggen.enable_n(True)
+            log.set('siggen.output', True, 'larmor', changed_only=True)
             start = time.time()
             left = self.drive_time
             while left > 0:
@@ -968,10 +982,14 @@ class LarmorThread(QThread):
         finally:
             try:    # always leave the generator at the discharge settings, output off
                 siggen.enable_n(False)
+                log.set('siggen.output', False, 'larmor', changed_only=True)
                 if saved_mod is not None:
                     siggen.restore_modulation(saved_mod)
+                    log.set('siggen.fm', 'restored', 'larmor')
                 siggen.set_freq(self.dis_freq)
+                log.set('siggen.freq', self.dis_freq, 'larmor')
                 siggen.set_amp(self.dis_amp)
+                log.set('siggen.amp', self.dis_amp, 'larmor')
             except Exception as e:
                 self.status.emit(f"Failed to restore discharge settings: {e}")
                 print(f"Failed to restore discharge settings: {e}")

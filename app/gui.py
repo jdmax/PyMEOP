@@ -12,12 +12,15 @@ import logging
 import json
 from PyQt5.QtWidgets import QMainWindow, QErrorMessage, QTabWidget, QLabel, QWidget, QLineEdit, QComboBox
 from PyQt5.QtGui import QIntValidator, QDoubleValidator, QValidator
-from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtCore import QThread, QTimer, pyqtSignal, Qt
 from logging.handlers import TimedRotatingFileHandler
 import numpy as np
 
 from app.gui_run_tab import RunTab
 from app.gui_find_tab import FindTab
+from app.gui_slow_tab import SlowTab
+from app.datafiles import open_current, close_current
+from app.slow_controls import SlowLog, PVManager, load_specs
 from app.classes import Event
 from app.instruments import ProbeLaser, WavelengthMeter, LockIn, SigGen
 from app import scanfit
@@ -40,6 +43,7 @@ class MainWindow(QMainWindow):
         self.config_filename = 'config.yaml'
         self.load_settings()
         self.start_logger()
+        self.start_slow_controls()
 
         self.left = 100
         self.top = 100
@@ -57,6 +61,8 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.run_tab, "Run")
         self.find_tab = FindTab(self)
         self.tab_widget.addTab(self.find_tab, "Find Peaks")
+        self.slow_tab = SlowTab(self)
+        self.tab_widget.addTab(self.slow_tab, "Slow Controls")
 
         self.restore_session()
 
@@ -152,6 +158,7 @@ class MainWindow(QMainWindow):
 
         self.event.stop_time = datetime.datetime.now(tz=datetime.timezone.utc)
         self.event.stop_stamp = self.event.stop_time.timestamp()
+        self.event.pvs = self.pvs.snapshot()  # last value of each slow controls PV at the scan's end
         self.event.set_profile(self.event.line_shape())  # picks up a switch made mid-scan
         self.previous_event = self.event  # set this as previous event
         self.new_event()  # start new event to accept next scan
@@ -174,27 +181,15 @@ class MainWindow(QMainWindow):
     def new_eventfile(self):
         '''Open new eventfile'''
         self.close_eventfile()  # try to close previous eventfile
-        now = datetime.datetime.now(tz=datetime.timezone.utc)
-        self.eventfile_start = now.strftime("%Y-%m-%d_%H-%M-%S")
-        self.eventfile_name = os.path.join(self.settings["event_dir"], f'current_{self.eventfile_start}.txt')
-        self.eventfile = open(self.eventfile_name, "w")
+        self.eventfile, self.eventfile_name, self.eventfile_start = open_current(self.settings["event_dir"])
         self.eventfile_lines = 0
         logging.info(f"Opened new eventfile {self.eventfile_name}")
 
     def close_eventfile(self):
         '''Try to close and rename eventfile'''
         try:
-            self.eventfile.close()
-            now = datetime.datetime.now(tz=datetime.timezone.utc)
-            new = f'{self.eventfile_start}__{now.strftime("%Y-%m-%d_%H-%M-%S")}.txt'
-            for attempt in range(10):
-                try:
-                    os.rename(self.eventfile_name, os.path.join(self.settings["event_dir"], new))
-                    break
-                except PermissionError:  # Windows refuses while the data browser is reading the file
-                    if attempt == 9:
-                        raise
-                    time.sleep(0.05)
+            new = close_current(self.eventfile, self.eventfile_name, self.eventfile_start,
+                                self.settings["event_dir"])
             logging.info(f"Closed eventfile and moved to {new}.")
         except (AttributeError, OSError) as e:
             logging.info(f"Error closing eventfile: {e}")
@@ -212,6 +207,17 @@ class MainWindow(QMainWindow):
         logger.setLevel(logging.INFO)
         logging.info("Loaded config file")
 
+    def start_slow_controls(self):
+        '''Open the slow controls log, connect to the PVs in the config, and start
+        writing snapshots of them to the log'''
+
+        specs, self.log_interval, self.pv_problems = load_specs(self.config_dict)
+        self.slowlog = SlowLog(self.settings.get('slow_dir', 'slowlog'))
+        self.pvs = PVManager(specs, self.slowlog, (self.config_dict.get('epics') or {}).get('ca_addr_list'))
+        self.snapshot_timer = QTimer(self)
+        self.snapshot_timer.timeout.connect(self.pvs.log_snapshot)
+        self.snapshot_timer.start(int(self.log_interval * 1000))
+
     def divider(self):
         div = QLabel('')
         div.setStyleSheet(
@@ -224,6 +230,10 @@ class MainWindow(QMainWindow):
         '''
         self.save_session()
         self.close_eventfile()  # so the last file of a run is renamed with its stop time too
+        self.snapshot_timer.stop()
+        self.pvs.log_snapshot()  # the state things were left in
+        self.pvs.disconnect()
+        self.slowlog.close()
         event.accept()
 
 
