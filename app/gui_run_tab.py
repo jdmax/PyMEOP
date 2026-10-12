@@ -372,11 +372,9 @@ class RunTab(QWidget):
         self.recent_scans = collections.deque(maxlen=max(1, self.n_previous))
         self.recent_plots = []
         for age in range(self.n_previous):
-            shade = int(255 * (1 - 0.6 * age / max(1, self.n_previous)))
             name = 'latest' if age == 0 else f'-{age}'
             self.recent_plots.append(self.run_wid.plot(
-                [], [], pen=pg.mkPen(color=(0, shade, 0), width=1.5),
-                name=name))
+                [], [], pen=self.age_pen(age), name=name))
         self.right.addWidget(self.run_wid)
         
         self.peak_wid = pg.PlotWidget(title='Probe Peaks')
@@ -546,6 +544,22 @@ class RunTab(QWidget):
         self.peak_plot.setData(list(x), list(y))
         for curve in (self.fit_plot, self.g1_plot, self.g2_plot, self.base_plot):
             curve.setData([], [])
+
+    NEWEST_COLOUR = (0, 110, 0)     # the latest scan, on a white background
+    OLDEST_FADE = 0.8               # how far the oldest is blended into white
+
+    def age_pen(self, age):
+        """Pen for a scan this many sweeps old, fading into the background.
+
+        Fading has to go towards the background rather than simply dimming:
+        on white, a darker green reads as more prominent, not less, so a
+        plain brightness ramp puts the oldest scan in front. Blending towards
+        white instead, and thinning the line with it, makes the order read at
+        a glance.
+        """
+        reach = self.OLDEST_FADE * age / max(1, self.n_previous - 1)
+        colour = tuple(int(c + (255 - c) * reach) for c in self.NEWEST_COLOUR)
+        return pg.mkPen(color=colour, width=2.2 - 1.2 * reach)
 
     def update_run_plot(self):
         """Draw the most recent scans, newest brightest.

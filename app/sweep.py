@@ -135,9 +135,14 @@ def process_sweep(samples, plan, nbins, smooth_seconds):
 
     current, frac = plan.currents(len(x))
 
-    # Keep only samples inside the ramp, dropping the settling transient at the
-    # start where the filter is still recovering from the previous ramp.
-    keep = (frac >= plan.settle_frac) & (frac <= 1.0)
+    # Keep only samples inside the ramp, trimmed at both ends. The start drops
+    # the transient left by the previous ramp. The end matters just as much:
+    # the measured start time carries tens of milliseconds of uncertainty, so
+    # taking the ramp to run exactly to frac 1.0 sweeps up samples from after
+    # it stopped. Those land in the last bin or two and arrive as a jump, not
+    # as noise -- a bin whose internal scatter is twenty times its neighbours'
+    # and whose value is wrong enough to drag the fit with it.
+    keep = (frac >= plan.settle_frac) & (frac <= 1.0 - plan.settle_frac)
     if keep.sum() < 10:
         raise ValueError(f"Sweep produced only {keep.sum()} usable samples")
 
