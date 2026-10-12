@@ -1,5 +1,6 @@
 '''PyMEOP, J.Maxwell 2020
 '''
+import collections
 import datetime
 import time
 import math
@@ -43,6 +44,9 @@ class RunTab(QWidget):
         self.scan_rs = []
         self.scan_times = []
         
+        # How many previous scans stay on the plot behind the current one.
+        self.n_ghosts = int(parent.settings.get('scan_ghosts', 5))
+
         self.pol_hist = {}    # polarization history keyed on stop timestamp
         self.amp_hist = {}    # peak 1 and 2 amplitudes, same keys, to take a zero from a range of scans
         self.last_good_pf = None    # parameters of last good fit, seeds the next scan's fit
@@ -377,7 +381,17 @@ class RunTab(QWidget):
         self.peak_wid = pg.PlotWidget(title='Probe Peaks')
         self.peak_wid.showGrid(True,True)
         self.peak_wid.addLegend(offset=(0.5, 0))
-        # components first, so the scan and the total fit draw on top of them
+        # Previous scans, oldest faintest, drawn first so everything else sits
+        # on top of them. There is no live trace during a ramp -- the capture
+        # buffer cannot be read while it fills -- so watching the shape settle
+        # from one sweep to the next is what there is.
+        self.recent_scans = collections.deque(maxlen=max(0, self.n_ghosts))
+        self.ghost_plots = []
+        for i in range(self.n_ghosts):
+            fade = int(140 * (i + 1) / (self.n_ghosts + 1))
+            self.ghost_plots.append(self.peak_wid.plot(
+                [], [], pen=pg.mkPen(color=(0, 250, 0, fade), width=1)))
+        # components next, so the scan and the total fit draw on top of them
         self.base_plot = self.peak_wid.plot([], [], pen=self.base_pen, name='Background')
         self.g1_plot = self.peak_wid.plot([], [], pen=self.g1_pen, name='Peak 1')
         self.g2_plot = self.peak_wid.plot([], [], pen=self.g2_pen, name='Peak 2')
@@ -472,6 +486,11 @@ class RunTab(QWidget):
         times = stop_stamp - result['duration'] + np.linspace(
             0, result['duration'], len(currs))
 
+        # Draw the shape straight away. update_scan_plot redraws it with the
+        # fit on top once the fitting thread finishes, which is a moment later
+        # and does not happen at all if the fit throws.
+        self.show_scan(currs, rs)
+
         # Same seeding as the stepped path: the event estimates its own start
         # parameters, helped by the last good fit since the peaks drift slowly.
         self.parent.end_event(currs.tolist(), waves.tolist(), rs.tolist(),
@@ -509,6 +528,7 @@ class RunTab(QWidget):
         '''
         curr, wave, r, time, status = tup     
         if 'done' in status:     # got last part of scan, reset and send to event
+            self.show_scan(self.scan_currs, self.scan_rs)
             # starting parameters are estimated from the scan data by the event itself,
             # seeded with the last good fit since the peaks drift slowly during a run
             self.parent.end_event(self.scan_currs, self.scan_waves, self.scan_rs, self.scan_times,
@@ -523,6 +543,20 @@ class RunTab(QWidget):
             self.scan_rs.append(float(r))
             self.scan_times.append(time.timestamp())
         
+    def show_scan(self, x, y):
+        """Draw an incoming scan, with no fit curves over it yet."""
+        self.peak_plot.setData(list(x), list(y))
+        for curve in (self.fit_plot, self.g1_plot, self.g2_plot, self.base_plot):
+            curve.setData([], [])
+        self.draw_ghosts()
+
+    def draw_ghosts(self):
+        """Redraw the previous scans behind the current one."""
+        for curve, (x, y) in zip(self.ghost_plots, self.recent_scans):
+            curve.setData(x, y)
+        for curve in self.ghost_plots[len(self.recent_scans):]:
+            curve.setData([], [])
+
     SYMBOL_LIMIT = 2000     # beyond this many scans, drop the markers
 
     def update_run_plot(self):
@@ -545,6 +579,12 @@ class RunTab(QWidget):
 
         if len(event.x_axis) == len(event.rs):
             self.peak_plot.setData(event.x_axis, event.rs)
+            # the scan just drawn becomes the newest of the faded ones behind
+            # the next arrival; appending after draw_ghosts keeps it out of
+            # its own backdrop
+            self.draw_ghosts()
+            if self.recent_scans.maxlen:
+                self.recent_scans.append((list(event.x_axis), list(event.rs)))
         for curve, ys in ((self.fit_plot, event.fit), (self.g1_plot, event.fit_g1),
                           (self.g2_plot, event.fit_g2), (self.base_plot, event.fit_base)):
             if len(ys) == len(event.x_axis):
