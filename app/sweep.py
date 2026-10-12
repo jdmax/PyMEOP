@@ -329,6 +329,9 @@ class SweepThread(QThread):
                   f"({self.probe.temp_status()}). Sweeping anyway, but the "
                   f"peak positions will drift.")
 
+    RAMP_EPSILON = 0.002    # fraction of the ramp counted as still advancing
+    RAMP_STALLED = 6        # reads without advancing that mean it has arrived
+
     def _follow_ramp(self, t_capture, plan):
         """Watch the scanned value for the whole ramp, returning (time, fraction).
 
@@ -345,6 +348,7 @@ class SweepThread(QThread):
         span = plan.end - plan.begin
         track = []
         deadline = time.time() + plan.duration * 2.0 + 5.0
+        furthest, stalled, moving = -1.0, 0, False
 
         while time.time() < deadline:
             if not self.is_running():
@@ -355,9 +359,21 @@ class SweepThread(QThread):
                 return track, False         # cannot follow it; fall back
             fraction = (value - plan.begin) / span
             track.append((now, fraction))
-            if fraction >= 0.995:           # the ramp has arrived
+            self.emit_progress(max(0.0, min(1.0, fraction)), 1.0)
+
+            # The end is where the value stops advancing, not where it reaches
+            # a particular number. The measured current sits a couple of
+            # tenths of a mA off the setpoint, which over a 30 mA span is most
+            # of a percent, so waiting for a fraction near one can wait for a
+            # number that never arrives.
+            if fraction > furthest + self.RAMP_EPSILON:
+                furthest, stalled = fraction, 0
+            else:
+                stalled += 1
+            if fraction > 0.1:
+                moving = True
+            if moving and stalled >= self.RAMP_STALLED:
                 return track, True
-            self.emit_progress(max(0.0, fraction), 1.0)
         return track, False
 
     def _fit_ramp(self, track, plan):

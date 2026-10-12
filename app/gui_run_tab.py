@@ -373,8 +373,12 @@ class RunTab(QWidget):
         self.recent_plots = []
         for age in range(self.n_previous):
             name = 'latest' if age == 0 else f'-{age}'
-            self.recent_plots.append(self.run_wid.plot(
-                [], [], pen=self.age_pen(age), name=name))
+            curve = self.run_wid.plot([], [], pen=self.age_pen(age), name=name)
+            # Curves added later would otherwise sit on top, putting the
+            # oldest scan in front of the newest. Ordering by age instead
+            # keeps the legend reading newest first.
+            curve.setZValue(-age)
+            self.recent_plots.append(curve)
         self.right.addWidget(self.run_wid)
         
         self.peak_wid = pg.PlotWidget(title='Probe Peaks')
