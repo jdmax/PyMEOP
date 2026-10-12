@@ -352,7 +352,7 @@ class SweepThread(QThread):
             value = self.probe.scan_value()
             now = time.time()
             if value is None:
-                return 0.0          # cannot tell, so assume it started at once
+                return 0.0, None    # cannot tell, so assume it started at once
             fraction = (value - plan.begin) / span
             if fraction > 0.35:
                 break
@@ -363,22 +363,17 @@ class SweepThread(QThread):
         if len(samples) < 4:
             if samples:             # too few to fit, fall back to one point
                 now, fraction = samples[0]
-                return max(0.0, now - fraction * plan.duration - t_capture)
-            return 0.0
+                return max(0.0, now - fraction * plan.duration - t_capture), None
+            return 0.0, None
 
         times = np.array([t for t, _ in samples])
         fracs = np.array([f for _, f in samples])
         slope, intercept = np.polyfit(times, fracs, 1)
         if slope <= 0:
-            return 0.0
+            return 0.0, None
 
         measured = 1.0 / slope      # seconds for the whole ramp
-        if abs(measured - plan.duration) > 0.1 * plan.duration:
-            print(f"Ramp is running in {measured:.2f} s against the "
-                  f"{plan.duration:.2f} s asked for. The current axis is "
-                  f"built from the requested time, so it will be stretched "
-                  f"by that ratio.")
-        return max(0.0, -intercept / slope - t_capture)
+        return max(0.0, -intercept / slope - t_capture), measured
 
     def _one_sweep(self):
         '''Run a single ramp and return its processed spectrum.'''
@@ -407,7 +402,21 @@ class SweepThread(QThread):
         started = t_capture
 
         if not self.triggered:
-            plan.t_offset = self._measure_ramp_start(t_capture, plan)
+            offset, measured = self._measure_ramp_start(t_capture, plan)
+            plan.t_offset = offset
+            # Use the rate the ramp actually ran at. Consecutive sweeps came
+            # back with peak separations 1.8% apart, which is the axis being
+            # stretched differently each time, not an offset. The requested
+            # duration is only a request; the fit says what happened.
+            if measured and abs(measured - self.duration) < 0.2 * self.duration:
+                plan.duration = measured
+
+        # The lock-in's own output filter is causal, so a feature reaches the
+        # capture that much after the laser passed it. It is small here, 6 ms
+        # against a 2 s ramp, but it flips sign with the ramp direction and so
+        # shows up as the alternating offset everything else has been chased
+        # out of.
+        plan.t_offset += float(self.lockin_config.get('group_delay', 0.0) or 0.0)
 
         n_target = plan.n_expected()
         target_bytes = n_target * self.nch * 4
@@ -460,6 +469,7 @@ class SweepThread(QThread):
         result['begin'] = begin
         result['end'] = end
         result['ramp_delay'] = plan.t_offset
+        result['ramp_duration'] = plan.duration
         try:
             result['temp_act'] = self.probe.read_temp_actual()
             result['temp_set'] = self.probe.read_temp()
