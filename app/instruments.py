@@ -159,6 +159,8 @@ class LockIn():
 
     TIME_CONSTANTS = [m * 10**e for e in range(-6, 5) for m in (1, 3)]   # OFLT index: 1 us .. 30 ks
     SLOPES = [6, 12, 18, 24]                                             # OFSL index, dB/oct
+    SENSITIVITIES = [m * 10**e for e in range(0, -10, -1) for m in (1, 0.5, 0.2)][:28]   # SCAL index: 1 V .. 1 nV
+    INPUT_RANGES = [1, 0.3, 0.1, 0.03, 0.01]                             # IRNG index, V
 
     # Settings that never change, in the order they are set: (command, value)
     FIXED = [
@@ -248,6 +250,24 @@ class LockIn():
         if ok:
             print(f"Lock-in configured: {self.TIME_CONSTANTS[tc_index]:g} s, {settings['lockin_slope_stepped']} dB/oct, reference {freq} Hz")
         return ok
+
+    def read_settings(self):
+        '''Read back the settings that shape the signal, to record with each event.
+        Read rather than assumed, so a change made on the front panel is captured.
+
+        Returns:
+            dict of sens_V, tc_s, slope_dB_oct and range_V, or None if the read failed
+        '''
+        try:
+            return {
+                'sens_V': self.SENSITIVITIES[int(self.query('SCAL?'))],
+                'tc_s': self.TIME_CONSTANTS[int(self.query('OFLT?'))],
+                'slope_dB_oct': self.SLOPES[int(self.query('OFSL?'))],
+                'range_V': self.INPUT_RANGES[int(self.query('IRNG?'))],
+            }
+        except Exception as e:
+            print(f"Lock-in settings read failed: {e}")
+            return None
 
     def read_all(self):
         '''Returns lock-in x, y, r as strings in V

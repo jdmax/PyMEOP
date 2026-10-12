@@ -449,12 +449,12 @@ class RunTab(QWidget):
     def build_scan(self, tup):
         '''Take emit from thread and add point to data        
         '''
-        curr, wave, r, time, status = tup     
+        curr, wave, r, time, status = tup[:5]
         if 'done' in status:     # got last part of scan, reset and send to event
             # starting parameters are estimated from the scan data by the event itself,
             # seeded with the last good fit since the peaks drift slowly during a run
             self.parent.end_event(self.scan_currs, self.scan_waves, self.scan_rs, self.scan_times,
-                                  self.last_good_pf)
+                                  self.last_good_pf, lockin=tup[5])
             self.scan_currs = []
             self.scan_waves = []
             self.scan_rs = []
@@ -849,8 +849,9 @@ class RunThread(QThread):
                 #    print(f"point {i}:", curr, wave)
                 self.reply.emit((curr, wave, float(x)*1000, datetime.datetime.now(), 'running'))    # turning lock-in V to mV
                 
-            self.scans += 1   
-            self.reply.emit((0, 0, 0, datetime.datetime.now(), 'done'))    
+            self.scans += 1
+            lockin_settings = self.parent.parent.lockin.read_settings()   # as they were at the scan's end
+            self.reply.emit((0, 0, 0, datetime.datetime.now(), 'done', lockin_settings))
                 
         if self.parent.parent.settings['scan_wave']: self.parent.parent.meter.stop_cont()
         self.parent.parent.probe.set_current(self.list[0])

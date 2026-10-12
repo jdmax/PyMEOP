@@ -149,12 +149,13 @@ class MainWindow(QMainWindow):
         '''Create new event instance'''
         self.event = Event(self)
 
-    def end_event(self, currs, waves, rs, times, seed=None):
+    def end_event(self, currs, waves, rs, times, seed=None, lockin=None):
 
         self.event.currs = currs
         self.event.waves = waves
         self.event.rs = rs
         self.event.times = times
+        self.event.lockin = lockin  # lock-in sensitivity, time constant, slope and input range, read at the scan's end
 
         self.event.stop_time = datetime.datetime.now(tz=datetime.timezone.utc)
         self.event.stop_stamp = self.event.stop_time.timestamp()
