@@ -21,7 +21,8 @@ from scipy import optimize
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.sweep import SweepPlan, process_sweep, smooth_zero_phase, bin_sweep
+from app.sweep import (SweepPlan, SweepThread, process_sweep,
+                       smooth_zero_phase, bin_sweep)
 
 
 # Truth, taken from the shape of a real scan (saved_session.yaml) but with the
@@ -174,6 +175,46 @@ def test_ramp_delay():
           f"{abs(corrected[0] - corrected[1]):.3f} mA corrected")
 
 
+def test_ramp_fit_spans_the_whole_ramp():
+    """Fitting the ramp over all of it must pin its end, not just its start.
+
+    An error in the fitted duration lands at the far end of the scan, where
+    it reaches past the real finish and sweeps static post-ramp samples into
+    the last bin. On the bench that bin came back at 0.51 against a 0.17
+    baseline, with twenty times its neighbours' internal scatter, and dragged
+    the fit with it.
+    """
+    rng = np.random.default_rng(3)
+    true_t0, true_duration = 0.25, 2.0
+    thread = SweepThread.__new__(SweepThread)      # only _fit_ramp is wanted
+    plan = SweepPlan(105.0, 135.0, true_duration, 1220.703125, 0.02)
+
+    def track(low, high):
+        points, t = [], true_t0
+        while True:
+            fraction = (t - true_t0) / true_duration
+            if fraction > high:
+                return points
+            if fraction >= low:
+                points.append((t + rng.normal(0, 0.015), fraction))
+            t += 0.021
+
+    spreads = {}
+    for low, high, label in ((0.05, 0.35, 'third'), (0.05, 0.95, 'whole')):
+        errors = []
+        for _ in range(200):
+            _, duration = thread._fit_ramp(track(low, high), plan)
+            errors.append(duration - true_duration)
+        spreads[label] = float(np.std(errors))
+
+    assert spreads['whole'] < spreads['third'] / 3, (
+        f"fitting the whole ramp should pin the duration far better: "
+        f"{1000 * spreads['whole']:.1f} ms against "
+        f"{1000 * spreads['third']:.1f} ms")
+    print(f"  ramp fit OK: duration scatter {1000 * spreads['third']:.0f} ms "
+          f"over a third, {1000 * spreads['whole']:.0f} ms over the whole ramp")
+
+
 def test_zero_phase():
     '''A symmetric kernel must not move a peak; a causal one does.'''
     x = np.linspace(0, 100, 4000)
@@ -209,6 +250,7 @@ def main():
     print("Unit checks")
     print("=" * 72)
     test_ramp_delay()
+    test_ramp_fit_spans_the_whole_ramp()
     test_zero_phase()
     test_binning()
 

@@ -208,7 +208,10 @@ class SweepThread(QThread):
         self.sweeps = 0
 
     def __del__(self):
-        self.wait()
+        try:
+            self.wait()
+        except RuntimeError:
+            pass        # never constructed as a thread, nothing to wait on
 
     # -- helpers -----------------------------------------------------------
 
@@ -326,54 +329,62 @@ class SweepThread(QThread):
                   f"({self.probe.temp_status()}). Sweeping anyway, but the "
                   f"peak positions will drift.")
 
-    def _measure_ramp_start(self, t_capture, plan):
-        """Seconds from the first captured sample to the ramp starting to move.
+    def _follow_ramp(self, t_capture, plan):
+        """Watch the scanned value for the whole ramp, returning (time, fraction).
 
-        Without this the whole spectrum is displaced by (delay * sweep speed).
-        At 15 mA/s a fifth of a second puts every feature 3 mA out, and since
-        the ramp direction alternates, consecutive sweeps land 6 mA apart --
-        which looks like the peaks wandering rather than like a timing error.
+        Reading the value throughout rather than only at the start matters for
+        two reasons. The fit then spans the whole ramp instead of its first
+        third, so the rate is pinned by the data rather than extrapolated
+        across the remaining two thirds. And the loop ends when the ramp does,
+        so the capture is stopped within one poll of the real end instead of
+        after a sample count computed from a model that might be wrong.
 
-        Taking a single reading and working backwards from it put consecutive
-        sweeps 111 ms apart, which is 1.7 mA of ramp and left most of a
-        milliamp of the original error behind. So the scanned value is
-        followed across the early part of the ramp and a line fitted to it:
-        where that line reaches the start of the range is when the ramp began,
-        and a fit over many points is not at the mercy of any one read.
-
-        The first few percent are skipped in case the controller takes a
-        moment to reach speed, and the fitted slope gives the ramp rate for
-        free, which is worth checking against the rate that was asked for.
+        The reads go to the laser, not the lock-in, so they cost the capture
+        nothing.
         """
         span = plan.end - plan.begin
-        samples = []
-        deadline = time.time() + plan.duration
+        track = []
+        deadline = time.time() + plan.duration * 2.0 + 5.0
+
         while time.time() < deadline:
+            if not self.is_running():
+                return track, False
             value = self.probe.scan_value()
-            now = time.time()
+            now = time.time() - t_capture
             if value is None:
-                return 0.0, None    # cannot tell, so assume it started at once
+                return track, False         # cannot follow it; fall back
             fraction = (value - plan.begin) / span
-            if fraction > 0.35:
-                break
-            if fraction > 0.05:     # past any run-up to speed
-                samples.append((now, fraction))
-            time.sleep(0.01)
+            track.append((now, fraction))
+            if fraction >= 0.995:           # the ramp has arrived
+                return track, True
+            self.emit_progress(max(0.0, fraction), 1.0)
+        return track, False
 
-        if len(samples) < 4:
-            if samples:             # too few to fit, fall back to one point
-                now, fraction = samples[0]
-                return max(0.0, now - fraction * plan.duration - t_capture), None
-            return 0.0, None
+    def _fit_ramp(self, track, plan):
+        """Start time and duration of the ramp, from the whole of it.
 
-        times = np.array([t for t, _ in samples])
-        fracs = np.array([f for _, f in samples])
+        Returns (t_offset, duration), or (None, None) if the track is too
+        thin to fit. The ends are left out: the controller takes a moment to
+        reach speed, and the last stretch can be rounding onto the final
+        value, so neither belongs in a straight line fit.
+        """
+        inner = [(t, f) for t, f in track if 0.05 <= f <= 0.95]
+        if len(inner) < 8:
+            return None, None
+
+        times = np.array([t for t, _ in inner])
+        fracs = np.array([f for _, f in inner])
         slope, intercept = np.polyfit(times, fracs, 1)
         if slope <= 0:
-            return 0.0, None
+            return None, None
 
-        measured = 1.0 / slope      # seconds for the whole ramp
-        return max(0.0, -intercept / slope - t_capture), measured
+        duration = 1.0 / slope
+        if abs(duration - plan.duration) > 0.2 * plan.duration:
+            print(f"Ramp measured at {duration:.2f} s against the "
+                  f"{plan.duration:.2f} s asked for, which is too far out to "
+                  f"trust; using the requested time.")
+            return None, None
+        return max(0.0, -intercept / slope), duration
 
     def _one_sweep(self):
         '''Run a single ramp and return its processed spectrum.'''
@@ -401,64 +412,39 @@ class SweepThread(QThread):
         self.probe.start_scan()
         started = t_capture
 
-        if not self.triggered:
-            offset, measured = self._measure_ramp_start(t_capture, plan)
-            plan.t_offset = offset
-            # Use the rate the ramp actually ran at. Consecutive sweeps came
-            # back with peak separations 1.8% apart, which is the axis being
-            # stretched differently each time, not an offset. The requested
-            # duration is only a request; the fit says what happened.
-            if measured and abs(measured - self.duration) < 0.2 * self.duration:
-                plan.duration = measured
+        if self.triggered:
+            arrived = self._wait_for_capture(plan, started)
+            if arrived is None:
+                return None
+        else:
+            track, finished = self._follow_ramp(t_capture, plan)
+            if not self.is_running():
+                self.lockin.capture_stop(wait=False)   # buffer is discarded
+                return None
+            if not finished:
+                print(f"The ramp did not reach its end within "
+                      f"{plan.duration * 2.0 + 5.0:.0f} s; using what was "
+                      f"captured.")
+            offset, duration = self._fit_ramp(track, plan)
+            if offset is not None:
+                plan.t_offset = offset
+                plan.duration = duration
 
         # The lock-in's own output filter is causal, so a feature reaches the
         # capture that much after the laser passed it. It is small here, 6 ms
         # against a 2 s ramp, but it flips sign with the ramp direction and so
-        # shows up as the alternating offset everything else has been chased
-        # out of.
+        # shows up as an alternating offset.
         plan.t_offset += float(self.lockin_config.get('group_delay', 0.0) or 0.0)
 
-        n_target = plan.n_expected()
-        target_bytes = n_target * self.nch * 4
-        timeout = self.duration * 2.0 + 5.0
-
-        # The buffer cannot be read while it is filling: CAPTUREGET? raises a
-        # range error until the capture is stopped (SR860 manual p140). So the
-        # ramp is watched through CAPTUREBYTES?, which is live, and the data is
-        # fetched once at the end. That is why the plot updates per sweep
-        # rather than continuously during one.
-        while True:
-            if not self.is_running():
-                self.lockin.capture_stop(wait=False)   # buffer is discarded
-                return None
-
-            captured = self.lockin.capture_bytes()
-            if captured >= target_bytes:
-                break
-            if time.time() - started > timeout:
-                self.lockin.capture_stop(wait=False)
-                if self.triggered and captured == 0:
-                    raise TimeoutError(
-                        f"The capture never triggered in {timeout:.1f} s. The "
-                        f"SR860 waits on a falling edge at its rear Trig In; "
-                        f"check the cable, the trigger output channel, and "
-                        f"whether the edge needs inverting. "
-                        f"sweep_sync: 'software' works without it.")
-                raise TimeoutError(
-                    f"Captured {captured}/{target_bytes} bytes in "
-                    f"{timeout:.1f} s. Check that the wide-scan actually "
-                    f"started.")
-            self.emit_progress(captured, target_bytes)
-            time.sleep(0.05)
-
         # Waits for CAPTURESTAT? bit 0 to clear -- CAPTURESTOP only halts at
-        # the next 2 kB boundary and CAPTUREGET? is refused until then.
+        # the next 2 kB boundary and CAPTUREGET? is refused until then. The
+        # buffer cannot be read while it fills at all (SR860 manual p140),
+        # which is why there is no live trace during a ramp.
         self.lockin.capture_stop()
         samples = self.lockin.capture_read_all()
         if samples is None or len(samples) < 10:
             raise IOError(f"Capture buffer came back empty after a "
                           f"{self.duration:.1f} s ramp")
-        samples = samples[:n_target]
 
         result = process_sweep(samples, plan,
                                self.settings.get('sweep_bins', 100),
@@ -478,17 +464,35 @@ class SweepThread(QThread):
             pass        # a temperature read must never lose a good sweep
         return result
 
-    def emit_progress(self, captured, target):
-        '''Report how far through the ramp we are.
+    def _wait_for_capture(self, plan, started):
+        """Wait for a triggered capture to fill. Returns None if abandoned.
 
-        The capture buffer is unreadable until the sweep ends, so this carries
-        a fraction rather than data. The trace signal still fires once per
-        completed sweep.
-        '''
-        try:
-            self.trace.emit({'progress': min(1.0, captured / float(target))})
-        except Exception:
-            pass        # a dropped progress frame must never kill acquisition
+        Only the triggered path needs this: there the capture start is tied to
+        the ramp by hardware, so the sample count is the thing to wait on.
+        """
+        target_bytes = plan.n_expected() * self.nch * 4
+        timeout = self.duration * 2.0 + 5.0
+        while True:
+            if not self.is_running():
+                self.lockin.capture_stop(wait=False)
+                return None
+            captured = self.lockin.capture_bytes()
+            if captured >= target_bytes:
+                return captured
+            if time.time() - started > timeout:
+                self.lockin.capture_stop(wait=False)
+                if captured == 0:
+                    raise TimeoutError(
+                        f"The capture never triggered in {timeout:.1f} s. The "
+                        f"SR860 waits on a falling edge at its rear Trig In; "
+                        f"check the cable, the trigger output channel, and "
+                        f"whether the edge needs inverting. "
+                        f"sweep_sync: 'software' works without it.")
+                raise TimeoutError(
+                    f"Captured {captured}/{target_bytes} bytes in "
+                    f"{timeout:.1f} s with the trigger armed.")
+            self.emit_progress(captured, target_bytes)
+            time.sleep(0.05)
 
 
 class WavemeterThread(QThread):
