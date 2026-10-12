@@ -26,13 +26,14 @@ class RunTab(QWidget):
         
         # pyqtgrph styles        
         pg.setConfigOptions(antialias=True)
-        self.run_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
         self.peak_pen = pg.mkPen(color=(0, 250, 0), width=3)
         self.fit_pen = pg.mkPen(color=(0, 0, 250), width=1.5)
         # fit components, drawn part transparent so they read as underneath the fit
         self.g1_pen = pg.mkPen(color=(250, 140, 0, 120), width=1.5)
         self.g2_pen = pg.mkPen(color=(190, 0, 250, 120), width=1.5)
         self.base_pen = pg.mkPen(color=(130, 130, 130, 120), width=1.5)
+        self.hist1_pen = pg.mkPen(color=(250, 140, 0), width=1)
+        self.hist2_pen = pg.mkPen(color=(190, 0, 250), width=1)
         self.pol_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
         pg.setConfigOption('background', 'w')
         pg.setConfigOption('foreground', 'k')
@@ -41,11 +42,6 @@ class RunTab(QWidget):
         self.scan_waves = []
         self.scan_rs = []
         self.scan_times = []
-        
-        self.currs = []
-        self.waves = []
-        self.rs = []
-        self.times = []
         
         self.pol_hist = {}    # polarization history keyed on stop timestamp
         self.amp_hist = {}    # peak 1 and 2 amplitudes, same keys, to take a zero from a range of scans
@@ -362,14 +358,20 @@ class RunTab(QWidget):
         self.right = QVBoxLayout()     # right part of main layout
         self.main.addLayout(self.right)             
         
-        self.run_wid = pg.PlotWidget()
-        self.time_axis = pg.DateAxisItem(orientation='bottom')
-        self.run_wid = pg.PlotWidget(
-            title='Running Scan', axisItems={'bottom': self.time_axis}
-        )
-        self.run_wid.showGrid(True,True)
+        # Peak amplitudes per scan, against scan number rather than time: a
+        # swept scan only yields a point when it finishes, so a time axis is
+        # mostly the gaps between sweeps.
+        self.run_wid = pg.PlotWidget(title='Peak Amplitude History')
+        self.run_wid.showGrid(True, True)
         self.run_wid.addLegend(offset=(0.5, 0))
-        self.run_plot = self.run_wid.plot([], [], pen=self.run_pen)         
+        self.run_wid.setLabel('bottom', 'Scan')
+        self.run_wid.setLabel('left', 'Amplitude')
+        self.peak1_hist_plot = self.run_wid.plot(
+            [], [], pen=self.hist1_pen, symbol='o', symbolSize=5,
+            symbolPen=None, symbolBrush=(250, 140, 0), name='Peak 1')
+        self.peak2_hist_plot = self.run_wid.plot(
+            [], [], pen=self.hist2_pen, symbol='o', symbolSize=5,
+            symbolPen=None, symbolBrush=(190, 0, 250), name='Peak 2')
         self.right.addWidget(self.run_wid)
         
         self.peak_wid = pg.PlotWidget(title='Probe Peaks')
@@ -464,22 +466,11 @@ class RunTab(QWidget):
         rs = np.asarray(result['rs'], dtype=float)
         waves = np.asarray(result.get('waves', np.zeros(len(currs))), dtype=float)
 
-        # Spread timestamps across the ramp so the running time-series plot
-        # still shows the sweep as it happened.
+        # Timestamps spread across the ramp, so the event records when each
+        # point was actually measured.
         stop_stamp = result['stamp'].timestamp()
         times = stop_stamp - result['duration'] + np.linspace(
             0, result['duration'], len(currs))
-
-        self.currs.extend(currs.tolist())
-        self.waves.extend(waves.tolist())
-        self.rs.extend(rs.tolist())
-        self.times.extend(times.tolist())
-        while len(self.currs) > 600:
-            self.currs.pop(0)
-            self.waves.pop(0)
-            self.rs.pop(0)
-            self.times.pop(0)
-        self.update_run_plot()
 
         # Same seeding as the stepped path: the event estimates its own start
         # parameters, helped by the last good fit since the peaks drift slowly.
@@ -527,26 +518,25 @@ class RunTab(QWidget):
             self.scan_rs = []
             self.scan_times = []
         else:             
-            self.currs.append(float(curr))
-            self.waves.append(float(wave))
-            self.rs.append(float(r))
-            self.times.append(time.timestamp())
             self.scan_currs.append(float(curr))
             self.scan_waves.append(float(wave))
             self.scan_rs.append(float(r))
             self.scan_times.append(time.timestamp())
-            if len(self.currs) > 600:
-                self.currs.pop(0)
-                self.waves.pop(0)
-                self.rs.pop(0)
-                self.times.pop(0)
-            self.update_run_plot()        
         
+    SYMBOL_LIMIT = 2000     # beyond this many scans, drop the markers
+
     def update_run_plot(self):
-        '''Update plots with new data
-        '''
-        #print(self.scan_waves, self.scan_rs)
-        self.run_plot.setData(self.times, self.rs)
+        """Draw the fitted peak amplitudes against scan number.
+
+        amp_hist is keyed on the scan's stop time, because selecting a zero
+        from a range of scans works in time. Here the order is what matters,
+        so the keys are only used to put the values in sequence.
+        """
+        amps = [self.amp_hist[t] for t in sorted(self.amp_hist)]
+        index = list(range(1, len(amps) + 1))
+        symbol = 'o' if len(amps) <= self.SYMBOL_LIMIT else None
+        self.peak1_hist_plot.setData(index, [a[0] for a in amps], symbol=symbol)
+        self.peak2_hist_plot.setData(index, [a[1] for a in amps], symbol=symbol)
         
     def update_scan_plot(self):
         '''Update tab with new data
@@ -592,6 +582,7 @@ class RunTab(QWidget):
 
         self.pol_hist[event.stop_stamp] = event.pol*100
         self.amp_hist[event.stop_stamp] = (event.peak1, event.peak2)
+        self.update_run_plot()
         self.update_pol_plot()
         self.pol_value.setText(f"{event.pol*100:.2f}%")
         if self.range_button.isChecked():
