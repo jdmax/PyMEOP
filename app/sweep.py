@@ -31,12 +31,17 @@ SIGNAL_SCALE = 1000.0       # lock-in volts -> mV, matching the old stepped path
 class SweepPlan():
     '''Everything needed to turn a sample index into a laser current.'''
 
-    def __init__(self, begin, end, duration, rate, settle_frac=0.0):
+    def __init__(self, begin, end, duration, rate, settle_frac=0.0,
+                 t_offset=0.0):
         self.begin = float(begin)
         self.end = float(end)
         self.duration = float(duration)
         self.rate = float(rate)
         self.settle_frac = float(settle_frac)
+        # Seconds between the first captured sample and the ramp starting to
+        # move. Starting the scan is a separate round trip and the controller
+        # takes its own time to begin; measured here rather than assumed zero.
+        self.t_offset = float(t_offset)
 
     @property
     def speed(self):
@@ -48,15 +53,18 @@ class SweepPlan():
         return self.end < self.begin
 
     def n_expected(self):
-        return int(round(self.rate * self.duration))
+        '''Samples needed to cover the ramp, including the wait before it.'''
+        return int(round(self.rate * (self.duration + self.t_offset)))
 
     def currents(self, n_samples):
         '''Current at each captured sample.
 
         Mapped through time rather than through sample count so that
-        over-capturing at the end of a ramp cannot rescale the axis.
+        over-capturing at the end of a ramp cannot rescale the axis. Samples
+        taken before the ramp moved come out with frac below zero and are
+        dropped by the caller.
         '''
-        t = np.arange(n_samples) / self.rate
+        t = np.arange(n_samples) / self.rate - self.t_offset
         frac = t / self.duration
         return self.begin + (self.end - self.begin) * frac, frac
 
@@ -264,9 +272,11 @@ class SweepThread(QThread):
         # Capture geometry is the same for every sweep, so configure it once
         # rather than paying four round trips of dead time between ramps. The
         # buffer is sized past the end of the ramp; the overhang is discarded.
+        # Sized for the ramp plus the wait before it starts, which is up to a
+        # few hundred ms; the overhang is discarded when the samples are mapped.
         self.rate, self.nch, _kb = self.lockin.capture_config(
             self.settings.get('capture_rate', 1220), 'XY',
-            seconds=self.duration * 1.2)
+            seconds=self.duration * 1.2 + 1.0)
 
     def _settle_temperature(self):
         """Set the diode temperature and wait for the controller to settle.
@@ -303,6 +313,32 @@ class SweepThread(QThread):
                   f"({self.probe.temp_status()}). Sweeping anyway, but the "
                   f"peak positions will drift.")
 
+    def _measure_ramp_start(self, t_capture, plan):
+        """Seconds from the first captured sample to the ramp starting to move.
+
+        Without this the whole spectrum is displaced by (delay * sweep speed).
+        At 15 mA/s a fifth of a second puts every feature 3 mA out, and since
+        the ramp direction alternates, consecutive sweeps land 6 mA apart --
+        which looks like the peaks wandering rather than like a timing error.
+
+        The scanned value itself says when the ramp began: reading it at time
+        t, a fraction f of the way along, puts the start at t - f * duration.
+        That cancels the round trip taken to read it, so the delay comes out
+        right even though the read is not instant.
+        """
+        span = plan.end - plan.begin
+        deadline = time.time() + plan.duration
+        while time.time() < deadline:
+            value = self.probe.scan_value()
+            now = time.time()
+            if value is None:
+                return 0.0          # cannot tell, so assume it started at once
+            fraction = (value - plan.begin) / span
+            if fraction > 0.02:     # moving, and far enough along to be sure
+                return max(0.0, now - fraction * plan.duration - t_capture)
+            time.sleep(0.01)
+        return 0.0
+
     def _one_sweep(self):
         '''Run a single ramp and return its processed spectrum.'''
         begin, end = self._limits()
@@ -314,8 +350,12 @@ class SweepThread(QThread):
                                     continuous=False)
 
         self.lockin.capture_start(continuous=False, triggered=self.triggered)
+        t_capture = time.time()
         self.probe.start_scan()
-        started = time.time()
+        started = t_capture
+
+        if not self.triggered:
+            plan.t_offset = self._measure_ramp_start(t_capture, plan)
 
         n_target = plan.n_expected()
         target_bytes = n_target * self.nch * 4
@@ -361,6 +401,7 @@ class SweepThread(QThread):
         result['t_start'] = started
         result['begin'] = begin
         result['end'] = end
+        result['ramp_delay'] = plan.t_offset
         try:
             result['temp_act'] = self.probe.read_temp_actual()
             result['temp_set'] = self.probe.read_temp()

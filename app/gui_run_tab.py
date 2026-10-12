@@ -505,7 +505,8 @@ class RunTab(QWidget):
                                       'lockin': result.get('lockin', {}),
                                       'temp_act': result.get('temp_act'),
                                       'temp_set': result.get('temp_set'),
-                                      'temp_ready': result.get('temp_ready')})
+                                      'temp_ready': result.get('temp_ready'),
+                                      'ramp_delay': result.get('ramp_delay')})
 
     def live_trace(self, partial):
         '''Show ramp progress.

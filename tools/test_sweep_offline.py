@@ -144,6 +144,36 @@ def report(name, pf):
                 ratio_scatter=ratio.std() / ratio.mean())
 
 
+def test_ramp_delay():
+    """A measured start delay must put both sweep directions on the same axis.
+
+    The ramp does not begin the instant the capture does. Treating it as if
+    it did displaces the spectrum by delay * sweep speed, with the sign set by
+    the ramp direction -- so alternating sweeps land twice that far apart and
+    the peaks look like they are wandering. Bench data showed 3.34 mA either
+    way at 15 mA/s, which is 223 ms.
+    """
+    rate, duration, delay, true_peak = 1220.703125, 2.0, 0.223, 115.33
+
+    def where(begin, end, offset):
+        plan = SweepPlan(begin, end, duration, rate, 0.02, t_offset=offset)
+        current, _ = plan.currents(plan.n_expected())
+        # the sample at which the laser really passes true_peak
+        t = delay + abs(true_peak - begin) / abs(end - begin) * duration
+        return current[min(int(round(t * rate)), len(current) - 1)]
+
+    uncorrected = [where(105.0, 135.0, 0.0), where(135.0, 105.0, 0.0)]
+    spread = abs(uncorrected[0] - uncorrected[1])
+    assert spread > 6.0, f"expected the known 6.7 mA split, got {spread:.3f}"
+
+    corrected = [where(105.0, 135.0, delay), where(135.0, 105.0, delay)]
+    for got in corrected:
+        assert abs(got - true_peak) < 0.05, (
+            f"corrected sweep puts the peak at {got:.3f}, not {true_peak}")
+    print(f"  ramp delay OK: {spread:.2f} mA apart uncorrected, "
+          f"{abs(corrected[0] - corrected[1]):.3f} mA corrected")
+
+
 def test_zero_phase():
     '''A symmetric kernel must not move a peak; a causal one does.'''
     x = np.linspace(0, 100, 4000)
@@ -178,6 +208,7 @@ def main():
     print("=" * 72)
     print("Unit checks")
     print("=" * 72)
+    test_ramp_delay()
     test_zero_phase()
     test_binning()
 
