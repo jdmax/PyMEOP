@@ -265,9 +265,17 @@ class SweepThread(QThread):
 
         self.triggered = self.settings.get('sweep_sync', 'software') == 'trigger'
         if self.triggered:
-            if not self.probe.set_scan_trigger(True):
+            channel = self.settings.get('trigger_channel')
+            if not self.probe.set_scan_trigger(True, channel=channel):
                 print("Falling back to software sweep sync")
                 self.triggered = False
+            elif self.settings.get('sweep_alternate', True):
+                print("sweep_alternate is on with a hardware trigger. The "
+                      "output asserts as the scan crosses the threshold, so "
+                      "whether it does that on the edge the SR860 wants may "
+                      "depend on the ramp direction. If only every other "
+                      "sweep triggers, either set sweep_alternate to False or "
+                      "invert the digital output.")
 
         # Capture geometry is the same for every sweep, so configure it once
         # rather than paying four round trips of dead time between ramps. The
@@ -343,11 +351,22 @@ class SweepThread(QThread):
         '''Run a single ramp and return its processed spectrum.'''
         begin, end = self._limits()
 
-        plan = SweepPlan(begin, end, self.duration, self.rate,
-                         self.settings.get('sweep_settle_frac', 0.02))
-
         self.probe.config_wide_scan('current', begin, end, self.duration,
                                     continuous=False)
+
+        if self.triggered:
+            # The capture starts as the scan crosses the threshold, so sample
+            # zero sits at a known current rather than at a guessed time. That
+            # pins the axis against a late start and a wrong ramp rate alike.
+            # Placed just inside the start so almost none of the ramp is lost.
+            fraction = float(self.settings.get('trigger_threshold_frac', 0.02))
+            threshold = begin + (end - begin) * fraction
+            self.probe.set_scan_trigger(True, threshold=threshold)
+            plan = SweepPlan(threshold, end,
+                             self.duration * (1.0 - fraction), self.rate, 0.0)
+        else:
+            plan = SweepPlan(begin, end, self.duration, self.rate,
+                             self.settings.get('sweep_settle_frac', 0.02))
 
         self.lockin.capture_start(continuous=False, triggered=self.triggered)
         t_capture = time.time()
@@ -376,11 +395,17 @@ class SweepThread(QThread):
                 break
             if time.time() - started > timeout:
                 self.lockin.capture_stop(wait=False)
+                if self.triggered and captured == 0:
+                    raise TimeoutError(
+                        f"The capture never triggered in {timeout:.1f} s. The "
+                        f"SR860 waits on a falling edge at its rear Trig In; "
+                        f"check the cable, the trigger output channel, and "
+                        f"whether the edge needs inverting. "
+                        f"sweep_sync: 'software' works without it.")
                 raise TimeoutError(
                     f"Captured {captured}/{target_bytes} bytes in "
                     f"{timeout:.1f} s. Check that the wide-scan actually "
-                    f"started" + (" and that the trigger is wired."
-                                  if self.triggered else "."))
+                    f"started.")
             self.emit_progress(captured, target_bytes)
             time.sleep(0.05)
 

@@ -350,14 +350,71 @@ class ProbeLaser():
         except Exception:
             return None, None
 
-    def set_scan_trigger(self, enabled):
-        """Enable the wide-scan trigger output so the lock-in can sync to it."""
+    def scan_trigger_config(self):
+        """Current wide-scan trigger output settings, for restoring later."""
+        trigger = self.wide_scan.trigger
+        config = {}
+        for key, param in (('enabled', trigger.output_enabled),
+                           ('channel', trigger.output_channel),
+                           ('threshold', trigger.output_threshold)):
+            try:
+                config[key] = param.get()
+            except Exception as e:
+                print(f"Could not read trigger {key} ({type(e).__name__}: {e})")
+        return config
+
+    def set_scan_trigger(self, enabled, channel=None, threshold=None):
+        """Configure the wide-scan trigger output.
+
+        The output asserts as the scanned value crosses threshold, so the
+        lock-in can start its capture at a known current rather than at a
+        time the host guessed. channel selects which physical output carries
+        it; the numbering is a bare integer, as the scan output channel was,
+        and tools/probe_trigger.py reads what a controller accepts.
+        """
+        trigger = self.wide_scan.trigger
         try:
-            self.wide_scan.trigger.output_enabled.set(bool(enabled))
+            if channel is not None:
+                trigger.output_channel.set(int(channel))
+            if threshold is not None:
+                trigger.output_threshold.set(float(threshold))
+            trigger.output_enabled.set(bool(enabled))
             return True
         except Exception as e:
             print(f"Wide-scan trigger config failed: {e}")
             return False
+
+    def digital_outputs(self):
+        """State of the four digital outputs, to see which one the trigger drives."""
+        board = self.dlc.io
+        states = {}
+        for i in range(4):
+            out = getattr(board, f'digital_out{i}', None)
+            if out is None:
+                continue
+            entry = {}
+            for key in ('mode', 'value_act', 'invert'):
+                try:
+                    entry[key] = getattr(out, key).get()
+                except Exception:
+                    entry[key] = None
+            states[i] = entry
+        return states
+
+    def set_digital_invert(self, index, invert):
+        """Flip the polarity of a digital output.
+
+        The SR860 triggers on a falling edge. If the DLC pro drives this one
+        the other way round the capture never starts, and inverting here is
+        easier than rewiring.
+        """
+        try:
+            getattr(self.dlc.io, f'digital_out{int(index)}').invert.set(bool(invert))
+            return True
+        except Exception as e:
+            print(f"Could not set digital output {index} invert: {e}")
+            return False
+
 
     def start_scan(self):
         """Start the wide scan."""

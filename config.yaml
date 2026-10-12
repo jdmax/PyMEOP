@@ -29,6 +29,7 @@ settings:
     lockin_slope: 12            # filter slope, dB/oct: 6, 12, 18 or 24
     lockin_sync: False          # synchronous filter (only useful below ~200 Hz reference)
     lockin_tc_stepped: 0.1      # TC used when sweep_mode is 'step' (legacy behaviour)
+    lockin_slope_stepped: 18    # slope to restore with it, see tools/restore_stepped.py
 
     # ---- Sweep acquisition -------------------------------------------------
     sweep_mode: 'wide'          # 'wide'  = DLC pro hardware ramp + SR860 capture
@@ -50,6 +51,13 @@ settings:
     sweep_sync: 'software'      # 'software' = start capture then start ramp
                                 # 'trigger'  = arm capture on SR860 trigger input,
                                 #              driven by the DLC pro wide-scan trigger out
+    trigger_channel:           # DLC pro trigger output channel. Blank leaves it
+                               # as set; tools/probe_trigger.py reads the numbers
+                               # this controller accepts and which output each drives.
+    trigger_threshold_frac: 0.02   # where in the ramp the trigger fires, as a
+                               # fraction. The capture then starts at that known
+                               # current, which pins the axis. Keep it small or
+                               # the start of the ramp is lost.
     capture_rate: 1220          # target capture rate in Hz (snapped to a native SR860 rate)
 
     # ---- Find tab ----------------------------------------------------------
