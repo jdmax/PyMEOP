@@ -17,15 +17,72 @@ It serves on <http://localhost:8000> and opens a browser. Useful flags:
 | `--host 0.0.0.0` | let other machines on the network reach it (default is localhost only) |
 | `--no-browser` | do not open a browser window |
 | `--data-dir DIR` | open this folder by default instead of `event_dir` from `config.yaml` |
+| `--db FILE` | cache database, default `webapp/cache/pymeop.sqlite` (see [Loading](#loading)) |
+| `--fit-workers N` | processes refitting runs side by side, default 2; 0 fits in the server process |
 
 No new dependencies: the server is Python standard library, and `dataset.py` uses
-`numpy` and `PyYAML`, which the DAQ application already needs. Refitting scans and
-drawing Voigt fits also need `scipy`, again already a DAQ requirement; it is only
-imported when one of those is asked for. The chart library
+`numpy`, `PyYAML` and `scipy`, which the DAQ application already needs. The chart library
 is vendored in `static/vendor/`, so the app works with no network connection.
 
 The default event directory comes from `event_dir` in `config.yaml`, so the
 browser looks where the DAQ writes unless told otherwise.
+
+## Running it on a server
+
+The browser can also run all the time on another machine, reading a copy of the
+event files that the DAQ machine mirrors to it. Run locally as above, it is
+unchanged.
+
+**Mirroring the data.** `deploy/mirror_data.sh` copies the DAQ's `data/` to any
+number of places with rsync, and is meant for cron on the DAQ machine:
+
+```
+* * * * * /home/daq/PyMEOP/deploy/mirror_data.sh /home/daq/PyMEOP/data epics:/srv/pymeop/data group:/group/xxx/pymeop/data >> /home/daq/PyMEOP/log/mirror.log 2>&1
+```
+
+Each destination is `user@host:/path` over ssh, or a local or mounted path. They
+are tried independently, so one being down does not hold up the rest, and the DAQ
+never waits on any of them. Copies at the destinations are never deleted, except
+the `current_` file of a run the DAQ has since closed and renamed, so a
+destination keeps everything even if the DAQ's own folder is cleared. The script
+prints only on failure.
+
+ssh must work without a password for the user cron runs as: make a key with
+`ssh-keygen -t ed25519`, add it to each destination with `ssh-copy-id`, and ssh
+to each host once by hand to accept its host key. Short names like `epics` above
+can be set up in `~/.ssh/config`.
+
+**Serving it.** On the server, a copy of the repository and a virtual environment
+with `numpy`, `scipy` and `PyYAML` is all it needs; the Qt and instrument
+packages in `requirements.txt` are for the DAQ only.
+
+```
+python3 -m venv .venv
+.venv/bin/pip install numpy scipy pyyaml
+```
+
+```
+deploy/start_server.sh /srv/pymeop/data [PORT]    # starts it in screen session pymeop-web
+deploy/stop_server.sh                             # stops it
+```
+
+Set `DEFAULT_DATA_DIR` and `DEFAULT_PORT` at the top of `start_server.sh` to
+start it with no arguments; arguments given still take precedence. The server
+runs in a detached `screen` session and is started again if it stops on an error. `screen -r pymeop-web`
+looks in on it (Ctrl-a d to leave it running); its output is also kept in
+`log/webapp.screen.log`. Live updates work as they do locally, a minute or so
+behind the DAQ, as often as cron mirrors.
+
+**Lab subnet only.** The server has no login, so let only the lab subnet reach
+its port with the firewall:
+
+```
+sudo ufw allow from 129.57.36.0/23 to any port 8000 proto tcp
+sudo ufw enable
+```
+
+with the subnet changed to the lab's. Check that ssh is still allowed
+(`sudo ufw allow ssh`) before enabling ufw on a remote machine.
 
 ## Choosing a folder
 
@@ -47,20 +104,26 @@ inside the default data directory.
 
 ## Loading
 
-The file list comes from a quick look at each event file: its lines are counted
-and only its first and last scans are read, for when the run started and
-stopped. A file's scans and their points are only parsed when it is opened from
-the list or ticked for the time plot. Listing a folder reads the files but does
-not parse them, so it is quick even for a big archive; while it works, the page
-shows a progress bar with the files and megabytes read so far. The list rows are
-kept, so opening the same folder again, or reloading the page, only reads the
-files that have changed. The server starts listing the default folder as soon as
-it starts.
+The server keeps what it reads from the event files in a cache database
+(`store.py`, SQLite, `webapp/cache/pymeop.sqlite` unless `--db` says otherwise):
+for each scan, where its line is in its file and its summary as the DAQ fit it,
+and every refit the browser has asked for. The file list, a run's scans and the
+time plot across many runs come from the database without parsing any files; a
+scan's points are read from its line in the file when it is opened.
 
-The server keeps the 24 most recently used parsed files in memory
-(`MAX_PARSED_RUNS` in `dataset.py`) and drops the oldest past that. Until a file
-has been opened, its row in the list counts any unreadable lines as scans, since
-only a full parse finds them.
+The first time the server sees a folder it reads every file in it, about 15 s
+for 400 MB, and the page shows a progress bar with the files and megabytes read
+so far. After that only files that have changed are read, and only their new
+lines, so a live run costs only its new scans. The server reads the default
+folder as soon as it starts and again every 10 seconds, so new scans are in the
+cache before anyone asks for them.
+
+The event files stay the record; the database can be deleted at any time, with
+the server stopped, and is rebuilt from them. Runs are known by the timestamp in
+their name and their first line rather than their path, so the DAQ renaming a
+file it closed, or a run copied into a folder of hand-picked runs, is not read
+or fit again. If a file is found to differ from what was read in, its run is
+dropped from the cache and the page asks for a reload.
 
 ## Watching a run live
 
@@ -69,11 +132,12 @@ directory every two seconds and redraws when a file changes, so a run the DAQ is
 writing grows on screen scan by scan: the run chart gains points, the tiles and
 the scan count update, and any zoom on the run chart is kept.
 
-Sitting on the **last scan of the newest run** means following it: each new scan
-opens as it arrives, and when the DAQ rolls over to a new event file (every 200
-scans, or when a run is stopped and started) the page moves to the new file.
-Anywhere else, the scan on screen stays put while the rest of the run updates
-around it. The DAQ renames a file when it closes it (`current_<start>.txt` becomes
+With the **newest run** open, the page follows the DAQ onto each new event file
+(every 200 scans, or when a run is stopped and started): the new file opens at
+its latest scan as soon as it has one, whichever scan of the old run was on
+screen. Sitting on the **last scan** of that run also follows it scan by scan,
+each new scan opening as it arrives; on an earlier scan, the scan on screen stays
+put while the rest of the run updates around it. The DAQ renames a file when it closes it (`current_<start>.txt` becomes
 `<start>__<stop>.txt`); the page follows the rename.
 
 The dot beside Live is green while watching, grey when paused, and red if the
@@ -177,10 +241,15 @@ polarization.
 - **Gaussian** or **Voigt**: every scan in that shape. Scans the DAQ already fit
   that way keep their stored fit; the rest are refit on the server with the DAQ's
   own fitting code (`app/scanfit.py`), in order, each seeded from the last good
-  fit as the DAQ does. A Voigt refit takes about 30 ms a scan, so the first look
-  at a long run in the other shape takes a few seconds. Meanwhile a bar under
+  fit as the DAQ does. A Voigt refit takes about 70 ms a scan, so the first look
+  at a long run in the other shape takes ten seconds or so. Meanwhile a bar under
   the top bar shows the run being refit and how many of its scans are done.
-  Refits are kept in memory, and a live run only refits its new scans.
+  Refits are saved in the cache database as they are made, so each run is fit
+  only once in each view, even across server restarts, and a live run only
+  refits its new scans. Fits within a run go in order, but separate runs are
+  fit side by side, one per `--fit-workers` process. A change to
+  `app/scanfit.py` makes the cached refits stale, and runs are refit when next
+  viewed.
 
 The fit panel says when a scan's fit is a refit, and names the checks a fit
 failed. **Show → Peak widths γ** plots the Lorentzian widths of Voigt fits. The
@@ -249,7 +318,8 @@ the selected scans were read off different recorded r₀ values.
 The earliest files with zero readings (before about 16:53 on 7 Jan 2022) have a
 stored `pol` of 1.0 for every scan, from a bug in the DAQ at the time. The browser
 recomputes P from the peak heights rather than reading `pol`, so those scans show
-the right value.
+the right value. The scan panel still shows the stored `pol` beside it as
+**Recorded P**, so the two can be compared.
 
 ## Baseline conventions
 
@@ -291,7 +361,8 @@ or sent to someone looking at the same data directory.
 ```
 webapp/
   server.py            HTTP server and JSON API
-  dataset.py           reads and caches the event files, rebuilds fit components
+  dataset.py           parses scans, rebuilds fit components
+  store.py             cache database of the files' scans and of refits
   fitting.py           exponential fits for build-up and relaxation times
 ../app/scanfit.py      the DAQ's peak fits, used here to refit scans
   static/

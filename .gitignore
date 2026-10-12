@@ -7,3 +7,5 @@ screenshots/*
 docs/
 app/__pycache__/*
 webapp/__pycache__/*
+webapp/cache/
+slowlog/*

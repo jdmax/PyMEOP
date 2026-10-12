@@ -11,7 +11,10 @@ import numpy as np
 
 from app import scanfit
 from app.sweep import SweepThread
- 
+
+HE3_GAMMA = 32.43410    # 3He gyromagnetic ratio over 2 pi, MHz/T (shielded helion, CODATA)
+N_OUT_MIN = 0.95        # lowest frequency on the SG380 type N output, MHz
+
    
 class RunTab(QWidget):
     '''Creates run tab. Starts threads for run and to update plots'''
@@ -45,6 +48,7 @@ class RunTab(QWidget):
         self.times = []
         
         self.pol_hist = {}    # polarization history keyed on stop timestamp
+        self.amp_hist = {}    # peak 1 and 2 amplitudes, same keys, to take a zero from a range of scans
         self.last_good_pf = None    # parameters of last good fit, seeds the next scan's fit
         
         
@@ -200,7 +204,14 @@ class RunTab(QWidget):
         self.zero2_edit.setEnabled(False)
         self.zero_layout.addWidget(self.zero2_edit, 0, 2)
         
-        self.zero_button = QPushButton("Set Current as Zero")      
+        # pick a span of scans on the polarization plot and zero on their mean amplitudes
+        self.range_button = QPushButton("Select Range", checkable=True)
+        self.range_button.setToolTip("Drag the shaded region on the polarization plot over "
+                                     "the scans to average for the zero amplitudes.")
+        self.range_button.toggled.connect(self.range_toggled)
+        self.zero_layout.addWidget(self.range_button, 1, 1)
+
+        self.zero_button = QPushButton("Set Current as Zero")
         self.zero_layout.addWidget(self.zero_button, 1, 2)
         self.zero_button.clicked.connect(self.zero_pushed)
         
@@ -214,6 +225,95 @@ class RunTab(QWidget):
         self.pol_value.setStyleSheet("font:30pt")
         self.pol_layout.addWidget(self.pol_value, 0, 1)
 
+
+
+        # Populate Signal Generator box
+        self.sg_box = QGroupBox('Discharge Signal Generator')
+        self.sg_box.setLayout(QGridLayout())
+        self.left.addWidget(self.sg_box)
+
+        self.sg_freq_label = QLabel("Frequency (MHz):")
+        self.sg_box.layout().addWidget(self.sg_freq_label, 0, 0)
+        self.sg_freq_edit = QLineEdit()
+        self.sg_freq_edit.setValidator(QDoubleValidator(0.0, 6000.0, 6, notation=QDoubleValidator.StandardNotation))
+        self.sg_freq_edit.returnPressed.connect(self.set_freq_pushed)
+        self.sg_box.layout().addWidget(self.sg_freq_edit, 0, 1)
+        self.sg_freq_button = QPushButton("Set Frequency")
+        self.sg_freq_button.clicked.connect(self.set_freq_pushed)
+        self.sg_box.layout().addWidget(self.sg_freq_button, 0, 2)
+
+        self.sg_amp_label = QLabel("Amplitude (Vpp):")
+        self.sg_box.layout().addWidget(self.sg_amp_label, 1, 0)
+        self.sg_amp_edit = QLineEdit()
+        self.sg_amp_edit.setValidator(QDoubleValidator(0.0, 10.0, 4, notation=QDoubleValidator.StandardNotation))
+        self.sg_amp_edit.returnPressed.connect(self.set_amp_pushed)
+        self.sg_box.layout().addWidget(self.sg_amp_edit, 1, 1)
+        self.sg_amp_button = QPushButton("Set Amplitude")
+        self.sg_amp_button.clicked.connect(self.set_amp_pushed)
+        self.sg_box.layout().addWidget(self.sg_amp_button, 1, 2)
+
+        # Drive at the 3He Larmor frequency: stops the discharge and scans, drives
+        # at the Larmor frequency for a time, then restores the discharge and scans
+        self.sg_box.layout().addWidget(self.parent.divider(), 2, 0, 1, 3)
+        self.larmor_field_label = QLabel("Field (T):")
+        self.sg_box.layout().addWidget(self.larmor_field_label, 3, 0)
+        self.larmor_field_edit = QLineEdit()
+        self.larmor_field_edit.setValidator(QDoubleValidator(0.0, 20.0, 6, notation=QDoubleValidator.StandardNotation))
+        self.larmor_field_edit.textChanged.connect(self.show_larmor_freq)
+        self.sg_box.layout().addWidget(self.larmor_field_edit, 3, 1)
+        self.larmor_freq_label = QLabel("")
+        self.sg_box.layout().addWidget(self.larmor_freq_label, 3, 2)
+
+        self.larmor_amp_label = QLabel("Drive Amplitude (Vpp):")
+        self.sg_box.layout().addWidget(self.larmor_amp_label, 4, 0)
+        self.larmor_amp_edit = QLineEdit()
+        self.larmor_amp_edit.setValidator(QDoubleValidator(0.0, 10.0, 4, notation=QDoubleValidator.StandardNotation))
+        self.sg_box.layout().addWidget(self.larmor_amp_edit, 4, 1)
+
+        # FM sweeps the drive back and forth across the Larmor frequency, so it is
+        # hit even if the field is not known exactly; blank or 0 drives at one frequency
+        self.larmor_dev_label = QLabel("FM Sweep ± (kHz):")
+        self.sg_box.layout().addWidget(self.larmor_dev_label, 5, 0)
+        self.larmor_dev_edit = QLineEdit()
+        self.larmor_dev_edit.setValidator(QDoubleValidator(0.0, 100000.0, 3, notation=QDoubleValidator.StandardNotation))
+        self.larmor_dev_edit.setPlaceholderText("0, no sweep")
+        self.larmor_dev_edit.textChanged.connect(self.show_larmor_freq)
+        self.larmor_dev_edit.textChanged.connect(self.show_sweep)
+        self.sg_box.layout().addWidget(self.larmor_dev_edit, 5, 1)
+        self.larmor_rate_edit = QLineEdit()
+        self.larmor_rate_edit.setValidator(QDoubleValidator(0.0001, 50000.0, 4, notation=QDoubleValidator.StandardNotation))
+        self.larmor_rate_edit.setPlaceholderText("Sweep rate (Hz)")
+        self.larmor_rate_edit.textChanged.connect(self.show_sweep)
+        self.sg_box.layout().addWidget(self.larmor_rate_edit, 5, 2)
+
+        # A ramp crosses the resonance once a period, always the same way, its jump
+        # back too quick to act; a triangle crosses it twice, there and back, so two
+        # adiabatic passes undo each other
+        self.larmor_wave_label = QLabel("Sweep Shape:")
+        self.sg_box.layout().addWidget(self.larmor_wave_label, 6, 0)
+        self.larmor_wave_combo = QComboBox()
+        self.larmor_wave_combo.addItem("Ramp", 1)        # SG380 MFNC codes
+        self.larmor_wave_combo.addItem("Triangle", 2)
+        self.larmor_wave_combo.currentIndexChanged.connect(self.show_sweep)
+        self.sg_box.layout().addWidget(self.larmor_wave_combo, 6, 1)
+        self.larmor_sweep_info = QLabel("")
+        self.larmor_sweep_info.setWordWrap(True)
+        self.sg_box.layout().addWidget(self.larmor_sweep_info, 6, 2)
+
+        self.larmor_time_label = QLabel("Drive Time (s):")
+        self.sg_box.layout().addWidget(self.larmor_time_label, 7, 0)
+        self.larmor_time_edit = QLineEdit()
+        self.larmor_time_edit.setValidator(QDoubleValidator(0.0, 3600.0, 3, notation=QDoubleValidator.StandardNotation))
+        self.larmor_time_edit.textChanged.connect(self.show_sweep)
+        self.sg_box.layout().addWidget(self.larmor_time_edit, 7, 1)
+        self.larmor_button = QPushButton("Drive at Larmor")
+        self.larmor_button.clicked.connect(self.larmor_pushed)
+        self.sg_box.layout().addWidget(self.larmor_button, 7, 2)
+
+        self.larmor_status = QLabel("")
+        self.larmor_status.setWordWrap(True)
+        self.sg_box.layout().addWidget(self.larmor_status, 8, 0, 1, 3)
+        self.larmor_running = False
 
 
         # Populate Discharge Off Relaxation box
@@ -290,7 +390,10 @@ class RunTab(QWidget):
         )
         self.pol_wid.showGrid(True,True)
         self.pol_wid.addLegend(offset=(0.5, 0))
-        self.pol_plot = self.pol_wid.plot([], [], pen=self.peak_pen)   
+        self.pol_plot = self.pol_wid.plot([], [], pen=self.peak_pen)
+        self.zero_region = pg.LinearRegionItem(brush=(0, 0, 250, 40))
+        self.zero_region.setZValue(-10)    # under the polarization curve
+        self.zero_region.sigRegionChanged.connect(self.show_range_count)
         self.right.addWidget(self.pol_wid)
 
     def line_shape(self):
@@ -336,7 +439,7 @@ class RunTab(QWidget):
         curr_list = np.linspace(start, stop, int(self.step_edit.text()))
         
         try:
-            self.turn_on_discharge()
+            self.turn_on_discharge('scan')
             if 'wide' in self.parent.settings.get('sweep_mode', 'wide'):
                 # Hardware ramp on the DLC pro, hardware-clocked capture on the
                 # SR860. Number of Steps is ignored here -- resolution comes
@@ -488,23 +591,94 @@ class RunTab(QWidget):
         self.peak2_edit.setText(f"{event.pf[5]:.4f}")
 
         self.pol_hist[event.stop_stamp] = event.pol*100
-        time_list = list(self.pol_hist.keys())
-        pol_list = [self.pol_hist[k] for k in self.pol_hist.keys()]
-        self.pol_plot.setData(time_list, pol_list)
+        self.amp_hist[event.stop_stamp] = (event.peak1, event.peak2)
+        self.update_pol_plot()
         self.pol_value.setText(f"{event.pol*100:.2f}%")
+        if self.range_button.isChecked():
+            self.show_range_count()
+
+    def update_pol_plot(self):
+        '''Draw the polarization history'''
+        time_list = list(self.pol_hist.keys())
+        pol_list = [self.pol_hist[k] for k in time_list]
+        self.pol_plot.setData(time_list, pol_list)
 
     def finish_scans(self):
         #if not self.relax_thread.isRunning():
+        if self.larmor_running:    # scans stopped for a Larmor drive, which restarts them
+            self.scan_button.setText("Larmor Drive")
+            self.scan_button.setEnabled(False)
+            return
         self.scan_button.setText("Run Scan")
         self.scan_button.setEnabled(True)
         print("scan thread outside", self.scan_thread.isRunning())
         
     def zero_pushed(self):
-        '''Set current peak amplitudes as zero'''
-        self.parent.event.p1_zero = float(self.peak1_edit.text())
-        self.parent.event.p2_zero = float(self.peak2_edit.text())   
-        self.zero1_edit.setText(self.peak1_edit.text())
-        self.zero2_edit.setText(self.peak2_edit.text())
+        '''Set current peak amplitudes as zero, or the mean over the selected range'''
+        if self.range_button.isChecked():
+            self.zero_from_range()
+            return
+        self.set_zero(float(self.peak1_edit.text()), float(self.peak2_edit.text()))
+
+    def set_zero(self, p1, p2):
+        '''Use these peak amplitudes as the zero, from the scan now running on'''
+        self.parent.event.p1_zero = p1
+        self.parent.event.p2_zero = p2
+        self.parent.slowlog.set('zero', [p1, p2], 'range' if self.range_button.isChecked() else 'user')
+        self.zero1_edit.setText(f"{p1:.4f}")
+        self.zero2_edit.setText(f"{p2:.4f}")
+
+    def range_stamps(self):
+        '''Stop timestamps of the good scans inside the selected region'''
+        lo, hi = self.zero_region.getRegion()
+        return [t for t in self.amp_hist if lo <= t <= hi]
+
+    def range_toggled(self, checked):
+        '''Show or hide the zero range region on the polarization plot'''
+        if checked:
+            if not self.amp_hist:
+                self.fit_status.setText("No good scans yet to select a zero range from.")
+                self.fit_status.setStyleSheet("color: #aa6600")
+                self.range_button.setChecked(False)
+                return
+            # start on the right third of the scans shown, so it is in view
+            (x_lo, x_hi), _ = self.pol_wid.viewRange()
+            times = [t for t in self.amp_hist if x_lo <= t <= x_hi] or list(self.amp_hist)
+            t_lo, t_hi = min(times), max(times)
+            self.zero_region.setRegion((t_hi - (t_hi - t_lo)/3, t_hi))
+            self.pol_wid.addItem(self.zero_region)
+            self.zero_button.setText("Set Range as Zero")
+            self.show_range_count()
+        else:
+            self.pol_wid.removeItem(self.zero_region)
+            self.zero_button.setText("Set Current as Zero")
+            self.range_button.setText("Select Range")
+
+    def show_range_count(self):
+        '''Say on the button how many scans the region covers'''
+        if self.range_button.isChecked():
+            self.range_button.setText(f"Cancel ({len(self.range_stamps())} scans)")
+
+    def zero_from_range(self):
+        '''Zero on the mean peak amplitudes of the scans in the region, and redraw
+        the polarization history against that zero'''
+        stamps = self.range_stamps()
+        if not stamps:
+            self.fit_status.setText("No good scans in the selected range.")
+            self.fit_status.setStyleSheet("color: #aa6600")
+            return
+        amps = np.array([self.amp_hist[t] for t in stamps])
+        p1, p2 = amps.mean(axis=0)
+        self.set_zero(p1, p2)
+        self.fit_status.setText(f"Zero set from the mean of {len(stamps)} scans.")
+        self.fit_status.setStyleSheet("color: #007700")
+
+        r0 = p1 / p2
+        for t, (a1, a2) in self.amp_hist.items():
+            ratio = (a1 / a2) / r0 if a2 else np.nan
+            self.pol_hist[t] = 100 * (ratio - 1) / (ratio + 1) if np.isfinite(ratio) and ratio != -1 else np.nan
+        self.update_pol_plot()
+        self.range_button.setChecked(False)
 
     def start_discharge_off_pushed(self):
         '''Start discharge off button pushed'''
@@ -540,13 +714,148 @@ class RunTab(QWidget):
             print('Exception starting relax thread: '+str(e))
 
 
-    def turn_off_discharge(self):
+    def turn_off_discharge(self, source='user'):
         '''Turn off signal generator'''
         self.parent.siggen.enable_n(False)
+        self.parent.slowlog.set('siggen.output', False, source, changed_only=True)
 
-    def turn_on_discharge(self):
+    def turn_on_discharge(self, source='user'):
         '''Turn on signal generator'''
         self.parent.siggen.enable_n(True)
+        self.parent.slowlog.set('siggen.output', True, source, changed_only=True)
+
+    def set_freq_pushed(self):
+        '''Send frequency from edit box to signal generator'''
+        try:
+            freq = float(self.sg_freq_edit.text())
+            self.parent.siggen.set_freq(freq)
+            self.parent.slowlog.set('siggen.freq', freq, 'user')
+            self.parent.status_bar.showMessage(f"Set signal generator frequency to {freq} MHz")
+        except Exception as e:
+            self.parent.status_bar.showMessage(f"Failed to set signal generator frequency: {e}")
+            print(f"Failed to set signal generator frequency: {e}")
+
+    def read_siggen(self):
+        '''Fill the signal generator boxes with the frequency and amplitude it is set to'''
+        try:
+            freq, amp = self.parent.siggen.read_freq(), self.parent.siggen.read_amp()
+            self.sg_freq_edit.setText(f"{freq:.6f}")
+            self.sg_amp_edit.setText(f"{amp:.4f}")
+            self.parent.slowlog.known('siggen.freq', freq)
+            self.parent.slowlog.known('siggen.amp', amp)
+        except Exception as e:
+            self.parent.status_bar.showMessage(f"Failed to read signal generator settings: {e}")
+            print(f"Failed to read signal generator settings: {e}")
+
+    def set_amp_pushed(self):
+        '''Send amplitude from edit box to signal generator'''
+        try:
+            amp = float(self.sg_amp_edit.text())
+            self.parent.siggen.set_amp(amp)
+            self.parent.slowlog.set('siggen.amp', amp, 'user')
+            self.parent.status_bar.showMessage(f"Set signal generator amplitude to {amp} Vpp")
+        except Exception as e:
+            self.parent.status_bar.showMessage(f"Failed to set signal generator amplitude: {e}")
+            print(f"Failed to set signal generator amplitude: {e}")
+
+    def larmor_freq(self):
+        '''3He Larmor frequency in MHz at the field in the edit box'''
+        return HE3_GAMMA * float(self.larmor_field_edit.text())
+
+    def larmor_dev(self):
+        '''FM sweep deviation in kHz either side of the Larmor frequency, 0 for none'''
+        text = self.larmor_dev_edit.text().strip()
+        return float(text) if text else 0.0
+
+    def show_larmor_freq(self):
+        '''Show the Larmor frequency for the field entered, and the range swept'''
+        try:
+            freq = self.larmor_freq()
+            dev = self.larmor_dev()
+        except ValueError:
+            self.larmor_freq_label.setText("")
+            return
+        text = f"Larmor: {freq:.6f} MHz"
+        if dev > 0:
+            text += f"\nsweeps {freq - dev/1e3:.4f} to {freq + dev/1e3:.4f} MHz"
+        self.larmor_freq_label.setText(text)
+        low = freq - dev/1e3 < N_OUT_MIN
+        self.larmor_freq_label.setStyleSheet("color: #aa0000" if low else "")
+
+    def show_sweep(self):
+        '''Show how fast the FM sweep moves through resonance, the transverse RF
+        field it needs to be adiabatic there, and how often it crosses resonance'''
+        try:
+            dev = self.larmor_dev() * 1e3                  # Hz
+            rate = float(self.larmor_rate_edit.text())
+        except ValueError:
+            dev = 0
+        if not dev > 0:
+            self.larmor_sweep_info.setText("")
+            return
+        ramp = self.larmor_wave_combo.currentData() == 1
+        speed = (2 if ramp else 4) * dev * rate            # Hz/s, full range per ramp, there and back per triangle
+        # adiabatic when d(omega)/dt << (gamma B1)^2, so B1 >> sqrt(df/dt / 2 pi) / gamma-bar
+        b1 = (speed / (2 * np.pi)) ** 0.5 / HE3_GAMMA      # HE3_GAMMA in MHz/T is Hz/uT
+        text = f"{speed/1e3:.3g} kHz/s, adiabatic if B1⊥ ≫ {b1:.2g} µT"
+        try:
+            crossings = (1 if ramp else 2) * rate * float(self.larmor_time_edit.text())
+            text += f", {crossings:.3g} crossings"
+        except ValueError:
+            pass
+        self.larmor_sweep_info.setText(text)
+
+    def larmor_pushed(self):
+        '''Stop discharge and scans, drive at the Larmor frequency, then restart them'''
+        if self.disoff_button.isChecked():
+            self.larmor_status.setText("Stop the discharge-off relaxation before a Larmor drive.")
+            return
+        try:
+            freq = self.larmor_freq()
+            drive_amp = float(self.larmor_amp_edit.text())
+            drive_time = float(self.larmor_time_edit.text())
+            dis_freq = float(self.sg_freq_edit.text())
+            dis_amp = float(self.sg_amp_edit.text())
+            dev = self.larmor_dev()
+            rate = float(self.larmor_rate_edit.text()) if dev > 0 else None
+        except ValueError:
+            self.larmor_status.setText("Enter field, drive amplitude, drive time, a sweep rate if "
+                                       "sweeping, and the discharge frequency and amplitude to return to.")
+            return
+        if freq - dev/1e3 < N_OUT_MIN:
+            self.larmor_status.setText(f"Drive reaches down to {freq - dev/1e3:.4f} MHz, below the "
+                                       f"{N_OUT_MIN} MHz floor of the type N output.")
+            return
+
+        restart = self.scan_button.isChecked()
+        self.larmor_running = True
+        self.larmor_button.setEnabled(False)
+        self.disoff_button.setEnabled(False)
+        self.scan_button.setEnabled(False)
+        if restart:
+            self.scan_button.setChecked(False)    # scan thread stops at the end of this sweep
+            self.scan_button.setText("Finishing...")
+        else:
+            self.scan_button.setText("Larmor Drive")
+
+        self.larmor_thread = LarmorThread(self, freq, drive_amp, drive_time, dis_freq, dis_amp, restart,
+                                         dev, rate, self.larmor_wave_combo.currentData())
+        self.larmor_thread.status.connect(self.larmor_status.setText)
+        self.larmor_thread.done.connect(self.larmor_finish)
+        self.larmor_thread.start()
+
+    def larmor_finish(self, restart):
+        '''Larmor drive over, discharge settings restored: restart scans if they were running'''
+        self.larmor_running = False
+        self.larmor_button.setEnabled(True)
+        self.scan_button.setEnabled(True)
+        if restart:
+            self.scan_button.setChecked(True)
+            self.scan_button.setText('Stop')
+            self.disoff_button.setEnabled(True)
+            self.start_scan()
+        else:
+            self.scan_button.setText("Run Scan")
 
     def turn_off_laser(self):
         '''Turn off laser'''
@@ -651,7 +960,7 @@ class RelaxThread(QThread):
                     self.parent.dis_label.setText(f"Waiting for scan to finish.")
                     time.sleep(0.5)
                 self.parent.scan_button.setText("Waiting...")
-                self.parent.turn_off_discharge()
+                self.parent.turn_off_discharge('relaxation')
             else:
                 start = time.time()
                 while time.time() - start < self.off_time:
@@ -660,7 +969,95 @@ class RelaxThread(QThread):
                     self.parent.dis_label.setText(f"Running discharge off for {int(left)} more seconds.")
                 self.parent.scan_button.setChecked(True)
                 self.parent.scan_button.setText("Running Relaxation")
-                self.parent.turn_on_discharge()
+                self.parent.turn_on_discharge('relaxation')
                 self.parent.start_scan()
 
         self.finished.emit()
+
+class LarmorThread(QThread):
+    '''Thread class for driving the discharge signal generator at the 3He Larmor frequency
+    Args:
+        parent
+        freq: Larmor frequency, MHz
+        drive_amp: amplitude to drive at, Vpp
+        drive_time: seconds to drive for
+        dis_freq, dis_amp: discharge frequency (MHz) and amplitude (Vpp) to restore after
+        restart: whether scans were running, waits for them to stop first
+        dev: FM sweep in kHz either side of freq, 0 to drive at freq alone
+        rate: FM sweeps per second, Hz
+        wave: FM waveform, SG380 MFNC code, 1 ramp or 2 triangle
+    '''
+    status = pyqtSignal(str)     # status text
+    done = pyqtSignal(bool)      # finished, carries restart
+
+    def __init__(self, parent, freq, drive_amp, drive_time, dis_freq, dis_amp, restart,
+                 dev=0, rate=None, wave=1):
+        QThread.__init__(self)
+        self.parent = parent
+        self.freq = freq
+        self.drive_amp = drive_amp
+        self.drive_time = drive_time
+        self.dis_freq = dis_freq
+        self.dis_amp = dis_amp
+        self.restart = restart
+        self.dev = dev
+        self.rate = rate
+        self.wave = wave
+
+    def __del__(self):
+        self.wait()
+
+    def run(self):
+        '''Stop discharge, drive at Larmor, restore discharge settings
+        '''
+        siggen = self.parent.parent.siggen
+        log = self.parent.parent.slowlog
+        saved_mod = None    # modulation settings to put back after an FM sweep
+        try:
+            if self.restart:
+                self.status.emit("Waiting for scan to finish.")
+                while self.parent.scan_thread.isRunning():
+                    time.sleep(0.1)
+
+            siggen.enable_n(False)
+            log.set('siggen.output', False, 'larmor', changed_only=True)
+            siggen.set_freq(self.freq)
+            log.set('siggen.freq', self.freq, 'larmor')
+            siggen.set_amp(self.drive_amp)
+            log.set('siggen.amp', self.drive_amp, 'larmor')
+            what = f"{self.freq:.6f} MHz"
+            if self.dev > 0:
+                saved_mod = siggen.read_modulation()
+                dev = siggen.set_fm(self.dev, self.rate, self.wave)
+                log.set('siggen.fm', {'dev_khz': dev, 'rate_hz': self.rate, 'wave': self.wave}, 'larmor')
+                shape = "ramp" if self.wave == 1 else "triangle"
+                what += f" ± {dev:g} kHz, {shape} at {self.rate:g} Hz"
+                if abs(dev - self.dev) > 1e-6 * self.dev:
+                    what += f" (asked for {self.dev:g} kHz; the SG380 set {dev:g})"
+            siggen.enable_n(True)
+            log.set('siggen.output', True, 'larmor', changed_only=True)
+            start = time.time()
+            left = self.drive_time
+            while left > 0:
+                self.status.emit(f"Driving at {what} for {left:.1f} more seconds.")
+                time.sleep(min(0.1, left))
+                left = self.drive_time - (time.time() - start)
+            self.status.emit(f"Drove at {what}, {self.drive_amp} Vpp for {self.drive_time} s.")
+        except Exception as e:
+            self.status.emit(f"Larmor drive failed: {e}")
+            print(f"Larmor drive failed: {e}")
+        finally:
+            try:    # always leave the generator at the discharge settings, output off
+                siggen.enable_n(False)
+                log.set('siggen.output', False, 'larmor', changed_only=True)
+                if saved_mod is not None:
+                    siggen.restore_modulation(saved_mod)
+                    log.set('siggen.fm', 'restored', 'larmor')
+                siggen.set_freq(self.dis_freq)
+                log.set('siggen.freq', self.dis_freq, 'larmor')
+                siggen.set_amp(self.dis_amp)
+                log.set('siggen.amp', self.dis_amp, 'larmor')
+            except Exception as e:
+                self.status.emit(f"Failed to restore discharge settings: {e}")
+                print(f"Failed to restore discharge settings: {e}")
+            self.done.emit(self.restart)
