@@ -121,12 +121,6 @@ GROUPS = {
     ],
 }
 
-LIAS_BITS = {0: 'ref unlock', 1: 'freq out of range', 4: 'data storage triggered',
-             5: 'data storage stopped', 6: 'input range overload', 7: 'ch1 output overload',
-             8: 'ch2 output overload', 9: 'ext ref unlock', 10: 'data storage overflow',
-             11: 'timebase out of range'}
-
-
 class SR860:
     '''Bare query-only connection, in the same style as app.instruments.LockIn'''
 
@@ -190,14 +184,18 @@ def main():
             print(f"    {label:24s} {shown}")
         print()
 
-    # Decode the status registers bit by bit
-    for cmd, bits in (('LIAS?', LIAS_BITS),):
+    # LIAS? bits latch until read, so the first read holds whatever has happened since the
+    # last read, possibly days ago. A second read a moment later shows what is still occurring.
+    def set_bits(reply):
         try:
-            value = int(raw[cmd])
-            flags = [name for bit, name in bits.items() if value & (1 << bit)]
-            print(f"{cmd} flags: {', '.join(flags) if flags else 'none'}")
+            value = int(reply)
         except (TypeError, ValueError):
-            pass
+            return 'no reply'
+        return ', '.join(str(b) for b in range(16) if value & (1 << b)) or 'none'
+    time.sleep(1)
+    print(f"LIAS? bits set, latched since last read: {set_bits(raw['LIAS?'])}")
+    print(f"LIAS? bits set in the last second:       {set_bits(li.query('LIAS?'))}")
+    print("    (check bit meanings against the LIA status register table in the SR860 manual)")
 
     xyr = li.query('SNAP? 0,1,2')
     if xyr:

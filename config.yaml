@@ -5,6 +5,9 @@ settings:
     meter_ip: 129.57.37.92
     siggen_ip: 129.57.37.95    #91
     lockin_ip: 129.57.37.101
+    lockin_tc_stepped: 0.003    # s, lock-in time constant set at startup
+    lockin_slope_stepped: 12    # dB/oct, lock-in filter slope set at startup: 6, 12, 18 or 24
+    lockin_ref_freq: 1000       # Hz, discharge modulation; startup warns if the lock-in sees otherwise
     labjack_ip: 129.57.37.97
     scan_wait: 0.01              # seconds between running scan current change and read
     temp_scan_wait: 0.2         # seconds between temp change and read

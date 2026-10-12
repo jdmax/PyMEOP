@@ -155,34 +155,110 @@ class WavelengthMeter():
 	
         
 class LockIn():
-    '''Access lock-in meter'''
-    
+    '''Access SR860 lock-in amplifier'''
+
+    TIME_CONSTANTS = [m * 10**e for e in range(-6, 5) for m in (1, 3)]   # OFLT index: 1 us .. 30 ks
+    SLOPES = [6, 12, 18, 24]                                             # OFSL index, dB/oct
+
+    # Settings that never change, in the order they are set: (command, value)
+    FIXED = [
+        ('RSRC', 1),      # external reference
+        ('RTRG', 0),      # sine trigger
+        ('REFZ', 0),      # 50 Ohm reference input
+        ('HARM', 1),      # detect at the fundamental
+        ('IVMD', 0),      # voltage input
+        ('ISRC', 0),      # A, not A-B
+        ('ICPL', 0),      # AC coupled
+        ('IGND', 0),      # floating shield
+        ('IRNG', 1),      # 300 mV input range
+        ('SCAL', 2),      # 200 mV sensitivity
+        ('SYNC', 0),      # sync filter off
+        ('ADVFILT', 0),   # advanced filter off
+        ('COFA 0,', 0), ('COFA 1,', 0), ('COFA 2,', 0),   # X, Y, R offsets off
+        ('CEXP 0,', 0), ('CEXP 1,', 0), ('CEXP 2,', 0),   # X, Y, R expand x1
+        ('CRAT 0,', 0), ('CRAT 1,', 0), ('CRAT 2,', 0),   # X, Y, R ratio off
+    ]
 
     def __init__(self, settings):
-        '''Start connection over telnet'''        
+        '''Start connection over telnet, then set the lock-in to its nominal settings'''
         self.ip = settings['lockin_ip']
         self.port = 23
- 
+
         try:
             self.tn = Telnet(self.ip, port=self.port, timeout=5)
             outp = self.tn.read_until(bytes("\r", 'ascii'),2).decode('ascii')
-                        
+
         except Exception as e:
             print(f"Lock-in connection failed on {self.ip}: {e}")
-                
-    def __del__(self):
-        #self.tn.close()  
-        pass
-        
-    def read_all(self):
-        '''Returns both all four lock-in parameters as x,y,r,theta
-        '''
-        self.tn.write(bytes(f"SNAPD?\r", 'ascii'))
+            return
+
         try:
-            x, y, r, th = self.tn.read_until(bytes("\r", 'ascii'),2).decode('ascii').split(',')
+            self.configure(settings)
+        except Exception as e:
+            print(f"Lock-in configuration failed: {e}")
+
+    def __del__(self):
+        #self.tn.close()
+        pass
+
+    def query(self, cmd):
+        '''Send a query and return the reply, retrying once if it goes unanswered'''
+        for attempt in range(2):
+            self.tn.read_very_eager()       # drop any late reply to an earlier query
+            self.tn.write(bytes(f"{cmd}\r", 'ascii'))
+            _, _, outp = self.tn.expect([rb"\r", rb"\n"], 2)
+            outp = outp.decode('ascii').strip()
+            if outp:
+                return outp
+        raise TimeoutError(f"no reply to {cmd}")
+
+    def set(self, cmd, value, pause=0.05):
+        '''Set one parameter and read it back. A command ending in a comma takes a channel
+        argument, e.g. "COFA 0," sets with "COFA 0, value" and reads with "COFA? 0".
+        Returns True if the read back matches.
+        '''
+        name, _, channel = cmd.partition(' ')
+        self.tn.write(bytes(f"{cmd} {value}\r" if not channel else f"{cmd}{value}\r", 'ascii'))
+        time.sleep(pause)
+        readback = self.query(f"{name}? {channel.rstrip(',')}".strip())
+        if int(float(readback)) != value:
+            print(f"Lock-in {cmd.rstrip(',')} set to {value} but reads back {readback}")
+            return False
+        return True
+
+    def configure(self, settings):
+        '''Set the lock-in to the nominal settings for the stepped DAQ. Phase is left alone.'''
+        ok = all([self.set(cmd, value) for cmd, value in self.FIXED])
+
+        tc = settings['lockin_tc_stepped']
+        tc_index = min(range(len(self.TIME_CONSTANTS)), key=lambda i: abs(math.log(self.TIME_CONSTANTS[i]/tc)))
+        if not math.isclose(self.TIME_CONSTANTS[tc_index], tc, rel_tol=0.01):
+            print(f"Lock-in time constant {tc} s is not an SR860 setting, using {self.TIME_CONSTANTS[tc_index]:g} s")
+        ok &= self.set('OFLT', tc_index, pause=0.3)    # changing the time constant reconfigures the filters
+        ok &= self.set('OFSL', self.SLOPES.index(settings['lockin_slope_stepped']))
+
+        freq = float(self.query('FREQDET?'))
+        if not math.isclose(freq, settings['lockin_ref_freq'], rel_tol=0.01):
+            print(f"Lock-in reference at {freq} Hz, expected {settings['lockin_ref_freq']} Hz. Is the discharge modulation on?")
+            ok = False
+        if int(self.query('ILVL?')) >= 4:
+            print("Lock-in input is overloaded (signal strength 4 of 4)")
+            ok = False
+
+        if ok:
+            print(f"Lock-in configured: {self.TIME_CONSTANTS[tc_index]:g} s, {settings['lockin_slope_stepped']} dB/oct, reference {freq} Hz")
+        return ok
+
+    def read_all(self):
+        '''Returns lock-in x, y, r as strings in V
+        '''
+        # SNAP? names its parameters, so a changed front-panel display can't change what is read
+        self.tn.write(bytes(f"SNAP? 0,1,2\r", 'ascii'))
+        try:
+            x, y, r = self.tn.read_until(bytes("\r", 'ascii'),2).decode('ascii').split(',')
         except Exception as e:
             print(f"Lock read failed: {e}")
-        return x, y, r   
+        return x, y, r
         
 class SigGen():
     '''Access signal generator for discharge control'''
