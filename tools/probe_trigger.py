@@ -13,6 +13,7 @@ original trigger settings are put back before exiting.
 '''
 import argparse
 import os
+import re
 import sys
 import time
 
@@ -28,12 +29,63 @@ def load_settings(path='config.yaml'):
         return yaml.load(f, Loader=yaml.FullLoader)['settings']
 
 
+def ask_range(prompt):
+    """Read a two-number range, however it is reasonably typed."""
+    while True:
+        answer = input(prompt).strip()
+        if not answer:
+            return None
+        # the lookbehind keeps '100-120' from reading as 100 and -120
+        numbers = re.findall(r'(?<![\d.])-?\d+\.?\d*', answer)
+        if len(numbers) >= 2:
+            return float(numbers[0]), float(numbers[1])
+        print("    try something like 100-120")
+
+
+def watch_outputs(probe, channels, begin, end, duration=2.0):
+    """Run a scan per candidate channel and see which output it drives.
+
+    The threshold is put mid-ramp on purpose. The output then holds one state
+    for the first half of the scan and the other for the second, which a
+    polled read will catch; a brief pulse at the very start would fall between
+    polls, since reading all four outputs costs four round trips.
+    """
+    threshold = begin + (end - begin) * 0.5
+    found = {}
+
+    for channel in channels:
+        probe.stop_scan()
+        if not probe.set_scan_trigger(True, channel=channel,
+                                      threshold=threshold):
+            continue
+        probe.config_wide_scan('current', begin, end, duration)
+
+        before = {i: s.get('value_act')
+                  for i, s in probe.digital_outputs().items()}
+        probe.start_scan()
+        seen = {i: {before[i]} for i in before}
+        deadline = time.time() + duration * 1.3
+        while time.time() < deadline:
+            for i, state in probe.digital_outputs().items():
+                seen.setdefault(i, set()).add(state.get('value_act'))
+        probe.stop_scan()
+
+        changed = [i for i, values in seen.items() if len(values) > 1]
+        found[channel] = changed
+        note = (f"digital-out{changed[0]}" if len(changed) == 1
+                else (f"several: {changed}" if changed else "nothing toggled"))
+        print(f"  channel {channel:>3}  ->  {note}")
+
+    return found
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--ip')
     ap.add_argument('--config', default='config.yaml')
     ap.add_argument('--max', type=int, default=16,
                     help='highest channel number to try (default 16)')
+    ap.add_argument('--watch', action='store_true',
+                    help='run a scan per candidate and see which output it drives')
     args = ap.parse_args()
 
     settings = load_settings(args.config)
@@ -55,6 +107,11 @@ def main():
         print(f"  {index:>4}  {str(state.get('mode')):<22} "
               f"{str(state.get('value_act')):>6}  {str(state.get('invert')):>8}")
 
+    print(chr(10) + "analog outputs: these carry voltages rather than logic,"
+          " so they are not what drives the trigger")
+    for name, state in probe.analog_outputs().items():
+        print(f"  {name}: {state}")
+
     print(f"\ntrying trigger output-channel 0..{args.max}")
     print(f"  {'ch':>4}  digital output modes after setting it")
     print("  " + "-" * 56)
@@ -68,6 +125,12 @@ def main():
             modes = {i: s.get('mode') for i, s in probe.digital_outputs().items()}
             accepted.append((channel, modes))
             print(f"  {channel:>4}  {modes}")
+        if args.watch and accepted:
+            limits = ask_range(chr(10) +
+                "  ramp range in mA to test with (e.g. 100-120): ")
+            if limits:
+                print(chr(10) + "watching the digital outputs during a scan")
+                watch_outputs(probe, [c for c, _ in accepted], *limits)
     finally:
         try:
             probe.set_scan_trigger(

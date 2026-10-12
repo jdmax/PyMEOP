@@ -401,6 +401,28 @@ class ProbeLaser():
             states[i] = entry
         return states
 
+    def analog_outputs(self):
+        """Settings of the two general purpose analog outputs, Out A and B.
+
+        These are voltage outputs, not logic, so they do not carry the
+        wide-scan trigger. Reported only so the probe can say so rather than
+        leave it an open question.
+        """
+        board = self.dlc.io
+        states = {}
+        for name in ('out_a', 'out_b'):
+            channel = getattr(board, name, None)
+            if channel is None:
+                continue
+            entry = {}
+            for key in ('voltage_set', 'voltage_min', 'voltage_max', 'status_txt'):
+                try:
+                    entry[key] = getattr(channel, key).get()
+                except Exception:
+                    entry[key] = None
+            states[name] = entry
+        return states
+
     def set_digital_invert(self, index, invert):
         """Flip the polarity of a digital output.
 
