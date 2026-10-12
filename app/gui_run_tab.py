@@ -33,8 +33,6 @@ class RunTab(QWidget):
         self.g1_pen = pg.mkPen(color=(250, 140, 0, 120), width=1.5)
         self.g2_pen = pg.mkPen(color=(190, 0, 250, 120), width=1.5)
         self.base_pen = pg.mkPen(color=(130, 130, 130, 120), width=1.5)
-        self.hist1_pen = pg.mkPen(color=(250, 140, 0), width=1)
-        self.hist2_pen = pg.mkPen(color=(190, 0, 250), width=1)
         self.pol_pen = pg.mkPen(color=(250, 0, 0), width=1.5)
         pg.setConfigOption('background', 'w')
         pg.setConfigOption('foreground', 'k')
@@ -45,7 +43,8 @@ class RunTab(QWidget):
         self.scan_times = []
         
         # How many previous scans stay on the plot behind the current one.
-        self.n_ghosts = int(parent.settings.get('scan_ghosts', 5))
+        # How many recent scans the top plot keeps on screen.
+        self.n_previous = int(parent.settings.get('previous_scans', 4))
 
         self.pol_hist = {}    # polarization history keyed on stop timestamp
         self.amp_hist = {}    # peak 1 and 2 amplitudes, same keys, to take a zero from a range of scans
@@ -362,36 +361,28 @@ class RunTab(QWidget):
         self.right = QVBoxLayout()     # right part of main layout
         self.main.addLayout(self.right)             
         
-        # Peak amplitudes per scan, against scan number rather than time: a
-        # swept scan only yields a point when it finishes, so a time axis is
-        # mostly the gaps between sweeps.
-        self.run_wid = pg.PlotWidget(title='Peak Amplitude History')
+        # The last few scans as they came in, newest brightest. There is no
+        # live trace during a ramp, since the capture buffer cannot be read
+        # while it fills, so seeing successive scans side by side is how a
+        # drifting shape or a bad sweep shows itself.
+        self.run_wid = pg.PlotWidget(title='Recent Scans')
         self.run_wid.showGrid(True, True)
         self.run_wid.addLegend(offset=(0.5, 0))
-        self.run_wid.setLabel('bottom', 'Scan')
-        self.run_wid.setLabel('left', 'Amplitude')
-        self.peak1_hist_plot = self.run_wid.plot(
-            [], [], pen=self.hist1_pen, symbol='o', symbolSize=5,
-            symbolPen=None, symbolBrush=(250, 140, 0), name='Peak 1')
-        self.peak2_hist_plot = self.run_wid.plot(
-            [], [], pen=self.hist2_pen, symbol='o', symbolSize=5,
-            symbolPen=None, symbolBrush=(190, 0, 250), name='Peak 2')
+        self.run_wid.setLabel('bottom', 'Current (mA)')
+        self.recent_scans = collections.deque(maxlen=max(1, self.n_previous))
+        self.recent_plots = []
+        for age in range(self.n_previous):
+            shade = int(255 * (1 - 0.6 * age / max(1, self.n_previous)))
+            name = 'latest' if age == 0 else f'-{age}'
+            self.recent_plots.append(self.run_wid.plot(
+                [], [], pen=pg.mkPen(color=(0, shade, 0), width=1.5),
+                name=name))
         self.right.addWidget(self.run_wid)
         
         self.peak_wid = pg.PlotWidget(title='Probe Peaks')
         self.peak_wid.showGrid(True,True)
         self.peak_wid.addLegend(offset=(0.5, 0))
-        # Previous scans, oldest faintest, drawn first so everything else sits
-        # on top of them. There is no live trace during a ramp -- the capture
-        # buffer cannot be read while it fills -- so watching the shape settle
-        # from one sweep to the next is what there is.
-        self.recent_scans = collections.deque(maxlen=max(0, self.n_ghosts))
-        self.ghost_plots = []
-        for i in range(self.n_ghosts):
-            fade = int(140 * (i + 1) / (self.n_ghosts + 1))
-            self.ghost_plots.append(self.peak_wid.plot(
-                [], [], pen=pg.mkPen(color=(0, 250, 0, fade), width=1)))
-        # components next, so the scan and the total fit draw on top of them
+        # components first, so the scan and the total fit draw on top of them
         self.base_plot = self.peak_wid.plot([], [], pen=self.base_pen, name='Background')
         self.g1_plot = self.peak_wid.plot([], [], pen=self.g1_pen, name='Peak 1')
         self.g2_plot = self.peak_wid.plot([], [], pen=self.g2_pen, name='Peak 2')
@@ -555,30 +546,18 @@ class RunTab(QWidget):
         self.peak_plot.setData(list(x), list(y))
         for curve in (self.fit_plot, self.g1_plot, self.g2_plot, self.base_plot):
             curve.setData([], [])
-        self.draw_ghosts()
-
-    def draw_ghosts(self):
-        """Redraw the previous scans behind the current one."""
-        for curve, (x, y) in zip(self.ghost_plots, self.recent_scans):
-            curve.setData(x, y)
-        for curve in self.ghost_plots[len(self.recent_scans):]:
-            curve.setData([], [])
-
-    SYMBOL_LIMIT = 2000     # beyond this many scans, drop the markers
 
     def update_run_plot(self):
-        """Draw the fitted peak amplitudes against scan number.
+        """Draw the most recent scans, newest brightest.
 
-        amp_hist is keyed on the scan's stop time, because selecting a zero
-        from a range of scans works in time. Here the order is what matters,
-        so the keys are only used to put the values in sequence.
+        The deque holds them newest first, which lines up with the curves:
+        index zero is the brightest and is labelled 'latest'.
         """
-        amps = [self.amp_hist[t] for t in sorted(self.amp_hist)]
-        index = list(range(1, len(amps) + 1))
-        symbol = 'o' if len(amps) <= self.SYMBOL_LIMIT else None
-        self.peak1_hist_plot.setData(index, [a[0] for a in amps], symbol=symbol)
-        self.peak2_hist_plot.setData(index, [a[1] for a in amps], symbol=symbol)
-        
+        for curve, (x, y) in zip(self.recent_plots, self.recent_scans):
+            curve.setData(x, y)
+        for curve in self.recent_plots[len(self.recent_scans):]:
+            curve.setData([], [])
+
     def update_scan_plot(self):
         '''Update tab with new data
         '''
@@ -586,12 +565,8 @@ class RunTab(QWidget):
 
         if len(event.x_axis) == len(event.rs):
             self.peak_plot.setData(event.x_axis, event.rs)
-            # the scan just drawn becomes the newest of the faded ones behind
-            # the next arrival; appending after draw_ghosts keeps it out of
-            # its own backdrop
-            self.draw_ghosts()
-            if self.recent_scans.maxlen:
-                self.recent_scans.append((list(event.x_axis), list(event.rs)))
+            # newest first, so the top plot's brightest curve is this scan
+            self.recent_scans.appendleft((list(event.x_axis), list(event.rs)))
         for curve, ys in ((self.fit_plot, event.fit), (self.g1_plot, event.fit_g1),
                           (self.g2_plot, event.fit_g2), (self.base_plot, event.fit_base)):
             if len(ys) == len(event.x_axis):

@@ -46,7 +46,8 @@ settings:
                                 # keep >= scanfit.MIN_FIT_POINTS (25), below which
                                 # the fitter reports the amplitude ratio as biased
     sweep_smooth: 0.02          # zero-phase smoothing window, seconds (0 disables)
-    scan_ghosts: 5              # previous scans left faintly on the peaks plot,
+    previous_scans: 4          # how many recent scans the top plot keeps on
+                               # screen, newest brightest
                                 # so a drifting shape is visible between sweeps; 0 off
     sweep_sync: 'software'      # 'software' = start capture then start ramp
                                 # 'trigger'  = arm capture on SR860 trigger input,

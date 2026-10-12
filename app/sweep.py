@@ -329,12 +329,19 @@ class SweepThread(QThread):
         the ramp direction alternates, consecutive sweeps land 6 mA apart --
         which looks like the peaks wandering rather than like a timing error.
 
-        The scanned value itself says when the ramp began: reading it at time
-        t, a fraction f of the way along, puts the start at t - f * duration.
-        That cancels the round trip taken to read it, so the delay comes out
-        right even though the read is not instant.
+        Taking a single reading and working backwards from it put consecutive
+        sweeps 111 ms apart, which is 1.7 mA of ramp and left most of a
+        milliamp of the original error behind. So the scanned value is
+        followed across the early part of the ramp and a line fitted to it:
+        where that line reaches the start of the range is when the ramp began,
+        and a fit over many points is not at the mercy of any one read.
+
+        The first few percent are skipped in case the controller takes a
+        moment to reach speed, and the fitted slope gives the ramp rate for
+        free, which is worth checking against the rate that was asked for.
         """
         span = plan.end - plan.begin
+        samples = []
         deadline = time.time() + plan.duration
         while time.time() < deadline:
             value = self.probe.scan_value()
@@ -342,10 +349,31 @@ class SweepThread(QThread):
             if value is None:
                 return 0.0          # cannot tell, so assume it started at once
             fraction = (value - plan.begin) / span
-            if fraction > 0.02:     # moving, and far enough along to be sure
-                return max(0.0, now - fraction * plan.duration - t_capture)
+            if fraction > 0.35:
+                break
+            if fraction > 0.05:     # past any run-up to speed
+                samples.append((now, fraction))
             time.sleep(0.01)
-        return 0.0
+
+        if len(samples) < 4:
+            if samples:             # too few to fit, fall back to one point
+                now, fraction = samples[0]
+                return max(0.0, now - fraction * plan.duration - t_capture)
+            return 0.0
+
+        times = np.array([t for t, _ in samples])
+        fracs = np.array([f for _, f in samples])
+        slope, intercept = np.polyfit(times, fracs, 1)
+        if slope <= 0:
+            return 0.0
+
+        measured = 1.0 / slope      # seconds for the whole ramp
+        if abs(measured - plan.duration) > 0.1 * plan.duration:
+            print(f"Ramp is running in {measured:.2f} s against the "
+                  f"{plan.duration:.2f} s asked for. The current axis is "
+                  f"built from the requested time, so it will be stretched "
+                  f"by that ratio.")
+        return max(0.0, -intercept / slope - t_capture)
 
     def _one_sweep(self):
         '''Run a single ramp and return its processed spectrum.'''
