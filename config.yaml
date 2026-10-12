@@ -34,6 +34,11 @@ settings:
     sweep_mode: 'wide'          # 'wide'  = DLC pro hardware ramp + SR860 capture
                                 # 'step'  = legacy point-by-point (unchanged old path)
     sweep_time: 2.0             # seconds for one Run-tab ramp
+    temp_wait: True            # wait for the diode temperature to settle before
+                               # sweeping. A DFB retunes in wavelength as the
+                               # temperature moves, so sweeping early puts the
+                               # peaks at a different current on every pass.
+    temp_timeout: 300          # seconds to wait for that before giving up
     sweep_alternate: True       # flip ramp direction each sweep (no flyback discontinuity)
     sweep_settle_frac: 0.02     # discard this fraction at the start of each ramp
     sweep_bins: 100             # number of binned points handed to the fit

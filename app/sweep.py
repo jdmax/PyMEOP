@@ -248,8 +248,7 @@ class SweepThread(QThread):
 
     def _setup(self):
         '''Apply the lock-in settings this acquisition mode depends on.'''
-        if self.temp is not None:
-            self.probe.set_temp(self.temp)
+        self._settle_temperature()
 
         self.lockin_config = self.lockin.configure(
             tc=self.settings.get('lockin_tc', 0.003),
@@ -268,6 +267,41 @@ class SweepThread(QThread):
         self.rate, self.nch, _kb = self.lockin.capture_config(
             self.settings.get('capture_rate', 1220), 'XY',
             seconds=self.duration * 1.2)
+
+    def _settle_temperature(self):
+        """Set the diode temperature and wait for the controller to settle.
+
+        A DFB tunes on current and temperature together, so sweeping while the
+        temperature is still moving puts the lines at a different current on
+        every pass. That reads as peaks wandering through the scan and as
+        noise when sweeps are compared, rather than as a temperature problem.
+        """
+        if self.temp is None:
+            return
+
+        try:
+            now = self.probe.read_temp()
+        except Exception:
+            now = None
+
+        if now is not None and abs(now - self.temp) > 0.01:
+            print(f"Probe temperature {now:.3f} -> {self.temp:.3f} C. A DFB "
+                  f"retunes in wavelength as it settles, so the peaks will "
+                  f"move until it does.")
+            self.probe.set_temp(self.temp)
+
+        if not self.settings.get('temp_wait', True):
+            return
+
+        def report(actual, setpoint, waited):
+            self.trace.emit({'message': f"waiting for {setpoint:.3f} C, "
+                                        f"at {actual:.3f} C after {waited:.0f} s"})
+
+        timeout = float(self.settings.get('temp_timeout', 300.0))
+        if not self.probe.wait_for_temp(timeout, report):
+            print(f"Temperature still not settled after {timeout:.0f} s "
+                  f"({self.probe.temp_status()}). Sweeping anyway, but the "
+                  f"peak positions will drift.")
 
     def _one_sweep(self):
         '''Run a single ramp and return its processed spectrum.'''
@@ -327,6 +361,12 @@ class SweepThread(QThread):
         result['t_start'] = started
         result['begin'] = begin
         result['end'] = end
+        try:
+            result['temp_act'] = self.probe.read_temp_actual()
+            result['temp_set'] = self.probe.read_temp()
+            result['temp_ready'] = self.probe.temp_ready()
+        except Exception:
+            pass        # a temperature read must never lose a good sweep
         return result
 
     def emit_progress(self, captured, target):

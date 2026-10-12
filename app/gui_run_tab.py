@@ -502,7 +502,10 @@ class RunTab(QWidget):
                                       'sweep_speed': result['speed'],
                                       'sweep_duration': result['duration'],
                                       'n_raw': result['n_raw'],
-                                      'lockin': result.get('lockin', {})})
+                                      'lockin': result.get('lockin', {}),
+                                      'temp_act': result.get('temp_act'),
+                                      'temp_set': result.get('temp_set'),
+                                      'temp_ready': result.get('temp_ready')})
 
     def live_trace(self, partial):
         '''Show ramp progress.
@@ -511,6 +514,9 @@ class RunTab(QWidget):
         partial spectrum to draw -- only how far through the ramp we are.
         '''
         try:
+            if 'message' in partial:        # waiting on something, not ramping
+                self.parent.status_bar.showMessage(partial['message'])
+                return
             pct = 100 * partial.get('progress', 0)
             self.parent.status_bar.showMessage(
                 f"Sweep {self.scan_thread.sweeps + 1}: {pct:.0f}%")

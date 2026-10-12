@@ -215,6 +215,9 @@ class FindTab(QWidget):
         it finishes, so progress is all there is to report meanwhile.
         '''
         try:
+            if 'message' in partial:        # waiting on something, not ramping
+                self.parent.status_bar.showMessage(partial['message'])
+                return
             pct = 100 * partial.get('progress', 0)
             self.parent.status_bar.showMessage(f"Wide sweep: {pct:.0f}%")
         except Exception:

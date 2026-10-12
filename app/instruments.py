@@ -171,6 +171,47 @@ class ProbeLaser():
     def set_temp(self, temp):
         self.laser.dl.tc.temp_set.set(float(temp))
 
+    def read_temp_actual(self):
+        """Measured diode temperature, which lags the setpoint after a change."""
+        return self.laser.dl.tc.temp_act.get()
+
+    def temp_ready(self):
+        """True when the temperature controller says it has settled."""
+        try:
+            return bool(self.laser.dl.tc.ready.get())
+        except Exception:
+            return None
+
+    def temp_status(self):
+        try:
+            return self.laser.dl.tc.status_txt.get()
+        except Exception:
+            return None
+
+    def wait_for_temp(self, timeout=300.0, report=None):
+        """Block until the temperature controller reports settled.
+
+        A DFB tunes on current and temperature together, so a drifting
+        temperature moves every line in the scan. Sweeping through that
+        produces peaks that land somewhere different each time and look like
+        noise when the scans are compared.
+
+        report, if given, is called with (actual, setpoint, seconds waited).
+        Returns True if it settled, False on timeout.
+        """
+        started = time.time()
+        while time.time() - started < timeout:
+            if self.temp_ready():
+                return True
+            if report:
+                try:
+                    report(self.read_temp_actual(), self.read_temp(),
+                           time.time() - started)
+                except Exception:
+                    pass
+            time.sleep(0.5)
+        return False
+
     # -- wide scan ---------------------------------------------------------
 
     def _select_channel(self, channel):
