@@ -84,6 +84,8 @@ class ProbeLaser():
     SHAPE_SAWTOOTH = 0
     SHAPE_TRIANGLE = 1
 
+    SCAN_IDLE = 0           # wide-scan state 0, reported as 'Disabled'
+
     BOOTSTRAP = 'v1_4_0'    # oldest tree, used only to read fw-ver
 
     def __init__(self, settings):
@@ -185,6 +187,15 @@ class ProbeLaser():
         try:
             ws.output_channel.set(wanted)
         except Exception as e:
+            if 'busy' in str(e).lower():
+                raise ValueError(
+                    f"The controller is busy and will not set wide-scan "
+                    f"output-channel ({e}). Its state is "
+                    f"{self.wide_scan_state()} "
+                    f"({self.wide_scan_state_text()}) -- the scan parameters "
+                    f"are locked while a scan is running, so it has to be "
+                    f"stopped and settled first."
+                ) from e
             raise ValueError(
                 f"The controller rejected wide-scan output-channel {wanted} "
                 f"for {channel!r} ({e}). These numbers vary between "
@@ -218,6 +229,7 @@ class ProbeLaser():
             speed: rate in mA/s or K/s
         """
         try:
+            self.stop_scan()        # parameters are locked while a scan runs
             self._select_channel(type)
             ws = self.wide_scan
             ws.scan_begin.set(float(begin))
@@ -245,6 +257,10 @@ class ProbeLaser():
         if duration <= 0 or span <= 0:
             raise ValueError(f"Bad wide-scan range {begin}->{end} "
                              f"over {duration} s")
+
+        # The parameters below are locked while a scan runs, so make sure the
+        # previous one has finished rather than relying on the caller.
+        self.stop_scan()
 
         self._select_channel(channel)
         ws = self.wide_scan
@@ -311,14 +327,31 @@ class ProbeLaser():
             print(f"Start scan failed: {e}")
             return False
 
-    def stop_scan(self):
-        """Stop the wide scan."""
+    def stop_scan(self, wait=True, timeout=5.0):
+        """Stop the wide scan, by default waiting until it has really stopped.
+
+        The controller locks the scan's parameters while it is running and
+        refuses a write with 'device busy'. Stopping is not instant, so
+        returning as soon as the command is sent leaves a window where
+        reconfiguring the next sweep fails.
+        """
         try:
             self.wide_scan.stop()
-            return True
         except Exception as e:
             print(f"Stop scan failed: {e}")
             return False
+        if not wait:
+            return True
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            state = self.wide_scan_state()
+            if state is None or state == self.SCAN_IDLE:
+                return True
+            time.sleep(0.02)
+        print(f"Wide-scan still reports state {self.wide_scan_state()} "
+              f"({self.wide_scan_state_text()}) {timeout:.1f} s after stopping")
+        return False
 
 
 class WavelengthMeter():

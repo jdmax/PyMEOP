@@ -276,7 +276,6 @@ class SweepThread(QThread):
         plan = SweepPlan(begin, end, self.duration, self.rate,
                          self.settings.get('sweep_settle_frac', 0.02))
 
-        self.probe.stop_scan()      # make sure no previous ramp is still armed
         self.probe.config_wide_scan('current', begin, end, self.duration,
                                     continuous=False)
 
