@@ -215,6 +215,61 @@ def test_ramp_fit_spans_the_whole_ramp():
           f"over a third, {1000 * spreads['whole']:.0f} ms over the whole ramp")
 
 
+def test_self_calls_resolve():
+    """Every self.something() must exist on its class.
+
+    Editing these files by replacing spans of text has twice removed a method
+    that was still being called, and both times the first sign of it was a
+    failed sweep at the bench. Nothing here runs the GUI or touches an
+    instrument, so this is the cheapest place to notice.
+
+    A name counts as present if the class or a base defines it, or if
+    anything in the class assigns to self.<name> -- callables handed in at
+    construction, such as is_running, live only on the instance.
+    """
+    import ast
+    import importlib
+
+    modules = ('app.sweep', 'app.instruments', 'app.gui_run_tab',
+               'app.gui_find_tab')
+    missing = []
+    checked = 0
+
+    for module_name in modules:
+        module = importlib.import_module(module_name)
+        tree = ast.parse(open(module.__file__, encoding='utf-8').read())
+
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef):
+                continue
+            cls = getattr(module, node.name, None)
+            if cls is None:
+                continue
+
+            assigned = {t.attr for n in ast.walk(node)
+                        for t in getattr(n, 'targets', [])
+                        if isinstance(t, ast.Attribute)
+                        and isinstance(t.value, ast.Name)
+                        and t.value.id == 'self'}
+
+            for call in ast.walk(node):
+                if not isinstance(call, ast.Call):
+                    continue
+                func = call.func
+                if not (isinstance(func, ast.Attribute)
+                        and isinstance(func.value, ast.Name)
+                        and func.value.id == 'self'):
+                    continue
+                checked += 1
+                if func.attr in assigned or hasattr(cls, func.attr):
+                    continue
+                missing.append(f"{module_name}.{node.name}.{func.attr} "
+                               f"(line {func.lineno})")
+
+    assert not missing, "called but not defined:\n  " + "\n  ".join(missing)
+    print(f"  self-call check OK: {checked} calls across "
+          f"{len(modules)} modules all resolve")
+
 def test_zero_phase():
     '''A symmetric kernel must not move a peak; a causal one does.'''
     x = np.linspace(0, 100, 4000)
@@ -249,6 +304,7 @@ def main():
     print("=" * 72)
     print("Unit checks")
     print("=" * 72)
+    test_self_calls_resolve()
     test_ramp_delay()
     test_ramp_fit_spans_the_whole_ramp()
     test_zero_phase()

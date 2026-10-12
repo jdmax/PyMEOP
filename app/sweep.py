@@ -464,6 +464,18 @@ class SweepThread(QThread):
             pass        # a temperature read must never lose a good sweep
         return result
 
+    def emit_progress(self, done, total):
+        """Report how far through the ramp we are.
+
+        The capture buffer is unreadable until the sweep ends, so this carries
+        a fraction rather than data. The sweep signal still fires once per
+        completed sweep.
+        """
+        try:
+            self.trace.emit({'progress': min(1.0, done / float(total))})
+        except Exception:
+            pass        # a dropped progress frame must never kill acquisition
+
     def _wait_for_capture(self, plan, started):
         """Wait for a triggered capture to fill. Returns None if abandoned.
 
