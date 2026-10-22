@@ -101,7 +101,7 @@ def load_laser(section):
     '''Pump laser PV names and shutter wait from the laser section of the config.
 
     Returns:
-        dict of shutter_pv, control_pv, current_pv and shutter_wait, or None if
+        dict of the PV names, shutter_wait, and shutter_closed and shutter_open volts, or None if
         there is no laser section
 
     Raises:
@@ -119,6 +119,11 @@ def load_laser(section):
     if not wait >= 0:
         raise ValueError(f"shutter_wait {wait} is not a number of seconds")
     laser['shutter_wait'] = wait
+    closed = float(section.get('shutter_closed', 5.0))
+    if closed not in LASER_DAC_LIMITS:
+        raise ValueError(f"shutter_closed {closed} is not one end of the DAC range, {LASER_DAC_LIMITS}")
+    laser['shutter_closed'] = closed
+    laser['shutter_open'] = sum(LASER_DAC_LIMITS) - closed    # the other end
     return laser
 
 
