@@ -41,7 +41,8 @@ except Exception as e:  # pyepics missing, or its Channel Access library failed 
 DEFAULT_LOG_INTERVAL = 10.0  # seconds between snapshots
 SEVERITIES = ('NO_ALARM', 'MINOR', 'MAJOR', 'INVALID')
 DEFAULT_SHUTTER_WAIT = 2.0   # seconds from shutter set to laser on
-LASER_PVS = (('shutter_pv', 'Shutter'), ('control_pv', 'Laser control'), ('current_pv', 'Laser current'))
+LASER_PVS = (('shutter_pv', 'Shutter'), ('control_pv', 'Laser control'), ('current_pv', 'Laser current'),
+             ('wave_pv', 'Wavelength tune'))
 LASER_DAC_LIMITS = [0, 5]    # V, DAT8024 output range
 
 

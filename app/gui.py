@@ -66,6 +66,11 @@ class MainWindow(QMainWindow):
         self.larmor_tab.layout().addWidget(self.run_tab.larmor_box)
         self.larmor_tab.layout().addStretch(1)
         self.tab_widget.addTab(self.larmor_tab, "Larmor Drive")
+        self.relax_tab = QWidget()    # the run tab's discharge-off relaxation controls
+        self.relax_tab.setLayout(QVBoxLayout())
+        self.relax_tab.layout().addWidget(self.run_tab.rel_box)
+        self.relax_tab.layout().addStretch(1)
+        self.tab_widget.addTab(self.relax_tab, "Relaxation")
         self.slow_tab = SlowTab(self)
         self.tab_widget.addTab(self.slow_tab, "Slow Controls")
 

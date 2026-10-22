@@ -17,6 +17,7 @@ LASER_MAX_AMPS = 10.0   # pump laser current at full scale of the current PV
 LASER_VOLTS_PER_AMP = 0.5    # current PV volts per amp, 5 V at 10 A
 LASER_ON_V = 5.0        # laser control PV, on
 SHUTTER_V = 0.0         # shutter PV, set at both laser on and laser off
+WAVE_MAX_V = 5.0        # wavelength tune PV full scale
 
    
 class RunTab(QWidget):
@@ -230,8 +231,8 @@ class RunTab(QWidget):
 
 
 
-        # Populate Signal Generator box
-        self.sg_box = QGroupBox('Discharge Signal Generator')
+        # Populate Discharge and Pump Laser box, signal generator above, laser below
+        self.sg_box = QGroupBox('Discharge and Pump Laser')
         self.sg_box.setLayout(QGridLayout())
         self.left.addWidget(self.sg_box)
 
@@ -321,36 +322,46 @@ class RunTab(QWidget):
         self.larmor_running = False
 
 
-        # Populate Pump Laser box. All three are DAT8024 outputs: on sets the shutter,
-        # waits for it, then turns the laser on at the current in the box; off zeroes all three
+        # Pump laser rows of the Discharge and Pump Laser box, all DAT8024 outputs: on sets
+        # the shutter, waits for it, then turns the laser on at the current in the box; off
+        # zeroes shutter, control and current. The wavelength tune is set on its own.
         self.laser = self.parent.laser
-        self.laser_box = QGroupBox('Pump Laser')
-        self.laser_box.setLayout(QGridLayout())
-        self.left.addWidget(self.laser_box)
+        self.sg_box.layout().addWidget(self.parent.divider(), 2, 0, 1, 3)
 
         self.laser_curr_label = QLabel("Current (A):")
-        self.laser_box.layout().addWidget(self.laser_curr_label, 0, 0)
+        self.sg_box.layout().addWidget(self.laser_curr_label, 3, 0)
         self.laser_curr_edit = QLineEdit()
         self.laser_curr_edit.setValidator(QDoubleValidator(0.0, LASER_MAX_AMPS, 3, notation=QDoubleValidator.StandardNotation))
         self.laser_curr_edit.setPlaceholderText(f"0 to {LASER_MAX_AMPS:g}")
         self.laser_curr_edit.returnPressed.connect(self.laser_curr_pushed)
-        self.laser_box.layout().addWidget(self.laser_curr_edit, 0, 1)
+        self.sg_box.layout().addWidget(self.laser_curr_edit, 3, 1)
         self.laser_curr_button = QPushButton("Set Current")
         self.laser_curr_button.clicked.connect(self.laser_curr_pushed)
-        self.laser_box.layout().addWidget(self.laser_curr_button, 0, 2)
+        self.sg_box.layout().addWidget(self.laser_curr_button, 3, 2)
+
+        self.wave_label = QLabel("Wavelength Tune (V):")
+        self.sg_box.layout().addWidget(self.wave_label, 4, 0)
+        self.wave_edit = QLineEdit()
+        self.wave_edit.setValidator(QDoubleValidator(0.0, WAVE_MAX_V, 4, notation=QDoubleValidator.StandardNotation))
+        self.wave_edit.setPlaceholderText(f"0 to {WAVE_MAX_V:g}")
+        self.wave_edit.returnPressed.connect(self.wave_pushed)
+        self.sg_box.layout().addWidget(self.wave_edit, 4, 1)
+        self.wave_button = QPushButton("Set Wavelength")
+        self.wave_button.clicked.connect(self.wave_pushed)
+        self.sg_box.layout().addWidget(self.wave_button, 4, 2)
 
         self.laser_state = QLabel("")
-        self.laser_box.layout().addWidget(self.laser_state, 1, 0)
+        self.sg_box.layout().addWidget(self.laser_state, 5, 0)
         self.laser_on_button = QPushButton("Laser On")
         self.laser_on_button.clicked.connect(self.laser_on_pushed)
-        self.laser_box.layout().addWidget(self.laser_on_button, 1, 1)
+        self.sg_box.layout().addWidget(self.laser_on_button, 5, 1)
         self.laser_off_button = QPushButton("Laser Off")
         self.laser_off_button.clicked.connect(self.laser_off_pushed)
-        self.laser_box.layout().addWidget(self.laser_off_button, 1, 2)
+        self.sg_box.layout().addWidget(self.laser_off_button, 5, 2)
 
         self.laser_status = QLabel("")
         self.laser_status.setWordWrap(True)
-        self.laser_box.layout().addWidget(self.laser_status, 2, 0, 1, 3)
+        self.sg_box.layout().addWidget(self.laser_status, 6, 0, 1, 3)
 
         self.laser_timer = QTimer(self)    # the wait between shutter and laser on
         self.laser_timer.setSingleShot(True)
@@ -361,16 +372,15 @@ class RunTab(QWidget):
             self.parent.pvs.connection.connect(lambda name, conn: self.show_laser(name))
             self.show_laser()
         else:
-            for widget in (self.laser_curr_button, self.laser_on_button, self.laser_off_button):
+            for widget in (self.laser_curr_button, self.wave_button, self.laser_on_button, self.laser_off_button):
                 widget.setEnabled(False)
-            self.laser_status.setText("Give the shutter, control and current PVs in the laser "
-                                      "section of config.yaml to use these.")
+            self.laser_status.setText("Give the shutter, control, current and wavelength tune PVs "
+                                      "in the laser section of config.yaml to use these.")
 
 
-        # Populate Discharge Off Relaxation box
+        # Populate Discharge Off Relaxation box. gui.py puts this box on a tab of its own.
         self.rel_box = QGroupBox('Discharge-Off Relaxation')
         self.rel_box.setLayout(QVBoxLayout())
-        self.left.addWidget(self.rel_box)
         self.rel_layout = QGridLayout()
         self.rel_box.layout().addLayout(self.rel_layout)
 
@@ -870,7 +880,7 @@ class RunTab(QWidget):
 
     def show_laser(self, name=None):
         '''Show whether the laser is on, and its current, from the PVs'''
-        names = [self.laser[key] for key in ('shutter_pv', 'control_pv', 'current_pv')]
+        names = [self.laser[key] for key in ('shutter_pv', 'control_pv', 'current_pv', 'wave_pv')]
         if name is not None and name not in names:
             return
         pvs = self.parent.pvs
@@ -880,8 +890,10 @@ class RunTab(QWidget):
             return
         volts = pvs.value(self.laser['current_pv'])
         amps = f", {volts / LASER_VOLTS_PER_AMP:.2f} A" if isinstance(volts, (int, float)) else ""
+        tune = pvs.value(self.laser['wave_pv'])
+        tune = f", tune {tune:.3f} V" if isinstance(tune, (int, float)) else ""
         on = self.laser_is_on()
-        self.laser_state.setText(("On" if on else "Off") + amps)
+        self.laser_state.setText(("On" if on else "Off") + amps + tune)
         self.laser_state.setStyleSheet("color: #007700" if on else "")
 
     def laser_on_pushed(self):
@@ -948,6 +960,21 @@ class RunTab(QWidget):
             self.show_laser_status(f"Set laser current to {amps:g} A.", "color: #007700")
         except Exception as e:
             self.show_laser_status(f"Failed to set laser current: {e}", "color: #aa0000")
+
+    def wave_pushed(self):
+        '''Send the wavelength tune voltage in the box to the laser, on or off'''
+        try:
+            volts = float(self.wave_edit.text())
+            if not 0 <= volts <= WAVE_MAX_V:
+                raise ValueError
+        except ValueError:
+            self.show_laser_status(f"Enter a wavelength tune voltage from 0 to {WAVE_MAX_V:g} V.", "color: #aa0000")
+            return
+        try:
+            self.put_laser('wave_pv', volts, 'user')
+            self.show_laser_status(f"Set wavelength tune to {volts:g} V.", "color: #007700")
+        except Exception as e:
+            self.show_laser_status(f"Failed to set wavelength tune: {e}", "color: #aa0000")
 
     def turn_off_laser(self):
         '''Turn off laser'''
