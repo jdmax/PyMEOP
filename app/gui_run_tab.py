@@ -321,7 +321,7 @@ class RunTab(QWidget):
         self.larmor_running = False
 
 
-        # Pump laser rows of the Discharge and Pump Laser box, all DAT8024 outputs: on closes
+        # Pump laser rows of the Discharge and Pump Laser box, all DAT8024 outputs: on opens
         # the shutter, waits for it, then turns the laser on at the current in the box; off
         # closes the shutter and zeroes control and current. Shutter and wavelength tune
         # can also be set on their own.
@@ -922,21 +922,21 @@ class RunTab(QWidget):
             self.show_laser_status(f"Failed to {what} shutter: {e}", "color: #aa0000")
 
     def laser_on_pushed(self):
-        '''Close the shutter, then turn the laser on once it has had time to move'''
+        '''Open the shutter, then turn the laser on once it has had time to move'''
         try:
             self.laser_on_amps = self.laser_amps()
         except ValueError:
             self.show_laser_status(f"Enter a laser current from 0 to {LASER_MAX_AMPS:g} A.", "color: #aa0000")
             return
         try:
-            self.put_laser('shutter_pv', self.laser['shutter_closed'], 'laser on')
+            self.put_laser('shutter_pv', self.laser['shutter_open'], 'laser on')
         except Exception as e:
-            self.show_laser_status(f"Laser not turned on, failed to set shutter: {e}", "color: #aa0000")
+            self.show_laser_status(f"Laser not turned on, failed to open shutter: {e}", "color: #aa0000")
             return
         wait = self.laser['shutter_wait']
         self.laser_on_button.setEnabled(False)
         self.laser_timer.start(int(wait * 1000))
-        self.show_laser_status(f"Shutter closed, turning laser on in {wait:g} s.", "color: #aa6600")
+        self.show_laser_status(f"Shutter opened, turning laser on in {wait:g} s.", "color: #aa6600")
 
     def laser_on_finish(self):
         '''Shutter wait over: laser control on, then the current'''
