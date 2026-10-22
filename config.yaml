@@ -54,6 +54,6 @@ epics:
 # tab and log as 0-5 V controls; list one under epics pvs instead to narrow its limits.
 laser:
     shutter_pv: 'TGT:MEOP:Shutter_VC'
-    control_pv: 'TGT:MEOP:Laser_Control_VC'
+    control_pv: 'TGT:MEOP:PumpControl_VC'
     current_pv: 'TGT:MEOP:PumpCurrent_VC'
-    shutter_wait: 2.0           # seconds from shutter set to laser on
+    shutter_wait: 1.0           # seconds from shutter set to laser on
