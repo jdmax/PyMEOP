@@ -47,3 +47,13 @@ epics:
         #   units: 'C'
         #   format: '.2f'
         #   group: 'Cell'
+
+# Pump laser controls on the Run tab, all DAT8024 outputs (0-5 V). Laser On sets the shutter
+# to 0 V, waits shutter_wait, then sets control to 5 V and current to the amps entered
+# (0-10 A as 0-5 V). Laser Off sets all three to 0 V. These are added to the Slow Controls
+# tab and log as 0-5 V controls; list one under epics pvs instead to narrow its limits.
+laser:
+    shutter_pv: 'TGT:MEOP:Shutter_VC'
+    control_pv: 'TGT:MEOP:Laser_Control_VC'
+    current_pv: 'TGT:MEOP:PumpCurrent_VC'
+    shutter_wait: 2.0           # seconds from shutter set to laser on

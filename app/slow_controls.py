@@ -40,6 +40,9 @@ except Exception as e:  # pyepics missing, or its Channel Access library failed 
 
 DEFAULT_LOG_INTERVAL = 10.0  # seconds between snapshots
 SEVERITIES = ('NO_ALARM', 'MINOR', 'MAJOR', 'INVALID')
+DEFAULT_SHUTTER_WAIT = 2.0   # seconds from shutter set to laser on
+LASER_PVS = (('shutter_pv', 'Shutter'), ('control_pv', 'Laser control'), ('current_pv', 'Laser current'))
+LASER_DAC_LIMITS = [0, 5]    # V, DAT8024 output range
 
 
 def plain(value):
@@ -93,14 +96,41 @@ class PVSpec():
             return str(value)
 
 
+def load_laser(section):
+    '''Pump laser PV names and shutter wait from the laser section of the config.
+
+    Returns:
+        dict of shutter_pv, control_pv, current_pv and shutter_wait, or None if
+        there is no laser section
+
+    Raises:
+        ValueError: a PV name is missing, or the wait is not a number of seconds
+    '''
+
+    if not section:
+        return None
+    laser = {}
+    for key, _ in LASER_PVS:
+        if not section.get(key):
+            raise ValueError(f"needs {key}")
+        laser[key] = str(section[key])
+    wait = float(section.get('shutter_wait', DEFAULT_SHUTTER_WAIT))
+    if not wait >= 0:
+        raise ValueError(f"shutter_wait {wait} is not a number of seconds")
+    laser['shutter_wait'] = wait
+    return laser
+
+
 def load_specs(config_dict):
-    '''PV entries and log interval from the epics section of the config.
+    '''PV entries and log interval from the epics section of the config, plus the
+    pump laser PVs from the laser section.
 
     Entries that don't make sense are left out with a warning rather than
     stopping the program.
 
     Returns:
-        (list of PVSpec, log interval in seconds, list of problems found)
+        (list of PVSpec, log interval in seconds, laser settings dict or None,
+         list of problems found)
     '''
 
     section = config_dict.get('epics') or {}
@@ -127,9 +157,24 @@ def load_specs(config_dict):
             continue
         seen.update(spec.channels())
         specs.append(spec)
+
+    # The laser PVs are controls the run tab puts to, so they are monitored and
+    # logged like the rest. One also listed under pvs keeps that entry, limits and all.
+    laser = None
+    try:
+        laser = load_laser(config_dict.get('laser'))
+    except (AttributeError, TypeError, ValueError) as e:
+        problems.append(f"Pump laser controls off, laser section of the config: {e}")
+    if laser:
+        for key, label in LASER_PVS:
+            if laser[key] not in seen:
+                specs.append(PVSpec({'pv': laser[key], 'label': label, 'units': 'V', 'format': '.3f',
+                                     'group': 'Pump Laser', 'control': True, 'limits': LASER_DAC_LIMITS}))
+                seen.add(laser[key])
+
     for p in problems:
         logging.warning(p)
-    return specs, interval, problems
+    return specs, interval, laser, problems
 
 
 class SlowLog():

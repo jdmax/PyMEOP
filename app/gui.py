@@ -10,7 +10,7 @@ import yaml
 import pytz
 import logging
 import json
-from PyQt5.QtWidgets import QMainWindow, QErrorMessage, QTabWidget, QLabel, QWidget, QLineEdit, QComboBox
+from PyQt5.QtWidgets import QMainWindow, QErrorMessage, QTabWidget, QLabel, QWidget, QLineEdit, QComboBox, QVBoxLayout
 from PyQt5.QtGui import QIntValidator, QDoubleValidator, QValidator
 from PyQt5.QtCore import QThread, QTimer, pyqtSignal, Qt
 from logging.handlers import TimedRotatingFileHandler
@@ -61,6 +61,11 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(self.run_tab, "Run")
         self.find_tab = FindTab(self)
         self.tab_widget.addTab(self.find_tab, "Find Peaks")
+        self.larmor_tab = QWidget()    # the run tab's Larmor drive controls, given room of their own
+        self.larmor_tab.setLayout(QVBoxLayout())
+        self.larmor_tab.layout().addWidget(self.run_tab.larmor_box)
+        self.larmor_tab.layout().addStretch(1)
+        self.tab_widget.addTab(self.larmor_tab, "Larmor Drive")
         self.slow_tab = SlowTab(self)
         self.tab_widget.addTab(self.slow_tab, "Slow Controls")
 
@@ -212,7 +217,7 @@ class MainWindow(QMainWindow):
         '''Open the slow controls log, connect to the PVs in the config, and start
         writing snapshots of them to the log'''
 
-        specs, self.log_interval, self.pv_problems = load_specs(self.config_dict)
+        specs, self.log_interval, self.laser, self.pv_problems = load_specs(self.config_dict)
         self.slowlog = SlowLog(self.settings.get('slow_dir', 'slowlog'))
         self.pvs = PVManager(specs, self.slowlog, (self.config_dict.get('epics') or {}).get('ca_addr_list'))
         self.snapshot_timer = QTimer(self)
