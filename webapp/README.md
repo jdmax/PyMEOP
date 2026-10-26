@@ -66,6 +66,9 @@ python3 -m venv .venv
 ./stop_server.sh                             # stops it
 ```
 
+`start_server.sh` runs the server with the python in `.venv/` or `venv/`, so the
+environment does not need activating first.
+
 Set `DEFAULT_DATA_DIR` and `DEFAULT_PORT` at the top of `start_server.sh` to
 start it with no arguments; arguments given still take precedence. The server
 runs in a detached `screen` session and is started again if it stops on an error. `screen -r pymeop-web`

@@ -41,8 +41,14 @@ if screen -list | grep -q "[0-9]\.$SESSION[[:space:]]"; then
 fi
 
 root=$(cd "$(dirname "$0")" && pwd)
-python="$root/.venv/bin/python"
-[ -x "$python" ] || python=python3
+# the virtual environment's python, so it need not be activated first
+python=python3
+for venv in .venv venv; do
+    if [ -x "$root/$venv/bin/python" ]; then
+        python="$root/$venv/bin/python"
+        break
+    fi
+done
 
 # a missing package would only fail inside the restart loop below, every 5 s
 if ! "$python" -c 'import numpy, scipy, yaml' 2> /dev/null; then
