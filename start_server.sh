@@ -40,7 +40,7 @@ if screen -list | grep -q "[0-9]\.$SESSION[[:space:]]"; then
     exit 1
 fi
 
-root=$(cd "$(dirname "$0")/.." && pwd)
+root=$(cd "$(dirname "$0")" && pwd)
 python="$root/.venv/bin/python"
 [ -x "$python" ] || python=python3
 

@@ -62,8 +62,8 @@ python3 -m venv .venv
 ```
 
 ```
-deploy/start_server.sh /srv/pymeop/data [PORT]    # starts it in screen session pymeop-web
-deploy/stop_server.sh                             # stops it
+./start_server.sh /srv/pymeop/data [PORT]    # starts it in screen session pymeop-web
+./stop_server.sh                             # stops it
 ```
 
 Set `DEFAULT_DATA_DIR` and `DEFAULT_PORT` at the top of `start_server.sh` to

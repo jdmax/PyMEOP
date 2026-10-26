@@ -86,7 +86,8 @@ same way with a new file each UTC day. Each line is a JSON record with a `kind`:
 ## Data browser
 
 `webapp/` holds a separate, read-only web app for browsing and refitting the
-event files, locally or on a server that mirrors the data (scripts in `deploy/`).
+event files, locally or on a server that mirrors the data (`start_server.sh` and
+`stop_server.sh` here, `deploy/mirror_data.sh` for the mirroring).
 See [webapp/README.md](webapp/README.md).
 
 ## References
