@@ -40,7 +40,6 @@ except Exception as e:  # pyepics missing, or its Channel Access library failed 
 
 DEFAULT_LOG_INTERVAL = 10.0  # seconds between snapshots
 SEVERITIES = ('NO_ALARM', 'MINOR', 'MAJOR', 'INVALID')
-DEFAULT_SHUTTER_WAIT = 2.0   # seconds from shutter set to laser on
 LASER_PVS = (('shutter_pv', 'Shutter'), ('control_pv', 'Laser control'), ('current_pv', 'Laser current'),
              ('wave_pv', 'Wavelength tune'))
 LASER_DAC_LIMITS = [0, 5]    # V, DAT8024 output range
@@ -98,14 +97,14 @@ class PVSpec():
 
 
 def load_laser(section):
-    '''Pump laser PV names and shutter wait from the laser section of the config.
+    '''Pump laser PV names and shutter volts from the laser section of the config.
 
     Returns:
-        dict of the PV names, shutter_wait, and shutter_closed and shutter_open volts, or None if
+        dict of the PV names, and shutter_closed and shutter_open volts, or None if
         there is no laser section
 
     Raises:
-        ValueError: a PV name is missing, or the wait is not a number of seconds
+        ValueError: a PV name is missing, or shutter_closed is not one end of the DAC range
     '''
 
     if not section:
@@ -115,10 +114,6 @@ def load_laser(section):
         if not section.get(key):
             raise ValueError(f"needs {key}")
         laser[key] = str(section[key])
-    wait = float(section.get('shutter_wait', DEFAULT_SHUTTER_WAIT))
-    if not wait >= 0:
-        raise ValueError(f"shutter_wait {wait} is not a number of seconds")
-    laser['shutter_wait'] = wait
     closed = float(section.get('shutter_closed', 5.0))
     if closed not in LASER_DAC_LIMITS:
         raise ValueError(f"shutter_closed {closed} is not one end of the DAC range, {LASER_DAC_LIMITS}")

@@ -5,7 +5,7 @@ import time
 import math
 from PyQt5.QtWidgets import QWidget, QLabel, QGroupBox, QHBoxLayout, QVBoxLayout, QGridLayout, QLineEdit, QSpacerItem, QSizePolicy, QComboBox, QPushButton, QProgressBar
 from PyQt5.QtGui import QIntValidator, QDoubleValidator, QValidator
-from PyQt5.QtCore import QThread, QTimer, pyqtSignal, Qt
+from PyQt5.QtCore import QThread, pyqtSignal, Qt
 import pyqtgraph as pg
 import numpy as np
 
@@ -321,61 +321,58 @@ class RunTab(QWidget):
         self.larmor_running = False
 
 
-        # Pump laser rows of the Discharge and Pump Laser box, all DAT8024 outputs: on opens
-        # the shutter, waits for it, then turns the laser on at the current in the box; off
-        # closes the shutter and zeroes control and current. Shutter and wavelength tune
-        # can also be set on their own.
+        # Pump laser rows of the Discharge and Pump Laser box, all DAT8024 outputs. Laser
+        # on/off, current and shutter are grouped together and each set on its own, none
+        # touching the others; wavelength tune below them.
         self.laser = self.parent.laser
         self.sg_box.layout().addWidget(self.parent.divider(), 2, 0, 1, 3)
 
+        self.laser_state = QLabel("")
+        self.sg_box.layout().addWidget(self.laser_state, 3, 0)
+        self.laser_on_button = QPushButton("Laser On")
+        self.laser_on_button.clicked.connect(lambda: self.laser_control_pushed(True))
+        self.sg_box.layout().addWidget(self.laser_on_button, 3, 1)
+        self.laser_off_button = QPushButton("Laser Off")
+        self.laser_off_button.clicked.connect(lambda: self.laser_control_pushed(False))
+        self.sg_box.layout().addWidget(self.laser_off_button, 3, 2)
+
         self.laser_curr_label = QLabel("Current (A):")
-        self.sg_box.layout().addWidget(self.laser_curr_label, 3, 0)
+        self.sg_box.layout().addWidget(self.laser_curr_label, 4, 0)
         self.laser_curr_edit = QLineEdit()
         self.laser_curr_edit.setValidator(QDoubleValidator(0.0, LASER_MAX_AMPS, 3, notation=QDoubleValidator.StandardNotation))
         self.laser_curr_edit.setPlaceholderText(f"0 to {LASER_MAX_AMPS:g}")
         self.laser_curr_edit.returnPressed.connect(self.laser_curr_pushed)
-        self.sg_box.layout().addWidget(self.laser_curr_edit, 3, 1)
+        self.sg_box.layout().addWidget(self.laser_curr_edit, 4, 1)
         self.laser_curr_button = QPushButton("Set Current")
         self.laser_curr_button.clicked.connect(self.laser_curr_pushed)
-        self.sg_box.layout().addWidget(self.laser_curr_button, 3, 2)
+        self.sg_box.layout().addWidget(self.laser_curr_button, 4, 2)
+
+        self.shutter_state = QLabel("")
+        self.sg_box.layout().addWidget(self.shutter_state, 5, 0)
+        self.shutter_open_button = QPushButton("Open Shutter")
+        self.shutter_open_button.clicked.connect(lambda: self.shutter_pushed(True))
+        self.sg_box.layout().addWidget(self.shutter_open_button, 5, 1)
+        self.shutter_close_button = QPushButton("Close Shutter")
+        self.shutter_close_button.clicked.connect(lambda: self.shutter_pushed(False))
+        self.sg_box.layout().addWidget(self.shutter_close_button, 5, 2)
+
+        self.sg_box.layout().addWidget(self.parent.divider(), 6, 0, 1, 3)
 
         self.wave_label = QLabel("Wavelength Tune (V):")
-        self.sg_box.layout().addWidget(self.wave_label, 4, 0)
+        self.sg_box.layout().addWidget(self.wave_label, 7, 0)
         self.wave_edit = QLineEdit()
         self.wave_edit.setValidator(QDoubleValidator(0.0, WAVE_MAX_V, 4, notation=QDoubleValidator.StandardNotation))
         self.wave_edit.setPlaceholderText(f"0 to {WAVE_MAX_V:g}")
         self.wave_edit.returnPressed.connect(self.wave_pushed)
-        self.sg_box.layout().addWidget(self.wave_edit, 4, 1)
+        self.sg_box.layout().addWidget(self.wave_edit, 7, 1)
         self.wave_button = QPushButton("Set Wavelength")
         self.wave_button.clicked.connect(self.wave_pushed)
-        self.sg_box.layout().addWidget(self.wave_button, 4, 2)
-
-        self.laser_state = QLabel("")
-        self.sg_box.layout().addWidget(self.laser_state, 5, 0)
-        self.laser_on_button = QPushButton("Laser On")
-        self.laser_on_button.clicked.connect(self.laser_on_pushed)
-        self.sg_box.layout().addWidget(self.laser_on_button, 5, 1)
-        self.laser_off_button = QPushButton("Laser Off")
-        self.laser_off_button.clicked.connect(self.laser_off_pushed)
-        self.sg_box.layout().addWidget(self.laser_off_button, 5, 2)
+        self.sg_box.layout().addWidget(self.wave_button, 7, 2)
 
         self.laser_status = QLabel("")
         self.laser_status.setWordWrap(True)
-        self.shutter_state = QLabel("")
-        self.sg_box.layout().addWidget(self.shutter_state, 6, 0)
-        self.shutter_open_button = QPushButton("Open Shutter")
-        self.shutter_open_button.clicked.connect(lambda: self.shutter_pushed(True))
-        self.sg_box.layout().addWidget(self.shutter_open_button, 6, 1)
-        self.shutter_close_button = QPushButton("Close Shutter")
-        self.shutter_close_button.clicked.connect(lambda: self.shutter_pushed(False))
-        self.sg_box.layout().addWidget(self.shutter_close_button, 6, 2)
+        self.sg_box.layout().addWidget(self.laser_status, 8, 0, 1, 3)
 
-        self.sg_box.layout().addWidget(self.laser_status, 7, 0, 1, 3)
-
-        self.laser_timer = QTimer(self)    # the wait between shutter and laser on
-        self.laser_timer.setSingleShot(True)
-        self.laser_timer.timeout.connect(self.laser_on_finish)
-        self.laser_on_amps = 0.0
         if self.laser:
             self.parent.pvs.changed.connect(self.show_laser)
             self.parent.pvs.connection.connect(lambda name, conn: self.show_laser(name))
@@ -909,11 +906,11 @@ class RunTab(QWidget):
         tune = pvs.value(self.laser['wave_pv'])
         tune = f", tune {tune:.3f} V" if isinstance(tune, (int, float)) else ""
         on = self.laser_is_on()
-        self.laser_state.setText(("On" if on else "Off") + amps + tune)
+        self.laser_state.setText(("Laser on" if on else "Laser off") + amps + tune)
         self.laser_state.setStyleSheet("color: #007700" if on else "")
 
     def shutter_pushed(self, is_open):
-        '''Open or close the shutter, apart from the laser on and off sequences'''
+        '''Open or close the shutter, leaving the laser control and current as they are'''
         what = "open" if is_open else "close"
         try:
             self.put_laser('shutter_pv', self.laser['shutter_open' if is_open else 'shutter_closed'], 'user')
@@ -921,64 +918,21 @@ class RunTab(QWidget):
         except Exception as e:
             self.show_laser_status(f"Failed to {what} shutter: {e}", "color: #aa0000")
 
-    def laser_on_pushed(self):
-        '''Open the shutter, then turn the laser on once it has had time to move'''
+    def laser_control_pushed(self, on):
+        '''Turn the laser control on or off, leaving the shutter and current as they are'''
+        what = "on" if on else "off"
         try:
-            self.laser_on_amps = self.laser_amps()
-        except ValueError:
-            self.show_laser_status(f"Enter a laser current from 0 to {LASER_MAX_AMPS:g} A.", "color: #aa0000")
-            return
-        try:
-            self.put_laser('shutter_pv', self.laser['shutter_open'], 'laser on')
+            self.put_laser('control_pv', LASER_ON_V if on else 0.0, 'user')
+            self.show_laser_status(f"Laser control set {what}.", "color: #007700" if on else "")
         except Exception as e:
-            self.show_laser_status(f"Laser not turned on, failed to open shutter: {e}", "color: #aa0000")
-            return
-        wait = self.laser['shutter_wait']
-        self.laser_on_button.setEnabled(False)
-        self.laser_timer.start(int(wait * 1000))
-        self.show_laser_status(f"Shutter opened, turning laser on in {wait:g} s.", "color: #aa6600")
-
-    def laser_on_finish(self):
-        '''Shutter wait over: laser control on, then the current'''
-        self.laser_on_button.setEnabled(True)
-        amps = self.laser_on_amps
-        try:
-            self.put_laser('control_pv', LASER_ON_V, 'laser on')
-            self.put_laser('current_pv', amps * LASER_VOLTS_PER_AMP, 'laser on')
-        except Exception as e:
-            self.show_laser_status(f"Laser turn on failed: {e}", "color: #aa0000")
-            return
-        self.show_laser_status(f"Laser on at {amps:g} A.", "color: #007700")
-
-    def laser_off_pushed(self):
-        '''Cancel a turn on still waiting, close the shutter, and zero laser control and current.
-        Tries all three even if one fails.'''
-        self.laser_timer.stop()
-        self.laser_on_button.setEnabled(True)
-        failed = []
-        for key, volts in (('shutter_pv', self.laser['shutter_closed']), ('control_pv', 0.0), ('current_pv', 0.0)):
-            try:
-                self.put_laser(key, volts, 'laser off')
-            except Exception as e:
-                failed.append(str(e))
-        if failed:
-            self.show_laser_status("Laser off failed: " + "; ".join(failed), "color: #aa0000")
-        else:
-            self.show_laser_status("Laser off.", "")
+            self.show_laser_status(f"Failed to turn laser {what}: {e}", "color: #aa0000")
 
     def laser_curr_pushed(self):
-        '''Send the current in the box to the laser if it is on; if off, it is used at the next turn on'''
+        '''Send the current in the box to the laser, on or off'''
         try:
             amps = self.laser_amps()
         except ValueError:
             self.show_laser_status(f"Enter a laser current from 0 to {LASER_MAX_AMPS:g} A.", "color: #aa0000")
-            return
-        if self.laser_timer.isActive():
-            self.laser_on_amps = amps
-            self.show_laser_status(f"Laser turns on at {amps:g} A once the shutter wait is over.", "color: #aa6600")
-            return
-        if not self.laser_is_on():
-            self.show_laser_status(f"Laser is off, {amps:g} A will be set when it is turned on.", "")
             return
         try:
             self.put_laser('current_pv', amps * LASER_VOLTS_PER_AMP, 'user')
