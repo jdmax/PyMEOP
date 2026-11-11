@@ -43,6 +43,17 @@ SEVERITIES = ('NO_ALARM', 'MINOR', 'MAJOR', 'INVALID')
 LASER_PVS = (('shutter_pv', 'Shutter'), ('control_pv', 'Laser control'), ('current_pv', 'Laser current'),
              ('wave_pv', 'Wavelength tune'))
 LASER_DAC_LIMITS = [0, 5]    # V, DAT8024 output range
+# Discharge power PVs, as suffixes on the lock-in and sensor channel names in the
+# discharge section: (suffix, label, units, format, control limits or None)
+LOCKIN_SUFFIXES = (('_X', 'Lock-in X', 'V', '.4g', None), ('_Y', 'Lock-in Y', 'V', '.4g', None),
+                   ('_R', 'Lock-in R', 'V', '.4g', None), ('_Theta', 'Lock-in phase', 'deg', '.2f', None),
+                   ('_Freq', 'Lock-in reference', 'Hz', '.1f', None),
+                   ('_Unlock', 'Lock-in unlocked', '', 'g', None), ('_Overload', 'Lock-in overload', '', 'g', None),
+                   ('_Sens', 'Lock-in sensitivity index', '', 'g', [0, 14]),
+                   ('_TC', 'Lock-in time constant index', '', 'g', [0, 15]))
+SENSOR_SUFFIXES = (('', 'Forward sensor', 'dBm', '.2f', None),
+                   ('_Freq', 'Sensor compensation frequency', 'MHz', '.4f', [1, 8000]),
+                   ('_Temp', 'Sensor temperature', 'C', '.1f', None))
 
 
 def plain(value):
@@ -122,6 +133,37 @@ def load_laser(section):
     return laser
 
 
+def load_discharge(section):
+    '''Discharge power settings from the discharge section of the config.
+
+    Returns:
+        dict of the settings with defaults filled in, and 'pvs', the full name of
+        each lock-in and sensor PV keyed on its suffix, or None if there is no
+        discharge section
+
+    Raises:
+        ValueError: the lock-in or sensor channel is missing
+    '''
+
+    if not section:
+        return None
+    for key in ('lockin', 'sensor'):
+        if not section.get(key):
+            raise ValueError(f"needs {key}")
+    d = {
+        'lockin': str(section['lockin']),
+        'sensor': str(section['sensor']),
+        'cal_file': str(section.get('cal_file', 'app/discharge_cal.yaml')),
+        'recal_tolerance': float(section.get('recal_tolerance', 0.02)),
+        'sensor_target_dbm': float(section.get('sensor_target_dbm', -15.0)),
+        'interlock_samples': max(1, int(section.get('interlock_samples', 3))),
+        'history_minutes': float(section.get('history_minutes', 60)),
+    }
+    d['pvs'] = {'lockin' + sfx: d['lockin'] + sfx for sfx, *_ in LOCKIN_SUFFIXES}
+    d['pvs'].update({'sensor' + sfx: d['sensor'] + sfx for sfx, *_ in SENSOR_SUFFIXES})
+    return d
+
+
 def load_specs(config_dict):
     '''PV entries and log interval from the epics section of the config, plus the
     pump laser PVs from the laser section.
@@ -131,7 +173,7 @@ def load_specs(config_dict):
 
     Returns:
         (list of PVSpec, log interval in seconds, laser settings dict or None,
-         list of problems found)
+         discharge settings dict or None, list of problems found)
     '''
 
     section = config_dict.get('epics') or {}
@@ -173,9 +215,27 @@ def load_specs(config_dict):
                                      'group': 'Pump Laser', 'control': True, 'limits': LASER_DAC_LIMITS}))
                 seen.add(laser[key])
 
+    # The discharge power tab reads the lock-in and power sensor PVs and sets the
+    # lock-in range and sensor frequency, so these are monitored and logged too.
+    discharge = None
+    try:
+        discharge = load_discharge(config_dict.get('discharge'))
+    except (AttributeError, TypeError, ValueError) as e:
+        problems.append(f"Discharge power tab off, discharge section of the config: {e}")
+    if discharge:
+        for prefix, suffixes in (('lockin', LOCKIN_SUFFIXES), ('sensor', SENSOR_SUFFIXES)):
+            for sfx, label, units, fmt, limits in suffixes:
+                name = discharge['pvs'][prefix + sfx]
+                if name not in seen:
+                    entry = {'pv': name, 'label': label, 'units': units, 'format': fmt, 'group': 'Discharge Power'}
+                    if limits:
+                        entry.update(control=True, limits=limits)
+                    specs.append(PVSpec(entry))
+                    seen.add(name)
+
     for p in problems:
         logging.warning(p)
-    return specs, interval, laser, problems
+    return specs, interval, laser, discharge, problems
 
 
 class SlowLog():
@@ -324,6 +384,11 @@ class PVManager(QObject):
         with self.lock:
             return self.latest.get(name, {}).get('sev')
 
+    def timestamp(self, name):
+        '''IOC timestamp of a PV's last value, or None'''
+        with self.lock:
+            return self.latest.get(name, {}).get('ts')
+
     def snapshot(self):
         '''Last value of every PV, None where disconnected, for an event'''
 
@@ -359,6 +424,8 @@ class PVManager(QObject):
         if not self.connected.get(name):
             raise ValueError(f"{spec.label} ({name}) is not connected")
         old = self.value(name)
+        if 'enum' in str(self.channels[name].type):  # an mbbo state is put as its index
+            value = int(round(value))
         self.channels[name].put(value, wait=False)
         self.slowlog.set(name, value, source, old=old)
         logging.info(f"Set {name} to {value} from {old}")

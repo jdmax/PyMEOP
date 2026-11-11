@@ -5,6 +5,7 @@ from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from telnetlib3 import Telnet    # stdlib telnetlib removed in Python 3.13
 import time
 import math
+import threading
 
             
 class ProbeLaser():      
@@ -286,9 +287,13 @@ class SigGen():
 
     def __init__(self, settings):
         '''Start connection over telnet'''        
+ 
         self.ip = settings['siggen_ip']
         self.port = 5025
- 
+        # the run tab, Larmor and relaxation threads, and the discharge power tab's
+        # interlock and sweeps all talk to it, so one command or query at a time
+        self.lock = threading.RLock()
+
         try:
             self.tn = Telnet(self.ip, port=self.port, timeout=2)
             outp = self.tn.read_until(bytes("\r", 'ascii'),2).decode('ascii')
@@ -301,7 +306,7 @@ class SigGen():
     def init_settings(self):
         '''Set initial settings'''
         
-        self.tn.write(bytes(f"ENBL 0\r", 'ascii'))            # BNC output off
+        self.write("ENBL 0")            # BNC output off
         #self.tn.write(bytes(f"AMPR 0.1 Vpp\r", 'ascii'))      # N output to 0.1 Vpp
         #self.tn.write(bytes(f"FREQ 12 MHz\r", 'ascii'))       # Freq start at 12 MHz
         #self.tn.write(bytes(f"ENBR 1\r", 'ascii'))            # N output on
@@ -317,17 +322,23 @@ class SigGen():
         
     def set_freq(self, freq):
         '''Set RF frequency in MHz'''
-        self.tn.write(bytes(f"FREQ {freq} MHz\r", 'ascii'))
-        
+        self.write(f"FREQ {freq} MHz")
+
     def set_amp(self, amp):
         '''Set amplitude in volt peak to peak'''
-        self.tn.write(bytes(f"AMPR {amp} Vpp\r", 'ascii'))
+        self.write(f"AMPR {amp} Vpp")
+
+    def write(self, command):
+        '''Send a command that has no reply'''
+        with self.lock:
+            self.tn.write(bytes(f"{command}\r", 'ascii'))
 
     def query(self, command):
         '''Send a query, return the reply as a string'''
-        self.tn.read_very_eager()    # drop anything left unread
-        self.tn.write(bytes(f"{command}\r", 'ascii'))
-        return self.tn.read_until(bytes("\n", 'ascii'), 2).decode('ascii').strip()
+        with self.lock:
+            self.tn.read_very_eager()    # drop anything left unread
+            self.tn.write(bytes(f"{command}\r", 'ascii'))
+            return self.tn.read_until(bytes("\n", 'ascii'), 2).decode('ascii').strip()
 
     def read_freq(self):
         '''Read RF frequency in MHz'''
@@ -342,7 +353,7 @@ class SigGen():
     def enable_n(self, on):
         """Turn on or off type N output"""
         b = 1 if on else 0
-        self.tn.write(bytes(f"ENBR {b}\r", 'ascii'))
+        self.write(f"ENBR {b}")
 
     def read_modulation(self):
         '''Read modulation settings, to put back with restore_modulation()'''
@@ -351,8 +362,9 @@ class SigGen():
     def restore_modulation(self, saved):
         '''Put back modulation settings from read_modulation(); type first, since
         function and rate apply to the type set'''
-        for cmd in ("TYPE", "MFNC", "RATE", "MODL"):
-            self.tn.write(bytes(f"{cmd} {saved[cmd]}\r", 'ascii'))
+        with self.lock:
+            for cmd in ("TYPE", "MFNC", "RATE", "MODL"):
+                self.write(f"{cmd} {saved[cmd]}")
 
     def set_fm(self, dev, rate, wave=1):
         '''Frequency modulate, sweeping the carrier by dev either side of it
@@ -362,12 +374,29 @@ class SigGen():
             wave: modulation function, 1 ramp or 2 triangle
         Returns the deviation set in kHz, which the SG380 limits by carrier frequency
         '''
-        self.tn.write(bytes(f"TYPE 1\r", 'ascii'))             # FM
-        self.tn.write(bytes(f"MFNC {wave}\r", 'ascii'))        # 1 ramp, 2 triangle
-        self.tn.write(bytes(f"FDEV {dev} kHz\r", 'ascii'))
-        self.tn.write(bytes(f"RATE {rate} Hz\r", 'ascii'))
-        self.tn.write(bytes(f"MODL 1\r", 'ascii'))             # modulation on
-        return float(self.query("FDEV?")) / 1e3                # replies in Hz
+        with self.lock:
+            self.write("TYPE 1")                   # FM
+            self.write(f"MFNC {wave}")             # 1 ramp, 2 triangle
+            self.write(f"FDEV {dev} kHz")
+            self.write(f"RATE {rate} Hz")
+            self.write("MODL 1")                   # modulation on
+            return float(self.query("FDEV?")) / 1e3    # replies in Hz
+
+    def read_am(self):
+        '''AM depth as a fraction, and rate in Hz, with whether AM is on: depth is 0
+        unless modulation is on and its type is AM
+
+        Returns:
+            (depth 0 to 1, rate Hz, on)
+        '''
+        with self.lock:
+            on = int(self.query("MODL?")) == 1 and int(self.query("TYPE?")) == 0
+            depth = float(self.query("ADEP?")) / 100 if on else 0.0    # replies in percent
+            return depth, float(self.query("RATE?")), on
+
+    def enable_modulation(self, on):
+        '''Turn modulation on or off, of whatever type is set'''
+        self.write(f"MODL {1 if on else 0}")
 
 class Keopsys():
     '''Controls for Keopsys pump laser'''

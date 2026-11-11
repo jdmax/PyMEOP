@@ -19,6 +19,7 @@ import numpy as np
 from app.gui_run_tab import RunTab
 from app.gui_find_tab import FindTab
 from app.gui_slow_tab import SlowTab
+from app.gui_dpower_tab import DischargeTab
 from app.datafiles import open_current, close_current
 from app.slow_controls import SlowLog, PVManager, load_specs
 from app.classes import Event
@@ -71,6 +72,8 @@ class MainWindow(QMainWindow):
         self.relax_tab.layout().addWidget(self.run_tab.rel_box)
         self.relax_tab.layout().addStretch(1)
         self.tab_widget.addTab(self.relax_tab, "Relaxation")
+        self.dpower_tab = DischargeTab(self)
+        self.tab_widget.addTab(self.dpower_tab, "Discharge Power")
         self.slow_tab = SlowTab(self)
         self.tab_widget.addTab(self.slow_tab, "Slow Controls")
 
@@ -170,6 +173,7 @@ class MainWindow(QMainWindow):
         self.event.stop_time = datetime.datetime.now(tz=datetime.timezone.utc)
         self.event.stop_stamp = self.event.stop_time.timestamp()
         self.event.pvs = self.pvs.snapshot()  # last value of each slow controls PV at the scan's end
+        self.event.discharge = self.dpower_tab.event_record()  # discharge power at the scan's end, or None
         self.event.set_profile(self.event.line_shape())  # picks up a switch made mid-scan
         self.previous_event = self.event  # set this as previous event
         self.new_event()  # start new event to accept next scan
@@ -222,7 +226,7 @@ class MainWindow(QMainWindow):
         '''Open the slow controls log, connect to the PVs in the config, and start
         writing snapshots of them to the log'''
 
-        specs, self.log_interval, self.laser, self.pv_problems = load_specs(self.config_dict)
+        specs, self.log_interval, self.laser, self.discharge, self.pv_problems = load_specs(self.config_dict)
         self.slowlog = SlowLog(self.settings.get('slow_dir', 'slowlog'))
         self.pvs = PVManager(specs, self.slowlog, (self.config_dict.get('epics') or {}).get('ca_addr_list'))
         self.snapshot_timer = QTimer(self)

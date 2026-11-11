@@ -58,3 +58,17 @@ laser:
     current_pv: 'TGT:MEOP:PumpCurrent_VC'
     wave_pv: 'TGT:MEOP:WaveTune_VC'      # wavelength tune, 0-5 V, set on its own
     shutter_closed: 5.0         # V that closes the shutter, 0 or 5; open is the other
+
+# Discharge Power tab: RF power into the discharge from the SR844 lock-in (forward
+# coupled wave as reference, reflected as signal) and the PWR-8GHS sensor on the
+# forward coupled port. lockin and sensor are the IOC channels with the prefix; the
+# tab uses their _X, _Y, _R, _Theta, _Freq, _Unlock, _Overload, _Sens, _TC and
+# _Freq, _Temp PVs, which are also added to the Slow Controls tab and log.
+discharge:
+    lockin: 'TGT:MEOP:LockIn'
+    sensor: 'TGT:MEOP:RF_PWR'
+    cal_file: 'app/discharge_cal.yaml'   # Gamma, K_fwd and tank Q calibrations, kept between runs
+    recal_tolerance: 0.02       # warn when the drive is this fraction away from a calibration's frequency
+    sensor_target_dbm: -15      # warn when the sensor is more than 10 dB from this
+    interlock_samples: 3        # readings in a row over the |Gamma| limit before the interlock acts
+    history_minutes: 60         # span of the power and Gamma plots
